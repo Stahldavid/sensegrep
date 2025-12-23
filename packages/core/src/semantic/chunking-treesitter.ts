@@ -1,7 +1,7 @@
 import { Log } from "../util/log.js"
 import { lazy } from "../util/lazy.js"
 import type { Tree } from "web-tree-sitter"
-import { fileURLToPath } from "url"
+import { createRequire } from "module"
 import type { Chunking } from "./chunking.js"
 
 // SyntaxNode type from web-tree-sitter (not directly exported, so we define it)
@@ -38,32 +38,21 @@ const CHUNK_SIZE_CONFIG = {
   complex: 1000, // Many loops, conditionals, nested logic
 }
 
-// WASM path resolver (same pattern as bash.ts)
-const resolveWasm = (asset: string) => {
-  if (asset.startsWith("file://")) return fileURLToPath(asset)
-  if (asset.startsWith("/") || /^[a-z]:/i.test(asset)) return asset
-  const url = new URL(asset, import.meta.url)
-  return fileURLToPath(url)
-}
+const require = createRequire(import.meta.url)
+const resolveWasmPath = (id: string) => require.resolve(id)
 
 // Lazy-loaded TypeScript/JavaScript parser
 const tsParser = lazy(async () => {
   const wasm = await import("web-tree-sitter")
   const Parser = (wasm as any).default ?? (wasm as any)
-  const { default: treeWasm } = await import("web-tree-sitter/tree-sitter.wasm" as string, {
-    with: { type: "wasm" },
-  })
-  const treePath = resolveWasm(treeWasm)
+  const treePath = resolveWasmPath("web-tree-sitter/tree-sitter.wasm")
   await Parser.init({
     locateFile() {
       return treePath
     },
   })
 
-  const { default: tsWasm } = await import("tree-sitter-wasms/out/tree-sitter-typescript.wasm" as string, {
-    with: { type: "wasm" },
-  })
-  const tsPath = resolveWasm(tsWasm)
+  const tsPath = resolveWasmPath("tree-sitter-wasms/out/tree-sitter-typescript.wasm")
   const Language = (Parser as any).Language ?? (wasm as any).Language
   if (!Language?.load) {
     throw new Error("tree-sitter Language.load not available")
@@ -78,20 +67,14 @@ const tsParser = lazy(async () => {
 const tsxParser = lazy(async () => {
   const wasm = await import("web-tree-sitter")
   const Parser = (wasm as any).default ?? (wasm as any)
-  const { default: treeWasm } = await import("web-tree-sitter/tree-sitter.wasm" as string, {
-    with: { type: "wasm" },
-  })
-  const treePath = resolveWasm(treeWasm)
+  const treePath = resolveWasmPath("web-tree-sitter/tree-sitter.wasm")
   await Parser.init({
     locateFile() {
       return treePath
     },
   })
 
-  const { default: tsxWasm } = await import("tree-sitter-wasms/out/tree-sitter-tsx.wasm" as string, {
-    with: { type: "wasm" },
-  })
-  const tsxPath = resolveWasm(tsxWasm)
+  const tsxPath = resolveWasmPath("tree-sitter-wasms/out/tree-sitter-tsx.wasm")
   const Language = (Parser as any).Language ?? (wasm as any).Language
   if (!Language?.load) {
     throw new Error("tree-sitter Language.load not available")
