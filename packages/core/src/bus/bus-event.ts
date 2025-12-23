@@ -1,6 +1,6 @@
 import z from "zod"
 import type { ZodType } from "zod"
-import { Log } from "../util/log"
+import { Log } from "../util/log.js"
 
 export namespace BusEvent {
   const log = Log.create({ service: "event" })

@@ -1,4 +1,5 @@
 import { sep } from "node:path"
+import picomatch from "picomatch"
 
 export namespace FileIgnore {
   const FOLDERS = new Set([
@@ -55,19 +56,20 @@ export namespace FileIgnore {
     "**/.nyc_output/**",
   ]
 
-  const FILE_GLOBS = FILES.map((p) => new Bun.Glob(p))
+  type GlobMatcher = (path: string) => boolean
+  const FILE_GLOBS: GlobMatcher[] = FILES.map((p) => picomatch(p, { dot: true }))
 
   export const PATTERNS = [...FILES, ...FOLDERS]
 
   export function match(
     filepath: string,
     opts?: {
-      extra?: Bun.Glob[]
-      whitelist?: Bun.Glob[]
+      extra?: GlobMatcher[]
+      whitelist?: GlobMatcher[]
     },
   ) {
     for (const glob of opts?.whitelist || []) {
-      if (glob.match(filepath)) return false
+      if (glob(filepath)) return false
     }
 
     const parts = filepath.split(sep)
@@ -77,7 +79,7 @@ export namespace FileIgnore {
 
     const extra = opts?.extra || []
     for (const glob of [...FILE_GLOBS, ...extra]) {
-      if (glob.match(filepath)) return true
+      if (glob(filepath)) return true
     }
 
     return false

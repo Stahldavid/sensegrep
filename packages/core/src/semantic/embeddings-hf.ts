@@ -65,7 +65,7 @@ async function ensureOnnxRuntimeLibs() {
       const exists = await fs.stat(dest).catch(() => null)
       if (exists?.isFile()) continue
       const resolved = require.resolve(`${base}/${file}`)
-      await Bun.write(dest, Bun.file(resolved))
+      await fs.copyFile(resolved, dest)
     }
     return targetDir
   })()

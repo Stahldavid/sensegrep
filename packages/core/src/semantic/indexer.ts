@@ -115,17 +115,18 @@ export namespace Indexer {
     },
   ): Promise<{ count: number; chunkHashes: string[] }> {
     const fullPath = path.join(Instance.directory, filePath)
-    const file = Bun.file(fullPath)
+    const stat = await fs.stat(fullPath).catch(() => null)
+    if (!stat) return { count: 0, chunkHashes: [] }
 
     // Check file size
-    const size = options?.size ?? (await file.size)
+    const size = options?.size ?? stat.size
     if (size > MAX_FILE_SIZE) {
       log.info("skipping large file", { filePath, size })
       return { count: 0, chunkHashes: [] }
     }
 
     // Read content
-    const content = options?.content ?? (await file.text().catch(() => ""))
+    const content = options?.content ?? (await fs.readFile(fullPath, "utf8").catch(() => ""))
     if (!content.trim()) return { count: 0, chunkHashes: [] }
 
     // Delete existing chunks for this file unless we're building a fresh collection
@@ -229,20 +230,20 @@ export namespace Indexer {
       })
 
       const fullPath = path.join(Instance.directory, file)
-      const f = Bun.file(fullPath)
-      const size = await f.size
+      const stat = await fs.stat(fullPath).catch(() => null)
+      if (!stat) continue
+      const size = stat.size
       if (size > MAX_FILE_SIZE) {
         log.info("skipping large file", { filePath: file, size })
         continue
       }
 
-      const content = await f.text().catch(() => "")
+      const content = await fs.readFile(fullPath, "utf8").catch(() => "")
       if (!content.trim()) continue
 
       const documents = await buildDocuments({ filePath: file, content })
       if (documents.length === 0) continue
 
-      const stat = await fs.stat(fullPath).catch(() => null)
       if (stat) {
         fileStats[file] = {
           size: stat.size,
@@ -352,7 +353,7 @@ export namespace Indexer {
         continue
       }
 
-      const content = await Bun.file(fullPath).text().catch(() => "")
+      const content = await fs.readFile(fullPath, "utf8").catch(() => "")
       if (!content.trim()) {
         await VectorStore.deleteByFile(collection, file)
         remaining.delete(file)
@@ -446,7 +447,7 @@ export namespace Indexer {
     if (!stat) return
     if (stat.size > MAX_FILE_SIZE) return
 
-    const content = await Bun.file(fullPath).text().catch(() => "")
+    const content = await fs.readFile(fullPath, "utf8").catch(() => "")
     const collection = await VectorStore.getCollection(Instance.directory)
     if (!content.trim()) {
       await VectorStore.deleteByFile(collection, filePath)
@@ -566,7 +567,7 @@ export namespace Indexer {
         continue
       }
 
-      const content = await Bun.file(fullPath).text().catch(() => "")
+      const content = await fs.readFile(fullPath, "utf8").catch(() => "")
       const hash = content.trim() ? hashContent(content) : ""
       if (!hash || prev.hash !== hash) {
         changed++

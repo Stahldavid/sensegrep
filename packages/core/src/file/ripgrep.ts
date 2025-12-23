@@ -1,14 +1,42 @@
 // Ripgrep utility functions
 import path from "path"
-import { Global } from "../global"
-import fs from "fs/promises"
+import { Global } from "../global/index.js"
+import fs from "node:fs/promises"
+import { constants as fsConstants } from "node:fs"
+import { spawn } from "node:child_process"
+import { once } from "node:events"
+import readline from "node:readline"
 import z from "zod"
 import { NamedError } from "../util/named-error.js"
-import { lazy } from "../util/lazy"
-import { $ } from "bun"
+import { lazy } from "../util/lazy.js"
 
 import { ZipReader, BlobReader, BlobWriter } from "@zip.js/zip.js"
 import { Log } from "../util/log.js"
+
+async function which(command: string): Promise<string | null> {
+  const paths = (process.env.PATH || "").split(path.delimiter)
+  const suffix = process.platform === "win32" ? ".exe" : ""
+  for (const p of paths) {
+    const full = path.join(p, command + suffix)
+    try {
+      await fs.access(full, fsConstants.X_OK)
+      return full
+    } catch {}
+  }
+  return null
+}
+
+async function streamToString(stream?: NodeJS.ReadableStream | null): Promise<string> {
+  if (!stream) return ""
+  return await new Promise((resolve, reject) => {
+    let data = ""
+    stream.on("data", (chunk) => {
+      data += chunk.toString()
+    })
+    stream.on("error", reject)
+    stream.on("end", () => resolve(data))
+  })
+}
 
 export namespace Ripgrep {
   const log = Log.create({ service: "ripgrep" })
@@ -123,12 +151,12 @@ export namespace Ripgrep {
   )
 
   const state = lazy(async () => {
-    let filepath = Bun.which("rg")
+    let filepath = await which("rg")
     if (filepath) return { filepath }
     filepath = path.join(Global.Path.bin, "rg" + (process.platform === "win32" ? ".exe" : ""))
 
-    const file = Bun.file(filepath)
-    if (!(await file.exists())) {
+    const exists = await fs.stat(filepath).catch(() => null)
+    if (!exists) {
       const platformKey = `${process.arch}-${process.platform}` as keyof typeof PLATFORM
       const config = PLATFORM[platformKey]
       if (!config) throw new UnsupportedPlatformError({ platform: platformKey })
@@ -142,28 +170,28 @@ export namespace Ripgrep {
 
       const buffer = await response.arrayBuffer()
       const archivePath = path.join(Global.Path.bin, filename)
-      await Bun.write(archivePath, buffer)
+      await fs.writeFile(archivePath, Buffer.from(buffer))
       if (config.extension === "tar.gz") {
-        const args = ["tar", "-xzf", archivePath, "--strip-components=1"]
+        const args = ["-xzf", archivePath, "--strip-components=1"]
 
         if (platformKey.endsWith("-darwin")) args.push("--include=*/rg")
         if (platformKey.endsWith("-linux")) args.push("--wildcards", "*/rg")
 
-        const proc = Bun.spawn(args, {
+        const proc = spawn("tar", args, {
           cwd: Global.Path.bin,
-          stderr: "pipe",
-          stdout: "pipe",
+          stdio: ["ignore", "pipe", "pipe"],
         })
-        await proc.exited
-        if (proc.exitCode !== 0)
+        const [code] = (await once(proc, "close")) as [number]
+        if (code !== 0)
           throw new ExtractionFailedError({
             filepath,
-            stderr: await Bun.readableStreamToText(proc.stderr),
+            stderr: await streamToString(proc.stderr),
           })
       }
       if (config.extension === "zip") {
         if (config.extension === "zip") {
-          const zipFileReader = new ZipReader(new BlobReader(new Blob([await Bun.file(archivePath).arrayBuffer()])))
+          const archiveBuffer = await fs.readFile(archivePath)
+          const zipFileReader = new ZipReader(new BlobReader(new Blob([archiveBuffer])))
           const entries = await zipFileReader.getEntries()
           let rgEntry: any
           for (const entry of entries) {
@@ -187,7 +215,7 @@ export namespace Ripgrep {
               stderr: "Failed to extract rg.exe from zip archive",
             })
           }
-          await Bun.write(filepath, await rgBlob.arrayBuffer())
+          await fs.writeFile(filepath, Buffer.from(await rgBlob.arrayBuffer()))
           await zipFileReader.close()
         }
       }
@@ -206,15 +234,15 @@ export namespace Ripgrep {
   }
 
   export async function* files(input: { cwd: string; glob?: string[] }) {
-    const args = [await filepath(), "--files", "--follow", "--hidden", "--glob=!.git/*"]
+    const rgPath = await filepath()
+    const args = ["--files", "--follow", "--hidden", "--glob=!.git/*"]
     if (input.glob) {
       for (const g of input.glob) {
         args.push(`--glob=${g}`)
       }
     }
 
-    // Bun.spawn should throw this, but it incorrectly reports that the executable does not exist.
-    // See https://github.com/oven-sh/bun/issues/24012
+    // Ensure cwd exists before spawning rg to provide a clear error.
     if (!(await fs.stat(input.cwd).catch(() => undefined))?.isDirectory()) {
       throw Object.assign(new Error(`No such file or directory: '${input.cwd}'`), {
         code: "ENOENT",
@@ -223,41 +251,27 @@ export namespace Ripgrep {
       })
     }
 
-    const proc = Bun.spawn(args, {
+    const proc = spawn(rgPath, args, {
       cwd: input.cwd,
-      stdout: "pipe",
-      stderr: "ignore",
-      maxBuffer: 1024 * 1024 * 20,
+      stdio: ["ignore", "pipe", "ignore"],
     })
 
-    const reader = proc.stdout.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ""
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split("\n")
-        buffer = lines.pop() || ""
-
-        for (const line of lines) {
-          if (line) yield line
-        }
-      }
-
-      if (buffer) yield buffer
-    } finally {
-      reader.releaseLock()
-      await proc.exited
+    const rl = readline.createInterface({ input: proc.stdout })
+    for await (const line of rl) {
+      if (line) yield line
+    }
+    const [code] = (await once(proc, "close")) as [number]
+    if (code !== 0) {
+      throw new Error(`ripgrep --files failed with code ${code}`)
     }
   }
 
   export async function tree(input: { cwd: string; limit?: number }) {
     log.info("tree", input)
-    const files = await Array.fromAsync(Ripgrep.files({ cwd: input.cwd }))
+    const files: string[] = []
+    for await (const file of Ripgrep.files({ cwd: input.cwd })) {
+      files.push(file)
+    }
     interface Node {
       path: string[]
       children: Node[]
@@ -358,7 +372,8 @@ export namespace Ripgrep {
   }
 
   export async function search(input: { cwd: string; pattern: string; glob?: string[]; limit?: number }) {
-    const args = [`${await filepath()}`, "--json", "--hidden", "--glob='!.git/*'"]
+    const rgPath = await filepath()
+    const args = ["--json", "--hidden", "--glob=!.git/*"]
 
     if (input.glob) {
       for (const g of input.glob) {
@@ -373,13 +388,17 @@ export namespace Ripgrep {
     args.push("--")
     args.push(input.pattern)
 
-    const command = args.join(" ")
-    const result = await $`${{ raw: command }}`.cwd(input.cwd).quiet().nothrow()
-    if (result.exitCode !== 0) {
+    const proc = spawn(rgPath, args, {
+      cwd: input.cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+    })
+    const stdout = await streamToString(proc.stdout)
+    const [code] = (await once(proc, "close")) as [number]
+    if (code !== 0) {
       return []
     }
 
-    const lines = result.text().trim().split("\n").filter(Boolean)
+    const lines = stdout.trim().split("\n").filter(Boolean)
     // Parse JSON lines from ripgrep output
 
     return lines

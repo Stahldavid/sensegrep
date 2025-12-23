@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 import { SenseGrepTool, Indexer, Instance, Tool } from "@sensegrep/core"
 
 type Flags = Record<string, string | boolean>

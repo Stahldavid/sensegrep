@@ -1,5 +1,8 @@
 import z from "zod"
 import { readFileSync } from "node:fs"
+import { spawn } from "node:child_process"
+import { once } from "node:events"
+import picomatch from "picomatch"
 import { Tool } from "./tool.js"
 import { VectorStore } from "../semantic/lancedb.js"
 import { Indexer } from "../semantic/indexer.js"
@@ -34,13 +37,23 @@ async function runRipgrepOnFiles(
     args.push(fullPath)
   }
 
-  const proc = Bun.spawn([rgPath, ...args], {
-    stdout: "pipe",
-    stderr: "pipe",
+  const proc = spawn(rgPath, args, {
+    stdio: ["ignore", "pipe", "pipe"],
   })
 
-  const output = await new Response(proc.stdout).text()
-  await proc.exited
+  let output = ""
+  let stderr = ""
+  proc.stdout?.on("data", (chunk) => {
+    output += chunk.toString()
+  })
+  proc.stderr?.on("data", (chunk) => {
+    stderr += chunk.toString()
+  })
+
+  const [code] = (await once(proc, "close")) as [number]
+  if (code && code !== 1) {
+    throw new Error(`ripgrep failed with code ${code}: ${stderr}`)
+  }
 
   // Parse output: "file:line:text"
   const matches: { file: string; line: number; text: string }[] = []
@@ -146,8 +159,8 @@ export const SenseGrepTool = Tool.define("sensegrep", {
 
     // Apply include filter if specified (file glob pattern)
     if (params.include) {
-      const glob = new Bun.Glob(params.include)
-      semanticResults = semanticResults.filter((r) => glob.match(r.metadata.file as string))
+      const matcher = picomatch(params.include, { dot: true })
+      semanticResults = semanticResults.filter((r) => matcher(r.metadata.file as string))
     }
 
     // Step 2: Post-filter with ripgrep if pattern provided

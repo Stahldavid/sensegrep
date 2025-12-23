@@ -1,6 +1,7 @@
 import path from "path"
-import fs from "fs/promises"
-import { Global } from "../global"
+import fs from "node:fs"
+import fsp from "node:fs/promises"
+import { Global } from "../global/index.js"
 import z from "zod"
 
 export namespace Log {
@@ -63,28 +64,28 @@ export namespace Log {
       Global.Path.log,
       options.dev ? "dev.log" : new Date().toISOString().split(".")[0].replace(/:/g, "") + ".log",
     )
-    const logfile = Bun.file(logpath)
-    await fs.truncate(logpath).catch(() => {})
-    const writer = logfile.writer()
+    await fsp.truncate(logpath).catch(() => {})
+    const stream = fs.createWriteStream(logpath, { flags: "a" })
     write = async (msg: any) => {
-      const num = writer.write(msg)
-      writer.flush()
-      return num
+      return await new Promise<number>((resolve, reject) => {
+        stream.write(msg, (err) => {
+          if (err) return reject(err)
+          resolve(msg.length)
+        })
+      })
     }
   }
 
   async function cleanup(dir: string) {
-    const glob = new Bun.Glob("????-??-??T??????.log")
-    const files = await Array.fromAsync(
-      glob.scan({
-        cwd: dir,
-        absolute: true,
-      }),
-    )
+    const entries = await fsp.readdir(dir).catch(() => [])
+    const files = entries
+      .filter((name) => /^\d{4}-\d{2}-\d{2}T\d{6}\.log$/.test(name))
+      .sort()
+      .map((name) => path.join(dir, name))
     if (files.length <= 5) return
 
     const filesToDelete = files.slice(0, -10)
-    await Promise.all(filesToDelete.map((file) => fs.unlink(file).catch(() => {})))
+    await Promise.all(filesToDelete.map((file) => fsp.unlink(file).catch(() => {})))
   }
 
   function formatError(error: Error, depth = 0): string {
