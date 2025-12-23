@@ -2,9 +2,9 @@ import * as lancedb from "@lancedb/lancedb"
 import path from "path"
 import fs from "fs/promises"
 
-import { Log } from "@/util/log"
-import { Global } from "@/global"
-import { Embeddings } from "./embeddings"
+import { Log } from "../util/log.js"
+import { Global } from "../global/index.js"
+import { Embeddings } from "./embeddings.js"
 
 const log = Log.create({ service: "semantic.lancedb" })
 

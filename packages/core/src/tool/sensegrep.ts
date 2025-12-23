@@ -1,13 +1,14 @@
 import z from "zod"
-import { Tool } from "./tool"
-import { VectorStore } from "@/semantic/lancedb"
-import { Indexer } from "@/semantic/indexer"
-import { Instance } from "@/project/instance"
-import { Embeddings } from "@/semantic/embeddings"
-import { Ripgrep } from "@/file/ripgrep"
+import { readFileSync } from "node:fs"
+import { Tool } from "./tool.js"
+import { VectorStore } from "../semantic/lancedb.js"
+import { Indexer } from "../semantic/indexer.js"
+import { Instance } from "../project/instance.js"
+import { Embeddings } from "../semantic/embeddings.js"
+import { Ripgrep } from "../file/ripgrep.js"
 import path from "path"
 
-import DESCRIPTION from "./sensegrep.txt"
+const DESCRIPTION = readFileSync(new URL("./sensegrep.txt", import.meta.url), "utf8")
 
 const MAX_LINE_LENGTH = 2000
 

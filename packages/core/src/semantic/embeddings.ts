@@ -12,7 +12,7 @@
  *   OPENCODE_EMBEDDINGS_DEVICE=cpu   (default, for CPU)
  */
 
-import { EmbeddingsHF } from "./embeddings-hf"
+import { EmbeddingsHF } from "./embeddings-hf.js"
 
 // Re-export the new implementation with the original namespace name for backward compatibility
 export const Embeddings = EmbeddingsHF

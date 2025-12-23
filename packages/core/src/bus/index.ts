@@ -1,5 +1,5 @@
 import z from "zod"
-import { BusEvent } from "./bus-event"
+import { BusEvent } from "./bus-event.js"
 
 export namespace Bus {
   export const InstanceDisposed = BusEvent.define(

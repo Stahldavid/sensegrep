@@ -3,12 +3,12 @@ import path from "path"
 import { Global } from "../global"
 import fs from "fs/promises"
 import z from "zod"
-import { NamedError } from "@/util/named-error"
+import { NamedError } from "../util/named-error.js"
 import { lazy } from "../util/lazy"
 import { $ } from "bun"
 
 import { ZipReader, BlobReader, BlobWriter } from "@zip.js/zip.js"
-import { Log } from "@/util/log"
+import { Log } from "../util/log.js"
 
 export namespace Ripgrep {
   const log = Log.create({ service: "ripgrep" })

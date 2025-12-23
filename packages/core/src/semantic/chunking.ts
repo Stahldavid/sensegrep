@@ -1,5 +1,5 @@
-import { Log } from "@/util/log"
-import { TreeSitterChunking } from "./chunking-treesitter"
+import { Log } from "../util/log.js"
+import { TreeSitterChunking } from "./chunking-treesitter.js"
 
 const log = Log.create({ service: "semantic.chunking" })
 

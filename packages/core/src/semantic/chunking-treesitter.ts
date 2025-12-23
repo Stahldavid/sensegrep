@@ -1,8 +1,8 @@
-import { Log } from "@/util/log"
-import { lazy } from "@/util/lazy"
+import { Log } from "../util/log.js"
+import { lazy } from "../util/lazy.js"
 import type { Tree } from "web-tree-sitter"
 import { fileURLToPath } from "url"
-import type { Chunking } from "./chunking"
+import type { Chunking } from "./chunking.js"
 
 // SyntaxNode type from web-tree-sitter (not directly exported, so we define it)
 type SyntaxNode = {
