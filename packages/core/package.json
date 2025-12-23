@@ -1,0 +1,41 @@
+{
+  "name": "@sensegrep/core",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && bun -e \"const fs = require('fs'); fs.mkdirSync('dist/tool', { recursive: true }); fs.copyFileSync('src/tool/sensegrep.txt', 'dist/tool/sensegrep.txt');\""
+  },
+  "engines": {
+    "bun": ">=1.1.0"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^3.0.0",
+    "@lancedb/lancedb": "^0.23.0",
+    "@zip.js/zip.js": "^2.7.0",
+    "tree-sitter-wasms": "^0.1.5",
+    "web-tree-sitter": "^0.21.0",
+    "xdg-basedir": "^5.1.0",
+    "zod": "^4.2.1",
+    "onnxruntime-node": "^1.18.0"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Stahldavid/sensegrep.git"
+  },
+  "homepage": "https://github.com/Stahldavid/sensegrep",
+  "bugs": {
+    "url": "https://github.com/Stahldavid/sensegrep/issues"
+  }
+}

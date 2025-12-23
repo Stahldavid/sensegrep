@@ -1,0 +1,12 @@
+node_modules/
+bun.lock
+
+# build outputs
+dist/
+
+# never commit compiled artifacts under src
+**/src/**/*.js
+**/src/**/*.js.map
+**/src/**/*.d.ts
+
+# lancedb index (user data dir is outside repo)

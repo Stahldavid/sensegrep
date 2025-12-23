@@ -1,0 +1,39 @@
+- Semantic code search using AI embeddings and vector similarity
+- Post-filters semantic results using ripgrep patterns when provided
+- Supports semantic metadata filtering (symbol types, complexity, exports, etc.)
+- Returns code chunks ranked by semantic relevance to your query
+
+Usage:
+- `query` (required): Natural language description of what you're looking for
+- `pattern` (optional): Regex pattern to filter semantic results (case-insensitive)
+- `limit` (optional): Maximum results (default: 20)
+- `include` (optional): File pattern filter (e.g. "*.ts", "src/**/*.tsx")
+- `rerank` (optional): Enable cross-encoder reranking (default: false)
+
+Semantic Metadata Filters (optional):
+- `symbolType`: Filter by code structure type - "function", "class", "method", "interface", "type", "variable", "namespace", "enum"
+- `isExported`: Filter for exported symbols (true/false)
+- `minComplexity`: Minimum cyclomatic complexity (e.g. 5 for moderately complex code)
+- `maxComplexity`: Maximum cyclomatic complexity (e.g. 10 to avoid overly complex code)
+- `hasDocumentation`: Filter for documented/undocumented code (true/false)
+- `language`: Filter by language - "typescript", "javascript", "tsx", "jsx"
+- `parentScope`: Filter by parent class/namespace (e.g. "VectorStore")
+
+How it works:
+1. Semantic search finds conceptually relevant code chunks using AI embeddings
+2. If `pattern` provided, ripgrep filters to only chunks containing the pattern
+3. If `rerank` enabled, a cross-encoder reranks the top candidates
+4. Top results returned with full code content
+
+When to use sensegrep vs grep:
+- sensegrep: Conceptual searches ("find error handling", "authentication logic", "database queries")
+- grep: Exact matches ("find TODO comments", "find imports of lodash")
+
+Examples:
+- Query: "error handling and retry logic" -> Finds code handling errors with retries
+- Query: "user authentication flow", symbolType: "function", isExported: true -> Finds exported auth functions
+- Query: "database connection", pattern: "pool" -> Finds DB code containing "pool"
+- Query: "complex refactoring candidates", minComplexity: 10, hasDocumentation: false -> Finds complex undocumented code
+- Query: "API rate limiting", symbolType: "class" -> Finds rate limiter classes
+
+Note: Requires semantic index. Run `sensegrep index` first if you get an error about missing index.

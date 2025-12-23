@@ -1,0 +1,30 @@
+{
+  "name": "@sensegrep/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "sensegrep": "./dist/main.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "postbuild": "bun -e \"const fs = require('fs'); const p='dist/main.js'; const s='#!/usr/bin/env bun\\n'; const c=fs.readFileSync(p,'utf8'); if(!c.startsWith('#!')) fs.writeFileSync(p, s + c);\""
+  },
+  "engines": {
+    "bun": ">=1.1.0"
+  },
+  "dependencies": {
+    "@sensegrep/core": "workspace:*"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Stahldavid/sensegrep.git"
+  },
+  "homepage": "https://github.com/Stahldavid/sensegrep",
+  "bugs": {
+    "url": "https://github.com/Stahldavid/sensegrep/issues"
+  }
+}
