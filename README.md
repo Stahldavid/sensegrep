@@ -3,30 +3,35 @@
 Semantic + structural code search (core + CLI + MCP).
 
 ## Quickstart
+Install the CLI:
+```
+npm i -g @sensegrep/cli
+```
+
 Index a repo:
 ```
-bun packages/cli/src/main.ts index --root /path/to/repo
+sensegrep index --root /path/to/repo
 ```
 
 Search:
 ```
-bun packages/cli/src/main.ts search "authentication logic" --type function --exported
+sensegrep search "authentication logic" --type function --exported
 ```
 
 Verify index (hash-only):
 ```
-bun packages/cli/src/main.ts verify --root /path/to/repo
+sensegrep verify --root /path/to/repo
 ```
 
 Index only if needed:
 ```
-bun packages/cli/src/main.ts index --root /path/to/repo --verify
+sensegrep index --root /path/to/repo --verify
 ```
 
 ## MCP
 Run the MCP server (stdio JSON-RPC):
 ```
-bun packages/mcp/src/server.ts
+node packages/mcp/dist/server.js
 ```
 
 Available tools:

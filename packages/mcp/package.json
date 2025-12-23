@@ -1,6 +1,6 @@
 {
   "name": "@sensegrep/mcp",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "type": "module",
   "main": "./dist/server.js",
   "types": "./dist/server.d.ts",
@@ -14,7 +14,7 @@
     "node": ">=18"
   },
   "dependencies": {
-    "@sensegrep/core": "^0.1.0"
+    "@sensegrep/core": "^0.1.3"
   },
   "license": "Apache-2.0",
   "repository": {
