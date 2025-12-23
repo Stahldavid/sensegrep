@@ -20,7 +20,9 @@ export namespace VectorStore {
     root: string
     embeddings: {
       provider: string
+      model?: string
       dimension: number
+      device?: string
     }
     files: Record<string, { size: number; mtimeMs: number; hash?: string; chunks?: string[] }>
     updatedAt: number
@@ -75,7 +77,7 @@ export namespace VectorStore {
   const tableCache = new Map<string, Promise<LanceTable>>()
 
   function tableCacheKey(projectPath: string): string {
-    return `${projectPath}:${Embeddings.getDimension()}`
+    return `${projectPath}:${Embeddings.getProvider()}:${Embeddings.getModel()}:${Embeddings.getDimension()}`
   }
 
   async function readVectorDimension(table: LanceTable): Promise<number | undefined> {
@@ -103,7 +105,7 @@ export namespace VectorStore {
 
     throw new Error(
       `LanceDB index dimension mismatch for "${projectPath}": existing=${existing}, expected=${expected}. ` +
-        `You changed the embeddings provider/dimension (e.g. switched to Gemini). ` +
+        `You changed the embeddings provider/model/dimension. ` +
         `Delete and reindex this project collection (VectorStore.deleteCollection(projectPath) or remove the index directory in ${BASE_PATH}).`,
     )
   }

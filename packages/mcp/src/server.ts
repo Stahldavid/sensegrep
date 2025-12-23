@@ -1,4 +1,4 @@
-import { SenseGrepTool, Indexer, Instance } from "@sensegrep/core"
+import { SenseGrepTool, Indexer, Instance, Embeddings } from "@sensegrep/core"
 
 type JsonRpcRequest = {
   jsonrpc: "2.0"
@@ -48,6 +48,11 @@ const toolSchemas = [
         language: { type: "string", enum: ["typescript", "javascript", "tsx", "jsx"] },
         parentScope: { type: "string" },
         rerank: { type: "boolean" },
+        embedModel: { type: "string" },
+        embedDim: { type: "number" },
+        rerankModel: { type: "string" },
+        device: { type: "string" },
+        provider: { type: "string" },
         rootDir: { type: "string" },
       },
       required: ["query"],
@@ -62,6 +67,11 @@ const toolSchemas = [
       properties: {
         rootDir: { type: "string" },
         full: { type: "boolean" },
+        embedModel: { type: "string" },
+        embedDim: { type: "number" },
+        rerankModel: { type: "string" },
+        device: { type: "string" },
+        provider: { type: "string" },
       },
       additionalProperties: false,
     },
@@ -122,22 +132,36 @@ async function handleRequest(req: JsonRpcRequest) {
     const name = params.name
     const args = params.arguments || {}
     const rootDir = args.rootDir || process.env.SENSEGREP_ROOT || process.cwd()
+    const provider =
+      args.provider === "local" || args.provider === "gemini" ? (args.provider as "local" | "gemini") : undefined
+    const embedOverrides: Parameters<typeof Embeddings.configure>[0] = {
+      ...(args.embedModel ? { embedModel: String(args.embedModel) } : {}),
+      ...(args.embedDim ? { embedDim: Number(args.embedDim) } : {}),
+      ...(args.rerankModel ? { rerankModel: String(args.rerankModel) } : {}),
+      ...(args.device ? { device: String(args.device) as any } : {}),
+      ...(provider ? { provider } : {}),
+    }
+    const withOverrides = Object.keys(embedOverrides).length
+      ? (fn: () => Promise<any>) => Embeddings.withConfig(embedOverrides, fn)
+      : (fn: () => Promise<any>) => fn()
 
     try {
       if (name === "sensegrep.search") {
         const tool = await toolPromise
         const { rootDir: _root, ...toolArgs } = args
-        const res = await Instance.provide({
-          directory: rootDir,
-          fn: () =>
-            tool.execute(toolArgs, {
-              sessionID: "mcp",
-              messageID: "mcp",
-              agent: "sensegrep-mcp",
-              abort: new AbortController().signal,
-              metadata(_input: { title?: string; metadata?: unknown }) {},
-            }),
-        })
+        const res = await withOverrides(() =>
+          Instance.provide({
+            directory: rootDir,
+            fn: () =>
+              tool.execute(toolArgs, {
+                sessionID: "mcp",
+                messageID: "mcp",
+                agent: "sensegrep-mcp",
+                abort: new AbortController().signal,
+                metadata(_input: { title?: string; metadata?: unknown }) {},
+              }),
+          }),
+        )
         send({
           jsonrpc: "2.0",
           id,
@@ -148,10 +172,12 @@ async function handleRequest(req: JsonRpcRequest) {
 
       if (name === "sensegrep.index") {
         const full = args.full === true
-        const result = await Instance.provide({
-          directory: rootDir,
-          fn: () => (full ? Indexer.indexProject() : Indexer.indexProjectIncremental()),
-        })
+        const result = await withOverrides(() =>
+          Instance.provide({
+            directory: rootDir,
+            fn: () => (full ? Indexer.indexProject() : Indexer.indexProjectIncremental()),
+          }),
+        )
         send({
           jsonrpc: "2.0",
           id,

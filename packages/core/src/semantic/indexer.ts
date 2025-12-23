@@ -264,12 +264,15 @@ export namespace Indexer {
 
     await flush()
 
+    const config = Embeddings.getConfig()
     await VectorStore.writeIndexMeta(Instance.directory, {
       version: 1,
       root: Instance.directory,
       embeddings: {
-        provider: Embeddings.getProvider(),
-        dimension: Embeddings.getDimension(),
+        provider: config.provider,
+        model: config.embedModel,
+        dimension: config.embedDim,
+        ...(config.device ? { device: config.device } : {}),
       },
       files: fileStats,
       updatedAt: Date.now(),
@@ -312,13 +315,16 @@ export namespace Indexer {
     log.info("found files to scan", { count: files.length })
 
     const meta = await VectorStore.readIndexMeta(Instance.directory)
-    const provider = Embeddings.getProvider()
-    const dimension = Embeddings.getDimension()
+    const config = Embeddings.getConfig()
+    const provider = config.provider
+    const dimension = config.embedDim
+    const model = config.embedModel
 
     if (
       !meta ||
       meta.embeddings?.dimension !== dimension ||
-      meta.embeddings?.provider !== provider
+      meta.embeddings?.provider !== provider ||
+      meta.embeddings?.model !== model
     ) {
       const full = await indexProject()
       return { ...full, skipped: 0, removed: 0, mode: "full" }
@@ -424,7 +430,7 @@ export namespace Indexer {
     await VectorStore.writeIndexMeta(Instance.directory, {
       version: 1,
       root: Instance.directory,
-      embeddings: { provider, dimension },
+      embeddings: { provider, model, dimension, ...(config.device ? { device: config.device } : {}) },
       files: newStats,
       updatedAt: Date.now(),
     })
@@ -508,7 +514,7 @@ export namespace Indexer {
     indexed: boolean
     chunks: number
     files: number
-    embeddings?: { provider: string; dimension: number }
+    embeddings?: { provider: string; model?: string; dimension: number; device?: string }
     updatedAt?: number
   }> {
     const hasIt = await hasIndex()
@@ -537,7 +543,7 @@ export namespace Indexer {
     changed: number
     missing: number
     removed: number
-    embeddings?: { provider: string; dimension: number }
+    embeddings?: { provider: string; model?: string; dimension: number; device?: string }
     updatedAt?: number
   }> {
     const meta = await VectorStore.readIndexMeta(Instance.directory)

@@ -1,6 +1,14 @@
 import { Log } from "../util/log.js"
 import { lazy } from "../util/lazy.js"
 import { Global } from "../global/index.js"
+import {
+  getEmbeddingConfig,
+  configureEmbedding,
+  withEmbeddingConfig,
+  type EmbeddingConfig,
+  type EmbeddingOverrides,
+  type DeviceType,
+} from "./embedding-config.js"
 import fs from "fs/promises"
 import path from "path"
 import { createRequire } from "module"
@@ -20,11 +28,6 @@ interface ClassificationResult {
   label: string
   score: number
 }
-
-// Device type for @huggingface/transformers v3 in Node.js
-// Node.js supports: "cpu" | "cuda" (NVIDIA GPU)
-// Browser supports: "webgpu" | "wasm"
-type DeviceType = "cpu" | "cuda" | "webgpu" | "wasm"
 
 async function ensureOnnxRuntimeLibs() {
   if (process.platform !== "linux" && process.platform !== "darwin" && process.platform !== "win32") return
@@ -132,19 +135,23 @@ async function detectDevice(): Promise<DeviceType> {
 }
 
 // Use dynamic import for @huggingface/transformers (ESM module)
-const getTransformers = lazy(async () => {
+const transformersModule = lazy(async () => {
   await ensureOnnxRuntimeLibs()
-  const transformers = await import("@huggingface/transformers")
-  const { pipeline, env } = transformers
-
-  // Disable local model check to always use cache
-  env.allowLocalModels = false
-
-  // Detect and set device
-  const device = await detectDevice()
-
-  return { pipeline, env, device, transformers }
+  return await import("@huggingface/transformers")
 })
+
+async function resolveDevice(config: EmbeddingConfig): Promise<DeviceType> {
+  if (config.device) return config.device
+  return detectDevice()
+}
+
+async function getTransformers(config: EmbeddingConfig) {
+  const transformers = await transformersModule()
+  const { pipeline, env } = transformers
+  env.allowLocalModels = false
+  const device = await resolveDevice(config)
+  return { pipeline, env, device, transformers }
+}
 
 export namespace EmbeddingsHF {
   type TaskType =
@@ -164,49 +171,61 @@ export namespace EmbeddingsHF {
     outputDimensionality?: number
   }
 
-  type EmbeddingProvider = "local" | "gemini"
-
-  function embeddingProvider(): EmbeddingProvider {
-    const forced = process.env.OPENCODE_SEMANTIC_EMBEDDINGS?.toLowerCase()
-    if (forced === "gemini") return "gemini"
-    if (forced === "local") return "local"
-
-    // Prefer Gemini when configured.
-    if (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) return "gemini"
-    return "local"
+  function embeddingProvider(config: EmbeddingConfig) {
+    return config.provider
   }
 
-  // Model configuration (local) - using HuggingFace models compatible with v3
-  // BAAI/bge-small-en-v1.5: 33M parameters, 384 dims, ONNX-optimized
-  // MTEB score 62.17 - one of the best small embedding models
-  const LOCAL_EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
-  const RERANKER_MODEL = "Xenova/ms-marco-MiniLM-L-6-v2"
+  const embeddingPipelines = new Map<string, Promise<any>>()
+  const rerankerPipelines = new Map<string, Promise<{ tokenizer: any; model: any }>>()
 
-  // Lazy-loaded pipelines
-  const embeddingPipeline = lazy(async () => {
-    log.info("loading embedding model (HuggingFace transformers v3)", { model: LOCAL_EMBEDDING_MODEL })
-    const { pipeline, device } = await getTransformers()
-    const pipe = await pipeline("feature-extraction", LOCAL_EMBEDDING_MODEL, {
-      device,
-      dtype: "fp32", // Use fp32 for best compatibility, can use "fp16" on WebGPU for speed
-    })
-    log.info("embedding model loaded", { device })
-    return pipe
-  })
+  function embeddingKey(config: EmbeddingConfig, device: DeviceType) {
+    return `${config.embedModel}:${device}`
+  }
 
-  const rerankerPipeline = lazy(async () => {
-    log.info("loading reranker model (HuggingFace transformers v3)", { model: RERANKER_MODEL })
-    const { transformers, device } = await getTransformers()
-    // For cross-encoder reranking, we need direct access to model and tokenizer
-    // to get raw logits (the pipeline applies softmax which doesn't work well for cross-encoders)
-    const tokenizer = await transformers.AutoTokenizer.from_pretrained(RERANKER_MODEL)
-    const model = await transformers.AutoModelForSequenceClassification.from_pretrained(RERANKER_MODEL, {
-      device,
-      dtype: "fp32",
-    })
-    log.info("reranker model loaded", { device })
-    return { tokenizer, model }
-  })
+  function rerankKey(config: EmbeddingConfig, device: DeviceType) {
+    return `${config.rerankModel}:${device}`
+  }
+
+  async function embeddingPipeline(config: EmbeddingConfig) {
+    const { pipeline, device } = await getTransformers(config)
+    const key = embeddingKey(config, device)
+    if (!embeddingPipelines.has(key)) {
+      embeddingPipelines.set(
+        key,
+        (async () => {
+          log.info("loading embedding model (HuggingFace transformers v3)", { model: config.embedModel })
+          const pipe = await pipeline("feature-extraction", config.embedModel, {
+            device,
+            dtype: "fp32",
+          })
+          log.info("embedding model loaded", { device })
+          return pipe
+        })(),
+      )
+    }
+    return embeddingPipelines.get(key)!
+  }
+
+  async function rerankerPipeline(config: EmbeddingConfig) {
+    const { transformers, device } = await getTransformers(config)
+    const key = rerankKey(config, device)
+    if (!rerankerPipelines.has(key)) {
+      rerankerPipelines.set(
+        key,
+        (async () => {
+          log.info("loading reranker model (HuggingFace transformers v3)", { model: config.rerankModel })
+          const tokenizer = await transformers.AutoTokenizer.from_pretrained(config.rerankModel)
+          const model = await transformers.AutoModelForSequenceClassification.from_pretrained(config.rerankModel, {
+            device,
+            dtype: "fp32",
+          })
+          log.info("reranker model loaded", { device })
+          return { tokenizer, model }
+        })(),
+      )
+    }
+    return rerankerPipelines.get(key)!
+  }
 
   /**
    * Generate embeddings for text(s)
@@ -216,11 +235,12 @@ export namespace EmbeddingsHF {
     const input = Array.isArray(texts) ? texts : [texts]
     if (input.length === 0) return []
 
-    if (embeddingProvider() === "gemini") {
-      return embedGemini(input, options)
+    const config = getEmbeddingConfig()
+    if (embeddingProvider(config) === "gemini") {
+      return embedGemini(input, options, config)
     }
 
-    const pipe = await embeddingPipeline()
+    const pipe = await embeddingPipeline(config)
     const results: number[][] = []
 
     // Process in batches to avoid memory issues
@@ -261,7 +281,11 @@ export namespace EmbeddingsHF {
     return results
   }
 
-  async function embedGemini(texts: string[], options?: EmbedOptions): Promise<number[][]> {
+  async function embedGemini(
+    texts: string[],
+    options: EmbedOptions | undefined,
+    config: EmbeddingConfig,
+  ): Promise<number[][]> {
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
     if (!apiKey) {
       throw new Error(
@@ -269,8 +293,8 @@ export namespace EmbeddingsHF {
       )
     }
 
-    const model = process.env.OPENCODE_GEMINI_EMBED_MODEL || "gemini-embedding-001"
-    const outputDimensionality = Number(process.env.OPENCODE_GEMINI_EMBED_DIM || options?.outputDimensionality || 768)
+    const model = config.embedModel
+    const outputDimensionality = Number(config.embedDim || options?.outputDimensionality || 768)
     const taskType = options?.taskType
     const titles = typeof options?.title === "string" ? texts.map(() => options!.title as string) : options?.title
 
@@ -360,7 +384,8 @@ export namespace EmbeddingsHF {
   export async function rerank(query: string, documents: string[]): Promise<{ index: number; score: number }[]> {
     if (documents.length === 0) return []
 
-    const { tokenizer, model } = await rerankerPipeline()
+    const config = getEmbeddingConfig()
+    const { tokenizer, model } = await rerankerPipeline(config)
     const scores: { index: number; score: number }[] = []
 
     // Create query-document pairs for cross-encoder
@@ -383,29 +408,26 @@ export namespace EmbeddingsHF {
    * Get embedding dimension for the model
    */
   export function getDimension(): number {
-    if (embeddingProvider() === "gemini") {
-      const dim = Number(process.env.OPENCODE_GEMINI_EMBED_DIM || 768)
-      return Number.isFinite(dim) && dim > 0 ? dim : 768
-    }
-
-    // Supabase/gte-small has 384 dimensions
-    return 384
+    return getEmbeddingConfig().embedDim
   }
 
   /**
    * Get current embeddings provider ("local" or "gemini")
    */
   export function getProvider(): string {
-    return embeddingProvider()
+    return getEmbeddingConfig().provider
   }
 
   /**
    * Preload models (call during initialization)
    */
   export async function preload(): Promise<void> {
+    const config = getEmbeddingConfig()
     log.info("preloading models (HuggingFace transformers v3)")
-    // Only preload the local embedding model if we're actually using it.
-    await Promise.all([embeddingProvider() === "local" ? embeddingPipeline() : Promise.resolve(), rerankerPipeline()])
+    await Promise.all([
+      embeddingProvider(config) === "local" ? embeddingPipeline(config) : Promise.resolve(),
+      rerankerPipeline(config),
+    ])
     log.info("models preloaded")
   }
 
@@ -413,7 +435,27 @@ export namespace EmbeddingsHF {
    * Get the current device being used
    */
   export async function getDevice(): Promise<string> {
-    const { device } = await getTransformers()
-    return device
+    const config = getEmbeddingConfig()
+    return await resolveDevice(config)
+  }
+
+  export function getModel(): string {
+    return getEmbeddingConfig().embedModel
+  }
+
+  export function getRerankModel(): string {
+    return getEmbeddingConfig().rerankModel
+  }
+
+  export function getConfig(): EmbeddingConfig {
+    return getEmbeddingConfig()
+  }
+
+  export function configure(overrides: EmbeddingOverrides) {
+    configureEmbedding(overrides)
+  }
+
+  export async function withConfig<T>(overrides: EmbeddingOverrides, fn: () => Promise<T>): Promise<T> {
+    return withEmbeddingConfig(overrides, fn)
   }
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { SenseGrepTool, Indexer, Instance, Tool } from "@sensegrep/core"
+import { SenseGrepTool, Indexer, Instance, Tool, Embeddings } from "@sensegrep/core"
 
 type Flags = Record<string, string | boolean>
 
@@ -27,6 +27,11 @@ Search options:
   --parent <name>           Parent scope/class name
   --rerank <true|false>     Enable cross-encoder reranking (default: false)
   --no-rerank               Disable reranking
+  --embed-model <name>      Override embedding model (Hugging Face)
+  --embed-dim <n>           Override embedding dimension
+  --rerank-model <name>     Override reranker model
+  --device <name>           cpu|cuda|webgpu|wasm
+  --provider <name>         local|gemini
   --root <dir>              Root directory (default: cwd)
   --json                    Output JSON
 `)
@@ -65,6 +70,22 @@ function toBool(value: string | boolean | undefined) {
   return ["1", "true", "yes", "y", "on"].includes(value.toLowerCase())
 }
 
+function applyEmbeddingOverrides(flags: Flags) {
+  const overrides: Record<string, unknown> = {}
+  if (flags["embed-model"]) overrides.embedModel = String(flags["embed-model"])
+  if (flags.embedModel) overrides.embedModel = String(flags.embedModel)
+  if (flags["embed-dim"]) overrides.embedDim = Number(flags["embed-dim"])
+  if (flags.embedDim) overrides.embedDim = Number(flags.embedDim)
+  if (flags["rerank-model"]) overrides.rerankModel = String(flags["rerank-model"])
+  if (flags.rerankModel) overrides.rerankModel = String(flags.rerankModel)
+  if (flags.device) overrides.device = String(flags.device)
+  if (flags.provider) overrides.provider = String(flags.provider)
+
+  if (Object.keys(overrides).length > 0) {
+    Embeddings.configure(overrides as any)
+  }
+}
+
 type IndexResult =
   | Awaited<ReturnType<typeof Indexer.indexProject>>
   | Awaited<ReturnType<typeof Indexer.indexProjectIncremental>>
@@ -86,6 +107,7 @@ async function run() {
   }
 
   const rootDir = (flags.root as string | undefined) || process.cwd()
+  applyEmbeddingOverrides(flags)
 
   if (command === "index") {
     const full = flags.full === true
