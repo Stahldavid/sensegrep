@@ -520,10 +520,12 @@ export namespace Indexer {
     const hasIt = await hasIndex()
     if (!hasIt) return { indexed: false, chunks: 0, files: 0 }
 
-    const collection = await VectorStore.getCollection(Instance.directory)
-    const stats = await VectorStore.getStats(collection)
     const meta = await VectorStore.readIndexMeta(Instance.directory)
-    void collection // silence unused warning
+    if (!meta) return { indexed: false, chunks: 0, files: 0 }
+
+    // Get chunk count without validating dimension (to allow reading stats before configuring embeddings)
+    const collection = await VectorStore.getCollectionUnsafe(Instance.directory)
+    const stats = await VectorStore.getStats(collection)
 
     return {
       indexed: true,

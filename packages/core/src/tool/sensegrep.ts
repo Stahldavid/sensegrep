@@ -81,11 +81,6 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     limit: z.number().optional().describe("Maximum number of results to return (default: 20)"),
     include: z.string().optional().describe('File pattern to filter results (e.g. "*.ts", "src/**/*.tsx")'),
     rerank: z.boolean().default(false).describe("Enable cross-encoder reranking (default: false)"),
-    embedModel: z.string().optional().describe("Override embedding model (Hugging Face)"),
-    embedDim: z.number().optional().describe("Override embedding dimension"),
-    rerankModel: z.string().optional().describe("Override reranker model"),
-    device: z.string().optional().describe("Override embedding device (cpu/cuda/webgpu/wasm)"),
-    provider: z.string().optional().describe("Override provider (local/gemini)"),
 
     // Semantic metadata filters
     symbolType: z
@@ -103,20 +98,9 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     parentScope: z.string().optional().describe('Filter by parent scope/class (e.g. "VectorStore")'),
   }),
   async execute(params, _ctx) {
-    const overrides: Record<string, unknown> = {}
-    if (params.embedModel) overrides.embedModel = params.embedModel
-    if (params.embedDim !== undefined) overrides.embedDim = params.embedDim
-    if (params.rerankModel) overrides.rerankModel = params.rerankModel
-    if (params.device) overrides.device = params.device
-    if (params.provider) overrides.provider = params.provider
-
-    const run = async () => {
-    const limit = params.limit ?? 20
-    const shouldRerank = params.rerank === true
-
-    // Check if index exists
-    const hasIndex = await Indexer.hasIndex()
-    if (!hasIndex) {
+    // Read index metadata first (before any embedding initialization)
+    const meta = await VectorStore.readIndexMeta(Instance.directory)
+    if (!meta || !meta.embeddings) {
       return {
         title: params.query,
         metadata: { matches: 0, indexed: false },
@@ -125,8 +109,23 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       }
     }
 
-    // Get collection
-    const collection = await VectorStore.getCollection(Instance.directory)
+    // Configure embeddings to match the index
+    const indexConfig = {
+      provider: meta.embeddings.provider,
+      embedModel: meta.embeddings.model,
+      embedDim: meta.embeddings.dimension,
+      ...(meta.embeddings.device ? { device: meta.embeddings.device } : {}),
+    }
+
+    const run = async () => {
+    // Clear any cached tables that might have wrong dimension expectations
+    VectorStore.clearProjectCache(Instance.directory)
+
+    const limit = params.limit ?? 20
+    const shouldRerank = params.rerank === true
+
+    // Get collection, passing the expected dimension from index metadata
+    const collection = await VectorStore.getCollectionUnsafe(Instance.directory, meta.embeddings.dimension)
 
     // Build semantic filters from parameters
     const filters: VectorStore.SearchFilters = { all: [] }
@@ -312,9 +311,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       }
     }
 
-    if (Object.keys(overrides).length > 0) {
-      return Embeddings.withConfig(overrides as any, run)
-    }
-    return run()
+    // Use withConfig to match index embeddings and ensure proper cleanup
+    return Embeddings.withConfig(indexConfig as any, run)
   },
 })

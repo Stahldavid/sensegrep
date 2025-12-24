@@ -97,12 +97,17 @@ export namespace VectorStore {
     return undefined
   }
 
-  async function assertCompatibleDimension(projectPath: string, table: LanceTable): Promise<void> {
-    const expected = Embeddings.getDimension()
+  async function assertCompatibleDimension(
+    projectPath: string,
+    table: LanceTable,
+    expectedDim?: number,
+  ): Promise<void> {
+    const expected = expectedDim ?? Embeddings.getDimension()
     const existing = await readVectorDimension(table)
     if (!existing) return
     if (existing === expected) return
 
+    log.error("Dimension mismatch detected", { existing, expected, projectPath })
     throw new Error(
       `LanceDB index dimension mismatch for "${projectPath}": existing=${existing}, expected=${expected}. ` +
         `You changed the embeddings provider/model/dimension. ` +
@@ -142,13 +147,16 @@ export namespace VectorStore {
     await fs.writeFile(indexMetaPath(projectPath), JSON.stringify(meta, null, 2))
   }
 
-  async function ensureTable(db: LanceDBConnection): Promise<LanceTable> {
+  async function ensureTable(db: LanceDBConnection, expectedDim?: number): Promise<LanceTable> {
     try {
-      return await db.openTable(TABLE_NAME)
-    } catch {
+      const table = await db.openTable(TABLE_NAME)
+      log.debug("Opened existing table", { tableName: TABLE_NAME })
+      return table
+    } catch (error) {
       // Create table lazily on first insert. We create a single sentinel row and
       // delete it right away to avoid schema inference issues on empty creates.
-      const dim = Embeddings.getDimension()
+      const dim = expectedDim ?? Embeddings.getDimension()
+      log.debug("Creating new table", { tableName: TABLE_NAME, dimension: dim })
       const sentinel = {
         id: "__opencode_init__",
         content: "",
@@ -364,6 +372,16 @@ export namespace VectorStore {
     return p
   }
 
+  /**
+   * Get or create a table WITHOUT validating dimension.
+   * Use this only when you need to read stats before configuring embeddings.
+   * @param expectedDim - If provided, uses this dimension for validation/creation instead of reading from global config
+   */
+  export async function getCollectionUnsafe(projectPath: string, expectedDim?: number): Promise<LanceTable> {
+    const db = await connect(projectPath)
+    return await ensureTable(db, expectedDim)
+  }
+
   export async function addDocuments(
     collection: LanceTable,
     documents: {
@@ -517,11 +535,15 @@ export namespace VectorStore {
     return { count: Array.isArray(rows) ? rows.length : 0, name: TABLE_NAME }
   }
 
-  export async function deleteCollection(projectPath: string): Promise<void> {
+  export function clearProjectCache(projectPath: string): void {
     dbCache.delete(projectPath)
     for (const key of tableCache.keys()) {
       if (key.startsWith(`${projectPath}:`)) tableCache.delete(key)
     }
+  }
+
+  export async function deleteCollection(projectPath: string): Promise<void> {
+    clearProjectCache(projectPath)
     await fs.rm(projectDir(projectPath), { recursive: true, force: true })
   }
 

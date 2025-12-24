@@ -26,17 +26,50 @@ type TreeCursor = {
 
 const log = Log.create({ service: "semantic.chunking-treesitter" })
 
-// Chunk size limits (must match chunking.ts)
-const MAX_CHUNK_SIZE = 1500
-const MIN_CHUNK_SIZE = 100
-const STATEMENT_OVERLAP = 3 // Number of previous statements to include for context
+// Chunk size limits vary by embedding model
+// Local (BAAI/bge-small-en-v1.5): 512 tokens → conservative chunk sizes
+// Gemini (gemini-embedding-001): 2048 tokens → larger chunk sizes
+const CHUNK_LIMITS = {
+  local: {
+    max: 1200, // ~300 tokens (safe for 512 token limit)
+    min: 100,
+    overlap: 2,
+    config: {
+      simple: 1200, // ~300 tokens
+      medium: 1000, // ~250 tokens
+      complex: 800, // ~200 tokens
+    },
+  },
+  gemini: {
+    max: 4000, // ~1000 tokens (safe for 2048 token limit)
+    min: 150,
+    overlap: 3,
+    config: {
+      simple: 4000, // ~1000 tokens
+      medium: 3000, // ~750 tokens
+      complex: 2000, // ~500 tokens
+    },
+  },
+} as const
 
-// Adaptive chunk sizes based on complexity
-const CHUNK_SIZE_CONFIG = {
-  simple: 2000, // Simple functions, getters, utilities
-  medium: 1500, // Default
-  complex: 1000, // Many loops, conditionals, nested logic
+// Get chunk limits based on current embedding provider
+function getChunkLimits() {
+  try {
+    const { getEmbeddingConfig } = require("./embedding-config.js") as typeof import("./embedding-config.js")
+    const config = getEmbeddingConfig()
+    const provider = config.provider === "gemini" ? "gemini" : "local"
+    return CHUNK_LIMITS[provider]
+  } catch {
+    // Fallback to local limits if can't detect
+    return CHUNK_LIMITS.local
+  }
 }
+
+// Dynamic chunk sizes based on provider
+const MAX_CHUNK_SIZE = getChunkLimits().max
+const MIN_CHUNK_SIZE = getChunkLimits().min
+const STATEMENT_OVERLAP = getChunkLimits().overlap
+const CHUNK_SIZE_CONFIG = getChunkLimits().config
 
 const require = createRequire(import.meta.url)
 const resolveWasmPath = (id: string) => require.resolve(id)

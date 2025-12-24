@@ -40,7 +40,7 @@ function isIncremental(result: IndexResult): result is IndexResult & { mode: "in
 const tools: Tool[] = [
   {
     name: "sensegrep.search",
-    description: "Semantic + structural code search with optional regex filters.",
+    description: "Semantic + structural code search with optional regex filters. Automatically uses the embedding model from the index.",
     inputSchema: {
       type: "object",
       properties: {
@@ -64,11 +64,6 @@ const tools: Tool[] = [
         },
         parentScope: { type: "string", description: "Parent scope/class name" },
         rerank: { type: "boolean", description: "Enable cross-encoder reranking" },
-        embedModel: { type: "string", description: "Override embedding model" },
-        embedDim: { type: "number", description: "Override embedding dimension" },
-        rerankModel: { type: "string", description: "Override reranker model" },
-        device: { type: "string", description: "cpu|cuda|webgpu|wasm" },
-        provider: { type: "string", description: "local|gemini" },
         rootDir: { type: "string", description: "Root directory (default: cwd)" },
       },
       required: ["query"],
@@ -121,36 +116,24 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
   const rootDir = (args as any).rootDir || process.env.SENSEGREP_ROOT || process.cwd();
-  const provider = (args as any).provider === "local" || (args as any).provider === "gemini" ? (args as any).provider : undefined;
-  const embedOverrides: Record<string, unknown> = {
-    ...((args as any).embedModel ? { embedModel: String((args as any).embedModel) } : {}),
-    ...((args as any).embedDim ? { embedDim: Number((args as any).embedDim) } : {}),
-    ...((args as any).rerankModel ? { rerankModel: String((args as any).rerankModel) } : {}),
-    ...((args as any).device ? { device: String((args as any).device) } : {}),
-    ...(provider ? { provider } : {}),
-  };
 
   try {
     if (name === "sensegrep.search") {
       const { core, tool } = await loadTool();
       const { rootDir: _root, ...toolArgs } = args as any;
-      const { Instance, Embeddings } = core;
-      const withOverrides = Object.keys(embedOverrides).length
-        ? (fn: () => Promise<any>) => Embeddings.withConfig(embedOverrides as any, fn)
-        : (fn: () => Promise<any>) => fn();
-      const res = await withOverrides(() =>
-        Instance.provide({
-          directory: rootDir,
-          fn: () =>
-            tool.execute(toolArgs, {
-              sessionID: "mcp",
-              messageID: "mcp",
-              agent: "sensegrep-mcp",
-              abort: new AbortController().signal,
-              metadata(_input: { title?: string; metadata?: unknown }) {},
-            }),
-        })
-      );
+      const { Instance } = core;
+      // Search tool now reads embeddings config from index automatically
+      const res = await Instance.provide({
+        directory: rootDir,
+        fn: () =>
+          tool.execute(toolArgs, {
+            sessionID: "mcp",
+            messageID: "mcp",
+            agent: "sensegrep-mcp",
+            abort: new AbortController().signal,
+            metadata(_input: { title?: string; metadata?: unknown }) {},
+          }),
+      });
       return {
         content: [{ type: "text", text: res.output }],
       };
@@ -160,6 +143,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const full = (args as any).full === true;
       const { core } = await loadTool();
       const { Indexer, Instance, Embeddings } = core;
+      // Index tool allows overriding embeddings config
+      const provider = (args as any).provider === "local" || (args as any).provider === "gemini" ? (args as any).provider : undefined;
+      const embedOverrides: Record<string, unknown> = {
+        ...((args as any).embedModel ? { embedModel: String((args as any).embedModel) } : {}),
+        ...((args as any).embedDim ? { embedDim: Number((args as any).embedDim) } : {}),
+        ...((args as any).rerankModel ? { rerankModel: String((args as any).rerankModel) } : {}),
+        ...((args as any).device ? { device: String((args as any).device) } : {}),
+        ...(provider ? { provider } : {}),
+      };
       const withOverrides = Object.keys(embedOverrides).length
         ? (fn: () => Promise<any>) => Embeddings.withConfig(embedOverrides as any, fn)
         : (fn: () => Promise<any>) => fn();

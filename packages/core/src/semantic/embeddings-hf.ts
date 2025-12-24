@@ -29,6 +29,109 @@ interface ClassificationResult {
   score: number
 }
 
+// Token limits for different models
+const TOKEN_LIMITS = {
+  local: 512, // BAAI/bge-small-en-v1.5 max sequence length
+  gemini: 2048, // gemini-embedding-001 max tokens
+} as const
+
+// Cache for tokenizers
+const tokenizerCache = new Map<string, any>()
+
+/**
+ * Get or create tokenizer for a specific model
+ */
+async function getTokenizer(modelName: string) {
+  if (tokenizerCache.has(modelName)) {
+    return tokenizerCache.get(modelName)
+  }
+
+  const { transformers } = await getTransformers(getEmbeddingConfig())
+  const tokenizer = await transformers.AutoTokenizer.from_pretrained(modelName)
+  tokenizerCache.set(modelName, tokenizer)
+  return tokenizer
+}
+
+/**
+ * Count tokens using Hugging Face tokenizer
+ */
+async function countTokensLocal(text: string, modelName: string): Promise<number> {
+  try {
+    const tokenizer = await getTokenizer(modelName)
+    const encoded = await tokenizer.encode(text)
+    return Array.isArray(encoded) ? encoded.length : encoded.size
+  } catch (error) {
+    log.warn("Failed to count tokens with tokenizer, using character estimate", { error })
+    // Fallback: ~4 chars per token
+    return Math.ceil(text.length / 4)
+  }
+}
+
+/**
+ * Count tokens using Gemini API
+ */
+async function countTokensGemini(text: string, modelName: string): Promise<number> {
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
+  if (!apiKey) {
+    log.warn("No Gemini API key, using character estimate for token count")
+    return Math.ceil(text.length / 4)
+  }
+
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:countTokens`
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": apiKey,
+      },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text }] }],
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`Gemini countTokens failed: ${response.statusText}`)
+    }
+
+    const data = (await response.json()) as { totalTokens?: number }
+    return data.totalTokens || 0
+  } catch (error) {
+    log.warn("Failed to count tokens with Gemini API, using character estimate", { error })
+    return Math.ceil(text.length / 4)
+  }
+}
+
+/**
+ * Validate and truncate text if it exceeds token limit
+ */
+async function validateTextLength(
+  text: string,
+  provider: "local" | "gemini",
+  modelName: string,
+): Promise<{ text: string; tokenCount: number; truncated: boolean }> {
+  const limit = provider === "local" ? TOKEN_LIMITS.local : TOKEN_LIMITS.gemini
+  const tokenCount =
+    provider === "local" ? await countTokensLocal(text, modelName) : await countTokensGemini(text, modelName)
+
+  if (tokenCount <= limit) {
+    return { text, tokenCount, truncated: false }
+  }
+
+  log.warn("Text exceeds token limit, will be truncated", {
+    provider,
+    tokenCount,
+    limit,
+    textLength: text.length,
+  })
+
+  // Estimate safe character length: (limit / tokenCount) * text.length
+  const safeLength = Math.floor((limit / tokenCount) * text.length * 0.95) // 95% to be safe
+  const truncatedText = text.substring(0, safeLength)
+
+  return { text: truncatedText, tokenCount: limit, truncated: true }
+}
+
 async function ensureOnnxRuntimeLibs() {
   if (process.platform !== "linux" && process.platform !== "darwin" && process.platform !== "win32") return
 
@@ -240,13 +343,29 @@ export namespace EmbeddingsHF {
       return embedGemini(input, options, config)
     }
 
+    // Validate text lengths before embedding
+    const validatedTexts: string[] = []
+    let truncatedCount = 0
+    for (const text of input) {
+      const validated = await validateTextLength(text, "local", config.embedModel)
+      validatedTexts.push(validated.text)
+      if (validated.truncated) truncatedCount++
+    }
+
+    if (truncatedCount > 0) {
+      log.warn(`Truncated ${truncatedCount}/${input.length} texts to fit token limit`, {
+        model: config.embedModel,
+        limit: TOKEN_LIMITS.local,
+      })
+    }
+
     const pipe = await embeddingPipeline(config)
     const results: number[][] = []
 
     // Process in batches to avoid memory issues
     const batchSize = 32
-    for (let i = 0; i < input.length; i += batchSize) {
-      const batch = input.slice(i, i + batchSize)
+    for (let i = 0; i < validatedTexts.length; i += batchSize) {
+      const batch = validatedTexts.slice(i, i + batchSize)
       const output = await pipe(batch, {
         pooling: "mean",
         normalize: true,
@@ -298,13 +417,29 @@ export namespace EmbeddingsHF {
     const taskType = options?.taskType
     const titles = typeof options?.title === "string" ? texts.map(() => options!.title as string) : options?.title
 
+    // Validate text lengths before embedding
+    const validatedTexts: string[] = []
+    let truncatedCount = 0
+    for (const text of texts) {
+      const validated = await validateTextLength(text, "gemini", model)
+      validatedTexts.push(validated.text)
+      if (validated.truncated) truncatedCount++
+    }
+
+    if (truncatedCount > 0) {
+      log.warn(`Truncated ${truncatedCount}/${texts.length} texts to fit token limit`, {
+        model,
+        limit: TOKEN_LIMITS.gemini,
+      })
+    }
+
     // Gemini "batchEmbedContents" accepts max 100 documents.
     // We'll process in chunks of 64 to be safe.
     const BATCH_SIZE = 64
     const allVectors: number[][] = []
 
-    for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-      const batchTexts = texts.slice(i, i + BATCH_SIZE)
+    for (let i = 0; i < validatedTexts.length; i += BATCH_SIZE) {
+      const batchTexts = validatedTexts.slice(i, i + BATCH_SIZE)
       const batchTitles = Array.isArray(titles) ? titles.slice(i, i + BATCH_SIZE) : undefined
 
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:batchEmbedContents`

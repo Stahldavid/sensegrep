@@ -4,10 +4,39 @@ import { TreeSitterChunking } from "./chunking-treesitter.js"
 const log = Log.create({ service: "semantic.chunking" })
 
 export namespace Chunking {
-  // Chunk size limits (in characters)
-  const MAX_CHUNK_SIZE = 1500
-  const MIN_CHUNK_SIZE = 100
-  const OVERLAP_SIZE = 200
+  // Chunk size limits vary by embedding model
+  // Local (BAAI/bge-small-en-v1.5): 512 tokens → conservative chunk sizes
+  // Gemini (gemini-embedding-001): 2048 tokens → larger chunk sizes
+  const CHUNK_LIMITS = {
+    local: {
+      max: 1200, // ~300 tokens (safe for 512 token limit)
+      min: 100,
+      overlap: 150,
+    },
+    gemini: {
+      max: 4000, // ~1000 tokens (safe for 2048 token limit)
+      min: 150,
+      overlap: 300,
+    },
+  } as const
+
+  // Get chunk limits based on current embedding provider
+  function getChunkLimits() {
+    try {
+      const { getEmbeddingConfig } = require("./embedding-config.js") as typeof import("./embedding-config.js")
+      const config = getEmbeddingConfig()
+      const provider = config.provider === "gemini" ? "gemini" : "local"
+      return CHUNK_LIMITS[provider]
+    } catch {
+      // Fallback to local limits if can't detect
+      return CHUNK_LIMITS.local
+    }
+  }
+
+  // Dynamic chunk sizes based on provider
+  const MAX_CHUNK_SIZE = getChunkLimits().max
+  const MIN_CHUNK_SIZE = getChunkLimits().min
+  const OVERLAP_SIZE = getChunkLimits().overlap
 
   export interface Chunk {
     content: string
