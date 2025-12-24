@@ -10,3 +10,12 @@ dist/
 **/src/**/*.d.ts
 
 # lancedb index (user data dir is outside repo)
+
+# Claude Code local settings
+.claude/
+
+# MCP local configuration (contains absolute paths)
+.mcp.json
+
+# npm lockfile
+package-lock.json
