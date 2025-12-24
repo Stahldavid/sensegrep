@@ -7,7 +7,7 @@
     "declaration": true,
     "sourceMap": true,
     "noEmit": false,
-    "types": ["bun-types"],
+    "types": ["node"],
     "paths": {
       "@sensegrep/core": ["../core/dist/index.d.ts"]
     }
