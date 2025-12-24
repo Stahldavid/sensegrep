@@ -1,6 +1,6 @@
 {
   "name": "@sensegrep/cli",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "bin": {
     "sensegrep": "dist/main.js"
@@ -16,7 +16,7 @@
     "node": ">=18"
   },
   "dependencies": {
-    "@sensegrep/core": "^0.1.4"
+    "@sensegrep/core": "^0.1.6"
   },
   "license": "Apache-2.0",
   "repository": {

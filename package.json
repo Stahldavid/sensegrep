@@ -6,10 +6,13 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "node_modules/.bin/tsc -p packages/core/tsconfig.json && node -e \"const fs = require('fs'); fs.mkdirSync('packages/core/dist/tool', { recursive: true }); fs.copyFileSync('packages/core/src/tool/sensegrep.txt', 'packages/core/dist/tool/sensegrep.txt');\" && node_modules/.bin/tsc -p packages/cli/tsconfig.json && node -e \"const fs = require('fs'); const p='packages/cli/dist/main.js'; const s='#!/usr/bin/env node\\n'; const c=fs.readFileSync(p,'utf8'); if (c.startsWith('#!')) { fs.writeFileSync(p, s + c.split(/\\r?\\n/).slice(1).join('\\n')); } else { fs.writeFileSync(p, s + c); }\" && node_modules/.bin/tsc -p packages/mcp/tsconfig.json && node -e \"const fs = require('fs'); const p='packages/mcp/dist/server.js'; const s='#!/usr/bin/env node\\n'; const c=fs.readFileSync(p,'utf8'); if (c.startsWith('#!')) { fs.writeFileSync(p, s + c.split(/\\r?\\n/).slice(1).join('\\n')); } else { fs.writeFileSync(p, s + c); }\"",
+    "build": "node build.js",
     "check": "node_modules/.bin/tsc -p packages/core/tsconfig.json --noEmit || true",
     "dev": "echo 'Use packages/cli or packages/mcp when implemented'",
     "test": "bun run build"
+  },
+  "overrides": {
+    "onnxruntime-node": "1.23.2"
   },
   "devDependencies": {
     "@types/node": "^20.19.0",

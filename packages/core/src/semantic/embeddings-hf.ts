@@ -40,19 +40,19 @@ async function ensureOnnxRuntimeLibs() {
     bundledNodeModules,
     "onnxruntime-node",
     "bin",
-    "napi-v3",
+    "napi-v6",
     platform,
     arch,
   )
   const bundledDir = path.join(execDir, "onnxruntime")
   const targetDir = path.join(Global.Path.cache, "onnxruntime", `${platform}-${arch}`)
 
-  const base = `onnxruntime-node/bin/napi-v3/${platform}/${arch}`
+  const base = `onnxruntime-node/bin/napi-v6/${platform}/${arch}`
   const libFiles =
     platform === "linux"
-      ? ["libonnxruntime.so.1", "libonnxruntime.so.1.21.0", "libonnxruntime_providers_shared.so"]
+      ? ["libonnxruntime.so.1"]
       : platform === "darwin"
-        ? ["libonnxruntime.1.21.0.dylib"]
+        ? ["libonnxruntime.1.23.2.dylib"]
         : ["onnxruntime.dll", "DirectML.dll"]
 
   const useDir = await (async () => {
