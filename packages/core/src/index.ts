@@ -1,6 +1,7 @@
 export { SenseGrepTool } from "./tool/sensegrep.js"
 export { Tool } from "./tool/tool.js"
 export { Indexer } from "./semantic/indexer.js"
+export { IndexWatcher } from "./semantic/index-watcher.js"
 export { VectorStore } from "./semantic/lancedb.js"
 export { Chunking } from "./semantic/chunking.js"
 export { Embeddings } from "./semantic/embeddings.js"

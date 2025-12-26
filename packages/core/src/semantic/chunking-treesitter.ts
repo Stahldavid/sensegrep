@@ -3,6 +3,7 @@ import { lazy } from "../util/lazy.js"
 import type { Tree } from "web-tree-sitter"
 import { createRequire } from "module"
 import type { Chunking } from "./chunking.js"
+import { getEmbeddingConfig } from "./embedding-config.js"
 
 // SyntaxNode type from web-tree-sitter (not directly exported, so we define it)
 type SyntaxNode = {
@@ -28,7 +29,7 @@ const log = Log.create({ service: "semantic.chunking-treesitter" })
 
 // Chunk size limits vary by embedding model
 // Local (BAAI/bge-small-en-v1.5): 512 tokens → conservative chunk sizes
-// Gemini (gemini-embedding-001): 2048 tokens → larger chunk sizes
+// Gemini (gemini-embedding-001): 2048 tokens → aggressive chunk sizes
 const CHUNK_LIMITS = {
   local: {
     max: 1200, // ~300 tokens (safe for 512 token limit)
@@ -41,13 +42,13 @@ const CHUNK_LIMITS = {
     },
   },
   gemini: {
-    max: 4000, // ~1000 tokens (safe for 2048 token limit)
-    min: 150,
+    max: 7500, // ~1875 tokens (safe for 2048 token limit with margin)
+    min: 200,
     overlap: 3,
     config: {
-      simple: 4000, // ~1000 tokens
-      medium: 3000, // ~750 tokens
-      complex: 2000, // ~500 tokens
+      simple: 7500, // ~1875 tokens - full capacity for simple code
+      medium: 5500, // ~1375 tokens - medium complexity
+      complex: 3500, // ~875 tokens - complex/nested code
     },
   },
 } as const
@@ -55,21 +56,34 @@ const CHUNK_LIMITS = {
 // Get chunk limits based on current embedding provider
 function getChunkLimits() {
   try {
-    const { getEmbeddingConfig } = require("./embedding-config.js") as typeof import("./embedding-config.js")
     const config = getEmbeddingConfig()
     const provider = config.provider === "gemini" ? "gemini" : "local"
+    log.info("treesitter chunk limits provider detected", {
+      provider,
+      max: CHUNK_LIMITS[provider].max,
+      envProvider: process.env.SENSEGREP_PROVIDER
+    })
     return CHUNK_LIMITS[provider]
-  } catch {
+  } catch (error) {
     // Fallback to local limits if can't detect
+    log.warn("treesitter failed to detect provider, using local limits", { error: String(error) })
     return CHUNK_LIMITS.local
   }
 }
 
-// Dynamic chunk sizes based on provider
-const MAX_CHUNK_SIZE = getChunkLimits().max
-const MIN_CHUNK_SIZE = getChunkLimits().min
-const STATEMENT_OVERLAP = getChunkLimits().overlap
-const CHUNK_SIZE_CONFIG = getChunkLimits().config
+// Dynamic chunk sizes based on provider (lazy evaluation)
+let cachedLimits: typeof CHUNK_LIMITS.local | typeof CHUNK_LIMITS.gemini | null = null
+function getLimits() {
+  if (!cachedLimits) {
+    cachedLimits = getChunkLimits()
+  }
+  return cachedLimits
+}
+
+const MAX_CHUNK_SIZE = getLimits().max
+const MIN_CHUNK_SIZE = getLimits().min
+const STATEMENT_OVERLAP = getLimits().overlap
+const CHUNK_SIZE_CONFIG = getLimits().config
 
 const require = createRequire(import.meta.url)
 const resolveWasmPath = (id: string) => require.resolve(id)
@@ -765,7 +779,7 @@ ${content}`
   /**
    * Split a large node (> MAX_CHUNK_SIZE) into multiple chunks
    */
-  function splitLargeNode(node: SyntaxNode, lines: string[], filePath: string): Chunking.Chunk[] {
+  function splitLargeNode(node: SyntaxNode, lines: string[], filePath: string, prefixSize = 0): Chunking.Chunk[] {
     // Special handling for classes
     if (node.type === "class_declaration") {
       return chunkClass(node, lines, filePath)
@@ -795,8 +809,9 @@ ${content}`
         filePath,
         nodeType: node.type,
         size: content.length,
+        prefixSize,
       })
-      return forceSplitByLines(node, lines)
+      return forceSplitByLines(node, lines, prefixSize)
     }
 
     // Get signature (everything before the first statement)
@@ -927,42 +942,75 @@ ${content}`
   /**
    * Force split by line boundaries (fallback for unparseable code)
    */
-  function forceSplitByLines(node: SyntaxNode, lines: string[]): Chunking.Chunk[] {
+  function forceSplitByLines(node: SyntaxNode, lines: string[], prefixSize = 0): Chunking.Chunk[] {
     const chunks: Chunking.Chunk[] = []
     const range = getNodeLines(node)
     const nodeLines = lines.slice(range.start - 1, range.end)
+
+    log.info("forceSplitByLines start", {
+      nodeLines: nodeLines.length,
+      MAX_CHUNK_SIZE,
+      prefixSize,
+      rangeStart: range.start,
+      rangeEnd: range.end
+    })
 
     let currentLines: string[] = []
     let currentStartLine = range.start
 
     for (let i = 0; i < nodeLines.length; i++) {
-      currentLines.push(nodeLines[i])
+      const line = nodeLines[i]
+      // Check if adding this line would exceed the limit
+      const wouldBeContent = [...currentLines, line].join("\n")
       const currentContent = currentLines.join("\n")
 
-      if (currentContent.length > MAX_CHUNK_SIZE) {
-        // Create chunk
+      // For first chunk, reserve space for context prefix
+      const effectiveLimit = chunks.length === 0 ? MAX_CHUNK_SIZE - prefixSize : MAX_CHUNK_SIZE
+
+      if (wouldBeContent.length > effectiveLimit && currentLines.length > 0) {
+        // Save current chunk WITHOUT the line that would exceed
+        log.info("forceSplitByLines creating chunk", {
+          chunkNum: chunks.length + 1,
+          size: currentContent.length,
+          lines: currentLines.length,
+          effectiveLimit,
+          wouldBe: wouldBeContent.length,
+          exceedsBy: wouldBeContent.length - effectiveLimit
+        })
         chunks.push({
           content: currentContent,
           startLine: currentStartLine,
           endLine: currentStartLine + currentLines.length - 1,
           type: "code",
         })
-        // Reset
-        currentLines = []
-        currentStartLine = currentStartLine + currentLines.length
+        // Start new chunk with the line that didn't fit
+        currentLines = [line]
+        currentStartLine = currentStartLine + currentLines.length - 1 + i
+      } else {
+        // Safe to add this line
+        currentLines.push(line)
       }
     }
 
     // Last chunk
     if (currentLines.length > 0) {
+      const finalContent = currentLines.join("\n")
+      const effectiveLimit = chunks.length === 0 ? MAX_CHUNK_SIZE - prefixSize : MAX_CHUNK_SIZE
+      log.info("forceSplitByLines final chunk", {
+        chunkNum: chunks.length + 1,
+        size: finalContent.length,
+        lines: currentLines.length,
+        effectiveLimit
+      })
       chunks.push({
-        content: currentLines.join("\n"),
+        content: finalContent,
         startLine: currentStartLine,
         endLine: range.end,
         type: "code",
       })
     }
 
+    log.info("forceSplitByLines complete", { totalChunks: chunks.length })
     return chunks
   }
 
@@ -1225,8 +1273,12 @@ ${content}`
 
         // If too large, split it
         if (finalContent.length > adaptiveMaxSize) {
+          // Calculate prefix size to reserve space in first chunk
+          const samplePrefix = addContextPrefix("", filePath, node.type, nodeName, isExported)
+          const prefixSize = samplePrefix.length
+
           // For large nodes, we need to split but keep the prefix
-          const splitChunks = splitLargeNode(node, lines, filePath)
+          const splitChunks = splitLargeNode(node, lines, filePath, prefixSize)
           // Add prefix only to first chunk of split
           if (splitChunks.length > 0) {
             splitChunks[0].content = addContextPrefix(splitChunks[0].content, filePath, node.type, nodeName, isExported)

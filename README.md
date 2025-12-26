@@ -13,13 +13,18 @@ Index a repo:
 sensegrep index --root /path/to/repo
 ```
 
+Index and watch (reindex at most once per minute if there are changes):
+```
+sensegrep index --root /path/to/repo --watch
+```
+
 Search:
 ```
 sensegrep search "authentication logic" --type function --exported
 ```
 
 ## Embeddings config
-You can override the embedding model/dimension per command, or set global defaults.
+You can set global defaults via config/env. The CLI supports per-command overrides; MCP tools use config only.
 
 CLI overrides:
 ```
@@ -50,14 +55,13 @@ Env vars (override config):
 - `SENSEGREP_RERANK_MODEL`
 - `SENSEGREP_EMBED_DEVICE` = `cpu` | `cuda` | `webgpu` | `wasm`
 
-MCP overrides (per call):
+MCP (no per-call overrides; uses config and index metadata):
 ```
 {
-  "name": "sensegrep.search",
+  "name": "sensegrep.index",
   "arguments": {
-    "query": "auth flow",
-    "embedModel": "BAAI/bge-base-en-v1.5",
-    "embedDim": 768
+    "rootDir": "/path/to/repo",
+    "mode": "full"
   }
 }
 ```
@@ -78,6 +82,10 @@ Run the MCP server (stdio JSON-RPC):
 node packages/mcp/dist/server.js
 ```
 
+The MCP server watches the root directory (SENSEGREP_ROOT or cwd) and reindexes
+at most once per minute when changes are detected. Set SENSEGREP_WATCH=0 to
+disable.
+
 Available tools:
 - `sensegrep.search`
 - `sensegrep.index`
@@ -87,3 +95,5 @@ Available tools:
 - `packages/core`: search engine
 - `packages/cli`: CLI wrapper
 - `packages/mcp`: MCP server
+
+

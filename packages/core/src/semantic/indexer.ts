@@ -12,6 +12,7 @@ import { Ripgrep } from "../file/ripgrep.js"
 import fs from "fs/promises"
 import crypto from "crypto"
 
+// TESTE_WATCHER_1766603500000 - Comentário de teste do watcher - não remover durante teste
 const log = Log.create({ service: "semantic.indexer" })
 
 export namespace Indexer {
@@ -81,9 +82,13 @@ export namespace Indexer {
   /**
    * Check if file should be indexed
    */
-  function shouldIndex(filePath: string): boolean {
+  export function isIndexableFile(filePath: string): boolean {
     const ext = path.extname(filePath).toLowerCase()
     return INDEXABLE_EXTENSIONS.has(ext)
+  }
+
+  function shouldIndex(filePath: string): boolean {
+    return isIndexableFile(filePath)
   }
 
   /**

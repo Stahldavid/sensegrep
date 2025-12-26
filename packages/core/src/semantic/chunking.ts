@@ -1,12 +1,13 @@
 import { Log } from "../util/log.js"
 import { TreeSitterChunking } from "./chunking-treesitter.js"
+import { getEmbeddingConfig } from "./embedding-config.js"
 
 const log = Log.create({ service: "semantic.chunking" })
 
 export namespace Chunking {
   // Chunk size limits vary by embedding model
   // Local (BAAI/bge-small-en-v1.5): 512 tokens → conservative chunk sizes
-  // Gemini (gemini-embedding-001): 2048 tokens → larger chunk sizes
+  // Gemini (gemini-embedding-001): 2048 tokens → aggressive chunk sizes
   const CHUNK_LIMITS = {
     local: {
       max: 1200, // ~300 tokens (safe for 512 token limit)
@@ -14,29 +15,46 @@ export namespace Chunking {
       overlap: 150,
     },
     gemini: {
-      max: 4000, // ~1000 tokens (safe for 2048 token limit)
-      min: 150,
-      overlap: 300,
+      max: 7500, // ~1875 tokens (safe for 2048 token limit with margin)
+      min: 200,
+      overlap: 500,
     },
   } as const
 
   // Get chunk limits based on current embedding provider
   function getChunkLimits() {
     try {
-      const { getEmbeddingConfig } = require("./embedding-config.js") as typeof import("./embedding-config.js")
       const config = getEmbeddingConfig()
       const provider = config.provider === "gemini" ? "gemini" : "local"
+      log.info("chunk limits provider detected", {
+        provider,
+        max: CHUNK_LIMITS[provider].max,
+        envProvider: process.env.SENSEGREP_PROVIDER
+      })
       return CHUNK_LIMITS[provider]
-    } catch {
+    } catch (error) {
       // Fallback to local limits if can't detect
+      log.warn("failed to detect provider, using local limits", { error: String(error) })
       return CHUNK_LIMITS.local
     }
   }
 
-  // Dynamic chunk sizes based on provider
-  const MAX_CHUNK_SIZE = getChunkLimits().max
-  const MIN_CHUNK_SIZE = getChunkLimits().min
-  const OVERLAP_SIZE = getChunkLimits().overlap
+  // Dynamic chunk sizes based on provider (lazy evaluation)
+  let cachedLimits: typeof CHUNK_LIMITS.local | typeof CHUNK_LIMITS.gemini | null = null
+  function getLimits() {
+    if (!cachedLimits) {
+      cachedLimits = getChunkLimits()
+    }
+    return cachedLimits
+  }
+
+  function getMaxChunkSize() { return getLimits().max }
+  function getMinChunkSize() { return getLimits().min }
+  function getOverlapSize() { return getLimits().overlap }
+
+  const MAX_CHUNK_SIZE = getMaxChunkSize()
+  const MIN_CHUNK_SIZE = getMinChunkSize()
+  const OVERLAP_SIZE = getOverlapSize()
 
   export interface Chunk {
     content: string

@@ -6,13 +6,34 @@ import {
   ListToolsRequestSchema,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 let corePromise: Promise<any> | null = null;
 let toolPromise: Promise<any> | null = null;
+const WATCH_INTERVAL_MS = 60_000;
+let watchHandle: { stop: () => Promise<void> } | null = null;
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 async function loadCore() {
   if (!corePromise) {
-    corePromise = import("@sensegrep/core");
+    corePromise = import("@sensegrep/core").catch(async (error) => {
+      const fallbackUrl = pathToFileURL(
+        path.join(__dirname, "..", "..", "core", "dist", "index.js"),
+      ).href;
+      try {
+        return await import(fallbackUrl);
+      } catch (fallbackError) {
+        const message = fallbackError instanceof Error
+          ? fallbackError.message
+          : String(fallbackError);
+        const err = new Error(
+          `Failed to load @sensegrep/core. Fallback also failed: ${message}`,
+        );
+        (err as any).cause = error;
+        throw err;
+      }
+    });
   }
   return corePromise;
 }
@@ -35,6 +56,54 @@ type IndexResult = {
 
 function isIncremental(result: IndexResult): result is IndexResult & { mode: "incremental" } {
   return (result as any).mode === "incremental";
+}
+
+function formatIndexResult(result: IndexResult): string {
+  const duration = ((result.duration ?? 0) / 1000).toFixed(1);
+  if (isIncremental(result)) {
+    return `Indexed ${result.files ?? 0} files (${result.chunks ?? 0} chunks), skipped ${result.skipped ?? 0}, removed ${result.removed ?? 0} in ${duration}s`;
+  }
+  return `Indexed ${result.files ?? 0} files (${result.chunks ?? 0} chunks) in ${duration}s`;
+}
+
+function watchEnabled(): boolean {
+  const raw = process.env.SENSEGREP_WATCH;
+  if (!raw) return true;
+  return !["0", "false", "off", "no"].includes(raw.toLowerCase());
+}
+
+async function startWatch() {
+  if (!watchEnabled()) return;
+  if (watchHandle) return;
+  const { IndexWatcher } = await loadCore();
+  // Use SENSEGREP_ROOT if set, otherwise let watcher auto-detect from most recent index
+  const rootDir = process.env.SENSEGREP_ROOT;
+  try {
+    watchHandle = await IndexWatcher.start({
+      rootDir: rootDir!, // Will auto-detect if undefined
+      intervalMs: WATCH_INTERVAL_MS,
+      onIndex: (result: IndexResult) => {
+        const message = formatIndexResult(result);
+        if (message) console.error(`[sensegrep] ${message}`);
+      },
+      onError: (error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[sensegrep] watch error: ${message}`);
+      },
+    });
+    console.error(`[sensegrep] watching (reindex at most once per minute)`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[sensegrep] failed to start watcher: ${message}`);
+    // Don't throw - allow MCP to continue without watcher
+  }
+}
+
+async function stopWatch() {
+  if (watchHandle) {
+    await watchHandle.stop();
+    watchHandle = null;
+  }
 }
 
 const tools: Tool[] = [
@@ -76,12 +145,11 @@ const tools: Tool[] = [
       type: "object",
       properties: {
         rootDir: { type: "string", description: "Root directory to index" },
-        full: { type: "boolean", description: "Full reindex (default: incremental)" },
-        embedModel: { type: "string", description: "Override embedding model" },
-        embedDim: { type: "number", description: "Override embedding dimension" },
-        rerankModel: { type: "string", description: "Override reranker model" },
-        device: { type: "string", description: "cpu|cuda|webgpu|wasm" },
-        provider: { type: "string", description: "local|gemini" },
+        mode: {
+          type: "string",
+          enum: ["incremental", "full"],
+          description: "Index mode (default: incremental)",
+        },
       },
     },
   },
@@ -140,27 +208,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     if (name === "sensegrep.index") {
-      const full = (args as any).full === true;
       const { core } = await loadTool();
-      const { Indexer, Instance, Embeddings } = core;
-      // Index tool allows overriding embeddings config
-      const provider = (args as any).provider === "local" || (args as any).provider === "gemini" ? (args as any).provider : undefined;
-      const embedOverrides: Record<string, unknown> = {
-        ...((args as any).embedModel ? { embedModel: String((args as any).embedModel) } : {}),
-        ...((args as any).embedDim ? { embedDim: Number((args as any).embedDim) } : {}),
-        ...((args as any).rerankModel ? { rerankModel: String((args as any).rerankModel) } : {}),
-        ...((args as any).device ? { device: String((args as any).device) } : {}),
-        ...(provider ? { provider } : {}),
-      };
-      const withOverrides = Object.keys(embedOverrides).length
-        ? (fn: () => Promise<any>) => Embeddings.withConfig(embedOverrides as any, fn)
-        : (fn: () => Promise<any>) => fn();
-      const result = (await withOverrides(() =>
-        Instance.provide({
-          directory: rootDir,
-          fn: () => (full ? Indexer.indexProject() : Indexer.indexProjectIncremental()),
-        })
-      )) as any;
+      const { Indexer, Instance } = core;
+      const mode = String((args as any).mode ?? "incremental").toLowerCase();
+      const full = mode === "full";
+      const result = (await Instance.provide({
+        directory: rootDir,
+        fn: () => (full ? Indexer.indexProject() : Indexer.indexProjectIncremental()),
+      })) as any;
       const files = result.files ?? 0;
       const chunks = result.chunks ?? 0;
       const skipped = result.skipped ?? 0;
@@ -199,6 +254,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  void startWatch();
+
+  // Setup cleanup handlers
+  const cleanup = async () => {
+    await stopWatch();
+    process.exit(0);
+  };
+
+  process.on("SIGINT", cleanup);
+  process.on("SIGTERM", cleanup);
 }
 
 main().catch((error) => {

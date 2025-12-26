@@ -147,6 +147,40 @@ export namespace VectorStore {
     await fs.writeFile(indexMetaPath(projectPath), JSON.stringify(meta, null, 2))
   }
 
+  /**
+   * Find the most recently indexed project
+   * Useful when SENSEGREP_ROOT is not set and we need to auto-detect the project
+   */
+  export async function getMostRecentIndexedProject(): Promise<string | null> {
+    try {
+      const entries = await fs.readdir(BASE_PATH, { withFileTypes: true })
+      const projectDirs = entries.filter((e) => e.isDirectory() && e.name.startsWith("project_"))
+
+      let mostRecent: { root: string; updatedAt: number } | null = null
+
+      for (const dir of projectDirs) {
+        const metaPath = path.join(BASE_PATH, dir.name, "index-meta.json")
+        const text = await fs.readFile(metaPath, "utf8").catch(() => null)
+        if (!text) continue
+
+        try {
+          const meta = JSON.parse(text) as IndexMeta
+          if (!meta.root || !meta.updatedAt) continue
+
+          if (!mostRecent || meta.updatedAt > mostRecent.updatedAt) {
+            mostRecent = { root: meta.root, updatedAt: meta.updatedAt }
+          }
+        } catch {
+          continue
+        }
+      }
+
+      return mostRecent?.root || null
+    } catch {
+      return null
+    }
+  }
+
   async function ensureTable(db: LanceDBConnection, expectedDim?: number): Promise<LanceTable> {
     try {
       const table = await db.openTable(TABLE_NAME)

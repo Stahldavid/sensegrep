@@ -253,7 +253,7 @@ export namespace Ripgrep {
 
     const proc = spawn(rgPath, args, {
       cwd: input.cwd,
-      stdio: ["ignore", "pipe", "ignore"],
+      stdio: ["ignore", "pipe", "pipe"],
     })
 
     const rl = readline.createInterface({ input: proc.stdout })
@@ -262,7 +262,10 @@ export namespace Ripgrep {
     }
     const [code] = (await once(proc, "close")) as [number]
     if (code !== 0) {
-      throw new Error(`ripgrep --files failed with code ${code}`)
+      const stderr = await streamToString(proc.stderr)
+      throw new Error(
+        `ripgrep --files failed with code ${code} in directory '${input.cwd}'${stderr ? `: ${stderr.trim()}` : ""}`
+      )
     }
   }
 

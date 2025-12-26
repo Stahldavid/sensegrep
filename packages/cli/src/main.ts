@@ -1,5 +1,12 @@
 #!/usr/bin/env node
-import { SenseGrepTool, Indexer, Instance, Tool, Embeddings } from "@sensegrep/core"
+import {
+  SenseGrepTool,
+  Indexer,
+  IndexWatcher,
+  Instance,
+  Tool,
+  Embeddings,
+} from "@sensegrep/core"
 
 type Flags = Record<string, string | boolean>
 
@@ -8,7 +15,7 @@ function usage() {
 sensegrep (CLI)
 
 Usage:
-  sensegrep index [--root <dir>] [--full|--incremental] [--verify]
+  sensegrep index [--root <dir>] [--full|--incremental] [--verify] [--watch]
   sensegrep verify [--root <dir>]
   sensegrep status [--root <dir>]
   sensegrep search <query...> [options]
@@ -33,6 +40,7 @@ Search options:
   --device <name>           cpu|cuda|webgpu|wasm
   --provider <name>         local|gemini
   --root <dir>              Root directory (default: cwd)
+  --watch                   Keep running; reindex at most once per minute on changes
   --json                    Output JSON
 `)
 }
@@ -96,6 +104,14 @@ function isIncremental(
   return (result as any).mode === "incremental"
 }
 
+function formatIndexResult(result: IndexResult): string {
+  const duration = ((result.duration ?? 0) / 1000).toFixed(1)
+  if (isIncremental(result)) {
+    return `Indexed ${result.files} files (${result.chunks} chunks), skipped ${result.skipped}, removed ${result.removed} in ${duration}s`
+  }
+  return `Indexed ${result.files} files (${result.chunks} chunks) in ${duration}s`
+}
+
 async function run() {
   const argv = process.argv.slice(2)
   const command = argv[0]
@@ -111,6 +127,8 @@ async function run() {
 
   if (command === "index") {
     const full = flags.full === true
+    const watch = toBool(flags.watch) === true
+    let skipIndex = false
     if (flags.verify === true) {
       const check = await Instance.provide({
         directory: rootDir,
@@ -119,23 +137,24 @@ async function run() {
       console.log(
         `Verify: indexed=${check.indexed} changed=${check.changed} missing=${check.missing} removed=${check.removed}`,
       )
-      if (check.indexed && check.changed === 0 && check.missing === 0 && check.removed === 0 && !full) {
+      if (
+        check.indexed &&
+        check.changed === 0 &&
+        check.missing === 0 &&
+        check.removed === 0 &&
+        !full
+      ) {
         console.log("Index is up to date. Skipping.")
-        return
+        skipIndex = true
       }
     }
-    const result = await Instance.provide({
-      directory: rootDir,
-      fn: () => (full ? Indexer.indexProject() : Indexer.indexProjectIncremental()),
-    })
-    if (isIncremental(result)) {
-      console.log(
-        `Indexed ${result.files} files (${result.chunks} chunks), skipped ${result.skipped}, removed ${result.removed} in ${(
-          result.duration / 1000
-        ).toFixed(1)}s`,
-      )
-    } else {
-      console.log(`Indexed ${result.files} files (${result.chunks} chunks) in ${(result.duration / 1000).toFixed(1)}s`)
+    if (!skipIndex) {
+      const result = await Instance.provide({
+        directory: rootDir,
+        fn: () =>
+          full ? Indexer.indexProject() : Indexer.indexProjectIncremental(),
+      })
+      console.log(formatIndexResult(result))
     }
     const stats = await Instance.provide({
       directory: rootDir,
@@ -144,6 +163,23 @@ async function run() {
     console.log(
       `Index summary: indexed=${stats.indexed} files=${stats.files} chunks=${stats.chunks} provider=${stats.embeddings?.provider ?? "n/a"}`,
     )
+    if (watch) {
+      console.log("Watching for changes (reindex at most once per minute)...")
+      const handle = await IndexWatcher.start({
+        rootDir,
+        intervalMs: 60_000,
+        onIndex: (result) => {
+          console.log(formatIndexResult(result))
+        },
+      })
+      const stop = async () => {
+        await handle.stop()
+        process.exit(0)
+      }
+      process.on("SIGINT", stop)
+      process.on("SIGTERM", stop)
+      await new Promise(() => {})
+    }
     return
   }
 
