@@ -1,3 +1,4 @@
+
 import { Log } from "../util/log.js"
 import { lazy } from "../util/lazy.js"
 import type { Tree } from "web-tree-sitter"
@@ -814,6 +815,7 @@ ${content}`
       return forceSplitByLines(node, lines, prefixSize)
     }
 
+
     // Get signature (everything before the first statement)
     // For namespaces, include the namespace declaration line
     const firstStmt = statements[0]
@@ -942,7 +944,7 @@ ${content}`
   /**
    * Force split by line boundaries (fallback for unparseable code)
    */
-  function forceSplitByLines(node: SyntaxNode, lines: string[], prefixSize = 0): Chunking.Chunk[] {
+  function forceSplitByLines(node: SyntaxNode, lines: string[]): Chunking.Chunk[] {
     const chunks: Chunking.Chunk[] = []
     const range = getNodeLines(node)
     const nodeLines = lines.slice(range.start - 1, range.end)
@@ -950,7 +952,6 @@ ${content}`
     log.info("forceSplitByLines start", {
       nodeLines: nodeLines.length,
       MAX_CHUNK_SIZE,
-      prefixSize,
       rangeStart: range.start,
       rangeEnd: range.end
     })
@@ -964,18 +965,14 @@ ${content}`
       const wouldBeContent = [...currentLines, line].join("\n")
       const currentContent = currentLines.join("\n")
 
-      // For first chunk, reserve space for context prefix
-      const effectiveLimit = chunks.length === 0 ? MAX_CHUNK_SIZE - prefixSize : MAX_CHUNK_SIZE
-
-      if (wouldBeContent.length > effectiveLimit && currentLines.length > 0) {
+      if (wouldBeContent.length > MAX_CHUNK_SIZE && currentLines.length > 0) {
         // Save current chunk WITHOUT the line that would exceed
         log.info("forceSplitByLines creating chunk", {
           chunkNum: chunks.length + 1,
           size: currentContent.length,
           lines: currentLines.length,
-          effectiveLimit,
           wouldBe: wouldBeContent.length,
-          exceedsBy: wouldBeContent.length - effectiveLimit
+          exceedsBy: wouldBeContent.length - MAX_CHUNK_SIZE
         })
         chunks.push({
           content: currentContent,
@@ -995,12 +992,10 @@ ${content}`
     // Last chunk
     if (currentLines.length > 0) {
       const finalContent = currentLines.join("\n")
-      const effectiveLimit = chunks.length === 0 ? MAX_CHUNK_SIZE - prefixSize : MAX_CHUNK_SIZE
       log.info("forceSplitByLines final chunk", {
         chunkNum: chunks.length + 1,
         size: finalContent.length,
-        lines: currentLines.length,
-        effectiveLimit
+        lines: currentLines.length
       })
       chunks.push({
         content: finalContent,
@@ -1273,12 +1268,8 @@ ${content}`
 
         // If too large, split it
         if (finalContent.length > adaptiveMaxSize) {
-          // Calculate prefix size to reserve space in first chunk
-          const samplePrefix = addContextPrefix("", filePath, node.type, nodeName, isExported)
-          const prefixSize = samplePrefix.length
-
           // For large nodes, we need to split but keep the prefix
-          const splitChunks = splitLargeNode(node, lines, filePath, prefixSize)
+          const splitChunks = splitLargeNode(node, lines, filePath)
           // Add prefix only to first chunk of split
           if (splitChunks.length > 0) {
             splitChunks[0].content = addContextPrefix(splitChunks[0].content, filePath, node.type, nodeName, isExported)
