@@ -145,6 +145,29 @@ const tools: Tool[] = [
     },
   },
   {
+    name: "sensegrep.detect_duplicates",
+    description: "Detect logical duplicates using the existing semantic index (vector store).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        rootDir: { type: "string", description: "Root directory (default: cwd)" },
+        threshold: { type: "number", description: "Minimum similarity 0.0-1.0 (default: 0.85)" },
+        scope: { type: "string", description: "Scope: function, method, all (or comma-separated)" },
+        ignoreTests: { type: "boolean", description: "Ignore test files" },
+        crossFileOnly: { type: "boolean", description: "Only report cross-file duplicates" },
+        onlyExported: { type: "boolean", description: "Only exported symbols" },
+        excludePattern: { type: "string", description: "Exclude symbols matching regex" },
+        minLines: { type: "number", description: "Minimum lines (default: 10)" },
+        minComplexity: { type: "number", description: "Minimum complexity (default: 0)" },
+        limit: { type: "number", description: "Max duplicates to show (default: 10)" },
+        showCode: { type: "boolean", description: "Show code snippets" },
+        verbose: { type: "boolean", description: "Show detailed output" },
+        quiet: { type: "boolean", description: "Only show summary" },
+        json: { type: "boolean", description: "Return raw JSON result" },
+      },
+    },
+  },
+  {
     name: "sensegrep.index",
     description: "Create or update a semantic index for the given root directory.",
     inputSchema: {
@@ -174,7 +197,7 @@ const tools: Tool[] = [
 const server = new Server(
   {
     name: "sensegrep",
-    version: "0.1.6",
+    version: "0.1.11",
   },
   {
     capabilities: {
@@ -234,6 +257,171 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return {
         content: [{ type: "text", text }],
       };
+    }
+
+    if (name === "sensegrep.detect_duplicates" || name === "sensegrep.detect-duplicates") {
+      const { core } = await loadTool();
+      const { DuplicateDetector, Instance } = core;
+      const minThreshold =
+        typeof (args as any)?.threshold === "number" ? Number((args as any).threshold) : 0.85;
+
+      let scopeFilter: Array<"function" | "method"> | undefined;
+      const scopeRaw = (args as any)?.scope;
+      if (scopeRaw) {
+        const scopeStr = String(scopeRaw).toLowerCase();
+        if (scopeStr === "all") {
+          scopeFilter = undefined;
+        } else if (scopeStr === "function") {
+          scopeFilter = ["function"];
+        } else if (scopeStr === "method") {
+          scopeFilter = ["method"];
+        } else {
+          scopeFilter = scopeStr.split(",").map((s) => s.trim()) as any;
+        }
+      } else {
+        scopeFilter = ["function", "method"];
+      }
+
+      const options = {
+        path: rootDir,
+        thresholds: {
+          exact: 0.98,
+          high: 0.9,
+          medium: 0.85,
+          low: minThreshold,
+        },
+        scopeFilter,
+        ignoreTests: Boolean((args as any)?.ignoreTests),
+        crossFileOnly: Boolean((args as any)?.crossFileOnly),
+        onlyExported: Boolean((args as any)?.onlyExported),
+        excludePattern: (args as any)?.excludePattern ? String((args as any).excludePattern) : undefined,
+        minLines: typeof (args as any)?.minLines === "number" ? Number((args as any).minLines) : 10,
+        minComplexity:
+          typeof (args as any)?.minComplexity === "number" ? Number((args as any).minComplexity) : 0,
+        normalizeIdentifiers: true,
+        rankByImpact: true,
+      };
+
+      const showCode = Boolean((args as any)?.showCode);
+      const verbose = Boolean((args as any)?.verbose);
+      const quiet = Boolean((args as any)?.quiet);
+      const limit = typeof (args as any)?.limit === "number" ? Number((args as any).limit) : 10;
+
+      const result = await Instance.provide({
+        directory: rootDir,
+        fn: () => DuplicateDetector.detect(options),
+      });
+
+      if ((args as any)?.json) {
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      }
+
+      const lines: string[] = [];
+      if (!quiet) {
+        lines.push("Detecting logical duplicates...");
+        lines.push(`Path: ${rootDir}`);
+        lines.push(`Threshold: ${minThreshold}`);
+        lines.push(`Scope: ${scopeFilter?.join(", ") || "all"}`);
+        if (options.crossFileOnly) lines.push("Filter: cross-file only");
+        if (options.onlyExported) lines.push("Filter: exported only");
+        if (options.excludePattern) lines.push(`Filter: exclude pattern /${options.excludePattern}/`);
+        lines.push("");
+        lines.push("━".repeat(80));
+        lines.push("DUPLICATE DETECTION RESULTS");
+        lines.push("━".repeat(80));
+        lines.push(`Total duplicates: ${result.summary.totalDuplicates}`);
+        const critical = result.duplicates.filter((d: any) => d.similarity >= 0.95).length;
+        const high = result.duplicates.filter((d: any) => d.similarity >= 0.9 && d.similarity < 0.95).length;
+        const medium = result.duplicates.filter((d: any) => d.similarity >= 0.85 && d.similarity < 0.9).length;
+        const low = result.duplicates.filter((d: any) => d.similarity < 0.85).length;
+        if (critical > 0) lines.push(`  🔥 Critical (≥95%): ${critical}  ← Exact duplicates, refactor NOW`);
+        if (high > 0) lines.push(`  ⚠️  High (90-94%): ${high}   ← Very similar, should review`);
+        if (medium > 0) lines.push(`  ℹ️  Medium (85-89%): ${medium} ← Similar, investigate`);
+        if (low > 0) lines.push(`  💡 Low (75-84%): ${low}   ← Somewhat similar`);
+        lines.push("");
+        lines.push(`Files affected: ${result.summary.filesAffected}`);
+        lines.push(`Potential savings: ${result.summary.totalSavings} lines`);
+        lines.push("");
+      }
+
+      if (result.duplicates.length === 0) {
+        lines.push("✅ No significant duplicates found!");
+        return { content: [{ type: "text", text: lines.join("\n") }] };
+      }
+
+      if (quiet) {
+        return { content: [{ type: "text", text: lines.join("\n") }] };
+      }
+
+      const topDuplicates = result.duplicates.slice(0, limit);
+      lines.push(`Top ${topDuplicates.length} duplicates (ranked by impact):`);
+      lines.push("");
+
+      for (let i = 0; i < topDuplicates.length; i++) {
+        const dup = topDuplicates[i];
+        const similarity = dup.similarity ?? 0;
+        const level = dup.level ?? "";
+        let emoji = "💡";
+        let label = "LOW";
+        if (similarity >= 0.95) {
+          emoji = "🔥";
+          label = "CRITICAL";
+        } else if (level === "exact" || level === "high") {
+          emoji = "⚠️ ";
+          label = "HIGH";
+        } else if (level === "medium") {
+          emoji = "ℹ️ ";
+          label = "MEDIUM";
+        }
+
+        lines.push(`${emoji} #${i + 1} - ${label} (${(similarity * 100).toFixed(1)}% similar)`);
+        if (verbose) {
+          lines.push(
+            `   Impact: ${dup.impact.totalLines} lines × ${dup.impact.complexity.toFixed(1)} complexity × ${dup.impact.fileCount} files = ${dup.impact.score.toFixed(0)} score`,
+          );
+          lines.push(`   Potential savings: ${dup.impact.estimatedSavings} lines`);
+        }
+        for (const inst of dup.instances) {
+          const relPath = inst.file.replace(rootDir, "").replace(/^[/\\]/, "");
+          const linesCount = inst.endLine - inst.startLine + 1;
+          lines.push(`   ${relPath}:${inst.startLine}-${inst.endLine} (${inst.symbol}, ${linesCount} lines)`);
+        }
+
+        if (showCode || verbose) {
+          lines.push("");
+          for (let j = 0; j < dup.instances.length; j++) {
+            const inst = dup.instances[j];
+            const relPath = inst.file.replace(rootDir, "").replace(/^[/\\]/, "");
+            lines.push(`   ┌─ ${String.fromCharCode(65 + j)}: ${relPath}:${inst.startLine}`);
+            const codeLines = String(inst.content ?? "").split("\n");
+            const maxLines = showCode && !verbose ? 15 : 30;
+            const displayLines = codeLines.slice(0, maxLines);
+            for (const line of displayLines) {
+              lines.push(`   │ ${line}`);
+            }
+            if (codeLines.length > maxLines) {
+              lines.push(`   │ ... (${codeLines.length - maxLines} more lines)`);
+            }
+            lines.push("   └─");
+          }
+        }
+
+        lines.push("");
+      }
+
+      if (result.duplicates.length > limit) {
+        lines.push(`... and ${result.duplicates.length - limit} more duplicates`);
+        lines.push(`Use --limit ${result.duplicates.length} to see all`);
+        lines.push("");
+      }
+
+      if (result.acceptableDuplicates && result.acceptableDuplicates.length > 0) {
+        lines.push(
+          `💡 ${result.acceptableDuplicates.length} acceptable duplicates ignored (simple validations, guards, etc.)`,
+        );
+      }
+
+      return { content: [{ type: "text", text: lines.join("\n") }] };
     }
 
     if (name === "sensegrep.stats") {
