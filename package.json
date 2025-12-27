@@ -9,7 +9,7 @@
     "build": "node build.js",
     "check": "node_modules/.bin/tsc -p packages/core/tsconfig.json --noEmit || true",
     "dev": "echo 'Use packages/cli or packages/mcp when implemented'",
-    "test": "bun run build"
+    "test": "node build.js"
   },
   "overrides": {
     "onnxruntime-node": "1.23.2"

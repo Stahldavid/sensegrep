@@ -73,6 +73,106 @@ async function runRipgrepOnFiles(
   return matches
 }
 
+function overlapRatio(aStart: number, aEnd: number, bStart: number, bEnd: number): number {
+  const overlap = Math.max(0, Math.min(aEnd, bEnd) - Math.max(aStart, bStart) + 1)
+  const lenA = Math.max(1, aEnd - aStart + 1)
+  const lenB = Math.max(1, bEnd - bStart + 1)
+  const minLen = Math.min(lenA, lenB)
+  return overlap / minLen
+}
+
+function dedupeOverlapping<T extends {
+  file: string
+  startLine: number
+  endLine: number
+  semanticScore: number
+  metadata: Record<string, unknown>
+}>(results: T[], options?: { overlapThreshold?: number; scoreSlack?: number }): T[] {
+  const overlapThreshold = options?.overlapThreshold ?? 0.6
+  const scoreSlack = options?.scoreSlack ?? 0.02
+  const byFile = new Map<string, T[]>()
+  const kept: T[] = []
+
+  for (const result of results) {
+    const list = byFile.get(result.file) ?? []
+    let replaced = false
+    let skip = false
+
+    for (let i = 0; i < list.length; i++) {
+      const existing = list[i]
+      const ratio = overlapRatio(result.startLine, result.endLine, existing.startLine, existing.endLine)
+      if (ratio < overlapThreshold) continue
+
+      const scoreDiff = result.semanticScore - existing.semanticScore
+      const resultType = String(result.metadata.symbolType ?? "")
+      const existingType = String(existing.metadata.symbolType ?? "")
+      const resultLen = result.endLine - result.startLine + 1
+      const existingLen = existing.endLine - existing.startLine + 1
+
+      let preferResult = scoreDiff > scoreSlack
+      if (!preferResult && Math.abs(scoreDiff) <= scoreSlack) {
+        if (resultType === "method" && existingType === "class") {
+          preferResult = true
+        } else if (resultType === "function" && existingType === "class") {
+          preferResult = true
+        } else if (resultLen < existingLen) {
+          preferResult = true
+        }
+      }
+
+      if (preferResult) {
+        list[i] = result
+        replaced = true
+      } else {
+        skip = true
+      }
+      break
+    }
+
+    if (!skip) {
+      if (!replaced) list.push(result)
+      byFile.set(result.file, list)
+    }
+  }
+
+  for (const list of byFile.values()) {
+    kept.push(...list)
+  }
+
+  return kept
+}
+
+function diversifyResults<T extends {
+  file: string
+  metadata: Record<string, unknown>
+}>(results: T[], limits: { maxPerFile: number; maxPerSymbol: number }): T[] {
+  const { maxPerFile, maxPerSymbol } = limits
+  const kept: T[] = []
+  const perFile = new Map<string, number>()
+  const perSymbol = new Map<string, number>()
+
+  for (const result of results) {
+    const file = result.file || ""
+    const symbolName = typeof result.metadata.symbolName === "string" ? result.metadata.symbolName : ""
+
+    if (maxPerFile > 0) {
+      const fileCount = perFile.get(file) ?? 0
+      if (fileCount >= maxPerFile) continue
+      perFile.set(file, fileCount + 1)
+    }
+
+    if (maxPerSymbol > 0 && symbolName) {
+      const symbolCount = perSymbol.get(symbolName) ?? 0
+      if (symbolCount >= maxPerSymbol) continue
+      perSymbol.set(symbolName, symbolCount + 1)
+    }
+
+    kept.push(result)
+  }
+
+  return kept
+}
+
 export const SenseGrepTool = Tool.define("sensegrep", {
   description: DESCRIPTION,
   parameters: z.object({
@@ -81,6 +181,11 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     limit: z.number().optional().describe("Maximum number of results to return (default: 20)"),
     include: z.string().optional().describe('File pattern to filter results (e.g. "*.ts", "src/**/*.tsx")'),
     rerank: z.boolean().default(false).describe("Enable cross-encoder reranking (default: false)"),
+    minScore: z.number().optional().describe("Minimum relevance score 0-1 (filters low-confidence results)"),
+    symbol: z.string().optional().describe('Filter by symbol name (e.g. "VectorStore")'),
+    name: z.string().optional().describe('Alias for "symbol"'),
+    maxPerFile: z.number().optional().describe("Maximum results per file (default: 1)"),
+    maxPerSymbol: z.number().optional().describe("Maximum results per symbol (default: 1)"),
 
     // Semantic metadata filters
     symbolType: z
@@ -96,6 +201,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       .optional()
       .describe('Filter by programming language (e.g. "typescript")'),
     parentScope: z.string().optional().describe('Filter by parent scope/class (e.g. "VectorStore")'),
+    imports: z.string().optional().describe('Filter by imported module name (e.g. "react")'),
   }),
   async execute(params, _ctx) {
     // Read index metadata first (before any embedding initialization)
@@ -156,6 +262,13 @@ export const SenseGrepTool = Tool.define("sensegrep", {
 
     if (params.parentScope) {
       filters.all!.push({ key: "parentScope", operator: "equals", value: params.parentScope })
+    }
+    if (params.imports) {
+      filters.all!.push({ key: "imports", operator: "contains", value: params.imports })
+    }
+    const symbolQuery = params.symbol ?? params.name
+    if (symbolQuery) {
+      filters.all!.push({ key: "symbolName", operator: "contains", value: symbolQuery })
     }
 
     // Only pass filters if we have any
@@ -234,8 +347,21 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       rankedResults = [...reranked, ...remainder]
     }
 
+    const minScore = typeof params.minScore === "number" ? params.minScore : undefined
+    if (minScore !== undefined) {
+      rankedResults = rankedResults.filter((r) => (r.rerankScore ?? r.semanticScore) >= minScore)
+    }
+
+    // Dedupe overlapping results within the same file (class vs method, etc.)
+    const dedupedResults = dedupeOverlapping(rankedResults)
+
+    // Enforce diversity across file/symbol to avoid repeating the same source
+    const maxPerFile = typeof params.maxPerFile === "number" ? Math.max(0, params.maxPerFile) : 1
+    const maxPerSymbol = typeof params.maxPerSymbol === "number" ? Math.max(0, params.maxPerSymbol) : 1
+    const diversifiedResults = diversifyResults(dedupedResults, { maxPerFile, maxPerSymbol })
+
     // Take top results
-    const finalResults = rankedResults.slice(0, limit)
+    const finalResults = diversifiedResults.slice(0, limit)
 
     if (finalResults.length === 0) {
       return {

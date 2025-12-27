@@ -176,6 +176,7 @@ export namespace Indexer {
         ...(chunk.scopeDepth !== undefined && { scopeDepth: chunk.scopeDepth }),
         ...(chunk.hasDocumentation !== undefined && { hasDocumentation: chunk.hasDocumentation }),
         ...(chunk.language && { language: chunk.language }),
+        ...(chunk.imports && { imports: chunk.imports }),
       },
     }))
   }

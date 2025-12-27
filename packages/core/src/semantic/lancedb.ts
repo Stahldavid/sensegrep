@@ -182,40 +182,90 @@ export namespace VectorStore {
   }
 
   async function ensureTable(db: LanceDBConnection, expectedDim?: number): Promise<LanceTable> {
+    let table: LanceTable | null = null
+    let needsCreate = false
+
     try {
-      const table = await db.openTable(TABLE_NAME)
+      table = await db.openTable(TABLE_NAME)
+    } catch (error) {
+      needsCreate = true
+    }
+
+    if (table && !needsCreate) {
+      try {
+        const schema = await table.schema()
+        const fields = Array.isArray((schema as any)?.fields) ? (schema as any).fields : []
+        const fieldNames = fields.map((field: any) => field?.name).filter(Boolean)
+        const required = [
+          "id",
+          "content",
+          "vector",
+          "file",
+          "startLine",
+          "endLine",
+          "chunkIndex",
+          "type",
+          "symbolName",
+          "symbolType",
+          "complexity",
+          "isExported",
+          "parentScope",
+          "scopeDepth",
+          "hasDocumentation",
+          "language",
+          "imports",
+        ]
+        if (fieldNames.length > 0 && required.some((name) => !fieldNames.includes(name))) {
+          log.warn("Existing table schema missing fields; recreating", {
+            tableName: TABLE_NAME,
+            missing: required.filter((name) => !fieldNames.includes(name)),
+          })
+          try {
+            await db.dropTable(TABLE_NAME)
+          } catch {
+            // ignore drop failures and fall back to create
+          }
+          needsCreate = true
+        }
+      } catch {
+        // If schema fetch fails, keep existing table
+      }
+    }
+
+    if (table && !needsCreate) {
       log.debug("Opened existing table", { tableName: TABLE_NAME })
       return table
-    } catch (error) {
-      // Create table lazily on first insert. We create a single sentinel row and
-      // delete it right away to avoid schema inference issues on empty creates.
-      const dim = expectedDim ?? Embeddings.getDimension()
-      log.debug("Creating new table", { tableName: TABLE_NAME, dimension: dim })
-      const sentinel = {
-        id: "__opencode_init__",
-        content: "",
-        vector: Array.from({ length: dim }, () => 0),
-        file: "",
-        startLine: 0,
-        endLine: 0,
-        chunkIndex: 0,
-        type: "",
-        // Semantic metadata (nullable)
-        symbolName: "",
-        symbolType: "",
-        complexity: 0,
-        isExported: false,
-        parentScope: "",
-        scopeDepth: 0,
-        hasDocumentation: false,
-        language: "",
-      }
-      const table = await db.createTable(TABLE_NAME, [sentinel], {
-        mode: "overwrite",
-      } as any)
-      await table.delete("id = '__opencode_init__'")
-      return table
     }
+
+    // Create table lazily on first insert. We create a single sentinel row and
+    // delete it right away to avoid schema inference issues on empty creates.
+    const dim = expectedDim ?? Embeddings.getDimension()
+    log.debug("Creating new table", { tableName: TABLE_NAME, dimension: dim })
+    const sentinel = {
+      id: "__opencode_init__",
+      content: "",
+      vector: Array.from({ length: dim }, () => 0),
+      file: "",
+      startLine: 0,
+      endLine: 0,
+      chunkIndex: 0,
+      type: "",
+      // Semantic metadata (nullable)
+      symbolName: "",
+      symbolType: "",
+      complexity: 0,
+      isExported: false,
+      parentScope: "",
+      scopeDepth: 0,
+      hasDocumentation: false,
+      language: "",
+      imports: "",
+    }
+    const created = await db.createTable(TABLE_NAME, [sentinel], {
+      mode: "overwrite",
+    } as any)
+    await created.delete("id = '__opencode_init__'")
+    return created
   }
 
   function escapeSqlString(value: string): string {
@@ -452,6 +502,7 @@ export namespace VectorStore {
         scopeDepth: md.scopeDepth !== undefined ? Number(md.scopeDepth) : 0,
         hasDocumentation: md.hasDocumentation !== undefined ? Boolean(md.hasDocumentation) : false,
         language: md.language ? String(md.language) : "",
+        imports: md.imports ? String(md.imports) : "",
       }
     })
 
@@ -500,6 +551,86 @@ export namespace VectorStore {
       .select(["id"])
       .toArray()
     return Array.isArray(rows) ? rows.length : 0
+  }
+
+  function mapRow(row: any) {
+    const vector = row?.vector
+    const vectorArray =
+      Array.isArray(vector) ? vector : vector && typeof vector.length === "number" ? Array.from(vector) : undefined
+    return {
+      id: String(row?.id ?? ""),
+      content: String(row?.content ?? ""),
+      vector: vectorArray,
+      metadata: {
+        file: String(row?.file ?? ""),
+        startLine: Number(row?.startLine ?? 0),
+        endLine: Number(row?.endLine ?? 0),
+        chunkIndex: Number(row?.chunkIndex ?? 0),
+        type: String(row?.type ?? ""),
+        symbolName: row?.symbolName ? String(row.symbolName) : undefined,
+        symbolType: row?.symbolType ? String(row.symbolType) : undefined,
+        complexity: row?.complexity !== undefined ? Number(row.complexity) : undefined,
+        isExported: row?.isExported !== undefined ? Boolean(row.isExported) : undefined,
+        parentScope: row?.parentScope ? String(row.parentScope) : undefined,
+        scopeDepth: row?.scopeDepth !== undefined ? Number(row.scopeDepth) : undefined,
+        hasDocumentation: row?.hasDocumentation !== undefined ? Boolean(row.hasDocumentation) : undefined,
+        language: row?.language ? String(row.language) : undefined,
+        imports: row?.imports ? String(row.imports) : undefined,
+      },
+      distance: Number(row?._distance ?? row?.distance ?? 0),
+    }
+  }
+
+  export async function listDocuments(
+    collection: LanceTable,
+    options: {
+      limit?: number
+      where?: Record<string, string>
+      filters?: SearchFilters
+      columns?: string[]
+    } = {},
+  ): Promise<ReturnType<typeof mapRow>[]> {
+    let whereClause: string | undefined
+    if (options.filters) {
+      whereClause = buildWhereFromFilters(options.filters)
+    } else if (options.where) {
+      whereClause = buildWhere(options.where)
+    }
+
+    let query = (collection as any).query()
+    if (options.columns && options.columns.length > 0) {
+      query = query.select(options.columns)
+    }
+    if (whereClause) query = query.where(whereClause)
+    if (options.limit && options.limit > 0) query = query.limit(options.limit)
+
+    const rows: any[] = await query.toArray()
+    return rows.map(mapRow)
+  }
+
+  export async function searchByVector(
+    collection: LanceTable,
+    vector: number[],
+    options: {
+      limit?: number
+      where?: Record<string, string>
+      filters?: SearchFilters
+    } = {},
+  ): Promise<ReturnType<typeof mapRow>[]> {
+    const limit = options.limit ?? 20
+
+    let whereClause: string | undefined
+    if (options.filters) {
+      whereClause = buildWhereFromFilters(options.filters)
+    } else if (options.where) {
+      whereClause = buildWhere(options.where)
+    }
+
+    let searchBuilder = (collection as any).vectorSearch(vector).limit(limit)
+    if (whereClause) searchBuilder = searchBuilder.where(whereClause)
+
+    const rows: any[] = await searchBuilder.toArray()
+    return rows.map(mapRow)
   }
 
   export async function search(
@@ -553,6 +684,7 @@ export namespace VectorStore {
         scopeDepth: r.scopeDepth !== undefined ? Number(r.scopeDepth) : undefined,
         hasDocumentation: r.hasDocumentation !== undefined ? Boolean(r.hasDocumentation) : undefined,
         language: r.language ? String(r.language) : undefined,
+        imports: r.imports ? String(r.imports) : undefined,
       },
       distance: Number(r._distance ?? r.distance ?? 0),
     }))

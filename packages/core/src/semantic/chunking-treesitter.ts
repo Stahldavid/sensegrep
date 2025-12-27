@@ -473,6 +473,29 @@ export namespace TreeSitterChunking {
     return keywords
   }
 
+  function extractImportsFromLines(lines: string[]): string[] {
+    const imports = new Set<string>()
+    for (const line of lines) {
+      let match: RegExpExecArray | null
+      const fromRe = /\bfrom\s+["']([^"']+)["']/g
+      while ((match = fromRe.exec(line)) !== null) {
+        const name = match[1].split("/").pop() || match[1]
+        if (name) imports.add(name)
+      }
+      const importRe = /\bimport\s+["']([^"']+)["']/g
+      while ((match = importRe.exec(line)) !== null) {
+        const name = match[1].split("/").pop() || match[1]
+        if (name) imports.add(name)
+      }
+      const requireRe = /\brequire\(\s*["']([^"']+)["']\s*\)/g
+      while ((match = requireRe.exec(line)) !== null) {
+        const name = match[1].split("/").pop() || match[1]
+        if (name) imports.add(name)
+      }
+    }
+    return Array.from(imports)
+  }
+
   /**
    * Add structured context prefix to chunk content
    */
@@ -735,7 +758,7 @@ ${content}`
     // If class is small, keep it whole
     const classContent = extractNodeContent(classNode, lines)
     if (classContent.length <= MAX_CHUNK_SIZE || methods.length === 0) {
-      return [
+      const base: Chunking.Chunk[] = [
         {
           content: addContextPrefix(classContent, filePath, "class_declaration", className, isExported),
           startLine: classNode.startPosition.row + 1,
@@ -744,6 +767,23 @@ ${content}`
           ...classMetadata,
         },
       ]
+      if (methods.length === 0) return base
+      // Also index methods even when the class is small
+      for (const method of methods) {
+        const methodName = extractNodeName(method)
+        const methodContent = extractNodeContent(method, lines)
+        const methodMetadata = extractMetadata(method, filePath, className)
+
+        const contextualContent = `// Class: ${className}\n\n${methodContent}`
+        base.push({
+          content: addContextPrefix(contextualContent, filePath, "method_definition", methodName, false),
+          startLine: method.startPosition.row + 1,
+          endLine: method.endPosition.row + 1,
+          type: "code",
+          ...methodMetadata,
+        })
+      }
+      return base
     }
 
     // Chunk 1: Class signature + properties (everything before first method)
@@ -815,6 +855,7 @@ ${content}`
       return forceSplitByLines(node, lines, prefixSize)
     }
 
+    
 
     // Get signature (everything before the first statement)
     // For namespaces, include the namespace declaration line
@@ -944,7 +985,7 @@ ${content}`
   /**
    * Force split by line boundaries (fallback for unparseable code)
    */
-  function forceSplitByLines(node: SyntaxNode, lines: string[]): Chunking.Chunk[] {
+  function forceSplitByLines(node: SyntaxNode, lines: string[], prefixSize = 0): Chunking.Chunk[] {
     const chunks: Chunking.Chunk[] = []
     const range = getNodeLines(node)
     const nodeLines = lines.slice(range.start - 1, range.end)
@@ -1449,6 +1490,8 @@ ${content}`
 
     // Split content into lines for extraction
     const lines = content.split("\n")
+    const fileImports = extractImportsFromLines(lines)
+    const importsValue = fileImports.length > 0 ? fileImports.join(",") : undefined
 
     // Special handling for test files
     let chunks: Chunking.Chunk[]
@@ -1465,6 +1508,10 @@ ${content}`
       chunks: chunks.length,
       avgSize: Math.round(chunks.reduce((sum, c) => sum + c.content.length, 0) / (chunks.length || 1)),
     })
+
+    if (importsValue) {
+      chunks = chunks.map((c) => ({ ...c, imports: importsValue }))
+    }
 
     return chunks
   }

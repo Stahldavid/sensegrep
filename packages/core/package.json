@@ -1,6 +1,6 @@
 {
   "name": "@sensegrep/core",
-  "version": "0.1.6",
+  "version": "0.1.10",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -14,7 +14,8 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && node -e \"const fs = require('fs'); fs.mkdirSync('dist/tool', { recursive: true }); fs.copyFileSync('src/tool/sensegrep.txt', 'dist/tool/sensegrep.txt');\""
+    "build": "tsc -p tsconfig.json && node -e \"const fs = require('fs'); fs.mkdirSync('dist/tool', { recursive: true }); fs.copyFileSync('src/tool/sensegrep.txt', 'dist/tool/sensegrep.txt');\"",
+    "prepublishOnly": "npm run build"
   },
   "engines": {
     "node": ">=18"
@@ -30,6 +31,9 @@
     "web-tree-sitter": "^0.21.0",
     "xdg-basedir": "^5.1.0",
     "zod": "^4.2.1"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "license": "Apache-2.0",
   "repository": {

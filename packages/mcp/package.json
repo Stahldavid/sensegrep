@@ -1,25 +1,29 @@
 {
   "name": "@sensegrep/mcp",
-  "version": "0.1.8",
+  "version": "0.1.10",
   "type": "module",
   "main": "./dist/server.js",
   "bin": {
-    "sensegrep-mcp": "./dist/server.js"
+    "sensegrep-mcp": "dist/server.js"
   },
   "types": "./dist/server.d.ts",
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "prepublishOnly": "node ../../build.js"
   },
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.1",
-    "@sensegrep/core": "^0.1.6",
+    "@sensegrep/core": "^0.1.10",
     "zod": "^4.2.1"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "license": "Apache-2.0",
   "repository": {

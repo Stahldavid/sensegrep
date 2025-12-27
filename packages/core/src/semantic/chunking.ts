@@ -71,6 +71,7 @@ export namespace Chunking {
     scopeDepth?: number // Nesting level
     hasDocumentation?: boolean // Whether JSDoc/comments are present
     language?: string // "typescript" | "javascript" | "python" etc
+    imports?: string // Comma-separated imported module names for filtering
   }
 
   /**

@@ -9,6 +9,10 @@ Usage:
 - `limit` (optional): Maximum results (default: 20)
 - `include` (optional): File pattern filter (e.g. "*.ts", "src/**/*.tsx")
 - `rerank` (optional): Enable cross-encoder reranking (default: false)
+- `minScore` (optional): Minimum relevance score 0-1 (filters low-confidence results)
+- `symbol` (optional): Filter by symbol name (e.g. "VectorStore")
+- `maxPerFile` (optional): Max results per file (default: 1)
+- `maxPerSymbol` (optional): Max results per symbol (default: 1)
 
 Semantic Metadata Filters (optional):
 - `symbolType`: Filter by code structure type - "function", "class", "method", "interface", "type", "variable", "namespace", "enum"
@@ -18,6 +22,7 @@ Semantic Metadata Filters (optional):
 - `hasDocumentation`: Filter for documented/undocumented code (true/false)
 - `language`: Filter by language - "typescript", "javascript", "tsx", "jsx"
 - `parentScope`: Filter by parent class/namespace (e.g. "VectorStore")
+- `imports`: Filter by imported module name (e.g. "react")
 
 How it works:
 1. Semantic search finds conceptually relevant code chunks using AI embeddings

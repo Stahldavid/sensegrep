@@ -117,6 +117,8 @@ const tools: Tool[] = [
         pattern: { type: "string", description: "Regex pattern filter" },
         limit: { type: "number", description: "Max results (default: 20)" },
         include: { type: "string", description: "File glob filter (e.g., 'src/**/*.ts')" },
+        symbol: { type: "string", description: "Filter by symbol name" },
+        name: { type: "string", description: "Alias for symbol name" },
         symbolType: {
           type: "string",
           enum: ["function", "class", "method", "interface", "type", "variable", "namespace", "enum"],
@@ -125,6 +127,9 @@ const tools: Tool[] = [
         isExported: { type: "boolean", description: "Only exported symbols" },
         minComplexity: { type: "number", description: "Minimum cyclomatic complexity" },
         maxComplexity: { type: "number", description: "Maximum cyclomatic complexity" },
+        minScore: { type: "number", description: "Minimum relevance score 0-1" },
+        maxPerFile: { type: "number", description: "Max results per file (default: 1)" },
+        maxPerSymbol: { type: "number", description: "Max results per symbol (default: 1)" },
         hasDocumentation: { type: "boolean", description: "Require documentation" },
         language: {
           type: "string",
@@ -132,6 +137,7 @@ const tools: Tool[] = [
           description: "Filter by language",
         },
         parentScope: { type: "string", description: "Parent scope/class name" },
+        imports: { type: "string", description: "Filter by imported module name (e.g., 'react')" },
         rerank: { type: "boolean", description: "Enable cross-encoder reranking" },
         rootDir: { type: "string", description: "Root directory (default: cwd)" },
       },
