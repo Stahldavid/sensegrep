@@ -159,6 +159,9 @@ const tools: Tool[] = [
         excludePattern: { type: "string", description: "Exclude symbols matching regex" },
         minLines: { type: "number", description: "Minimum lines (default: 10)" },
         minComplexity: { type: "number", description: "Minimum complexity (default: 0)" },
+        ignoreAcceptablePatterns: { type: "boolean", description: "Do not ignore acceptable duplicates" },
+        normalizeIdentifiers: { type: "boolean", description: "Normalize identifiers (default: true)" },
+        rankByImpact: { type: "boolean", description: "Rank by impact (default: true)" },
         limit: { type: "number", description: "Max duplicates to show (default: 10)" },
         showCode: { type: "boolean", description: "Show code snippets" },
         verbose: { type: "boolean", description: "Show detailed output" },
@@ -270,7 +273,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       if (scopeRaw) {
         const scopeStr = String(scopeRaw).toLowerCase();
         if (scopeStr === "all") {
-          scopeFilter = undefined;
+          scopeFilter = [];
         } else if (scopeStr === "function") {
           scopeFilter = ["function"];
         } else if (scopeStr === "method") {
@@ -281,6 +284,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       } else {
         scopeFilter = ["function", "method"];
       }
+
+      const normalizeIdentifiers =
+        typeof (args as any)?.normalizeIdentifiers === "boolean"
+          ? Boolean((args as any).normalizeIdentifiers)
+          : true;
+      const rankByImpact =
+        typeof (args as any)?.rankByImpact === "boolean" ? Boolean((args as any).rankByImpact) : true;
 
       const options = {
         path: rootDir,
@@ -298,8 +308,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         minLines: typeof (args as any)?.minLines === "number" ? Number((args as any).minLines) : 10,
         minComplexity:
           typeof (args as any)?.minComplexity === "number" ? Number((args as any).minComplexity) : 0,
-        normalizeIdentifiers: true,
-        rankByImpact: true,
+        ignoreAcceptablePatterns: Boolean((args as any)?.ignoreAcceptablePatterns),
+        normalizeIdentifiers,
+        rankByImpact,
       };
 
       const showCode = Boolean((args as any)?.showCode);
@@ -330,14 +341,38 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         lines.push("DUPLICATE DETECTION RESULTS");
         lines.push("━".repeat(80));
         lines.push(`Total duplicates: ${result.summary.totalDuplicates}`);
-        const critical = result.duplicates.filter((d: any) => d.similarity >= 0.95).length;
-        const high = result.duplicates.filter((d: any) => d.similarity >= 0.9 && d.similarity < 0.95).length;
-        const medium = result.duplicates.filter((d: any) => d.similarity >= 0.85 && d.similarity < 0.9).length;
-        const low = result.duplicates.filter((d: any) => d.similarity < 0.85).length;
-        if (critical > 0) lines.push(`  🔥 Critical (≥95%): ${critical}  ← Exact duplicates, refactor NOW`);
-        if (high > 0) lines.push(`  ⚠️  High (90-94%): ${high}   ← Very similar, should review`);
-        if (medium > 0) lines.push(`  ℹ️  Medium (85-89%): ${medium} ← Similar, investigate`);
-        if (low > 0) lines.push(`  💡 Low (75-84%): ${low}   ← Somewhat similar`);
+        const formatPct = (value: number) => (value * 100).toFixed(1);
+        const thresholds = options.thresholds;
+        const critical = result.duplicates.filter((d: any) => d.similarity >= thresholds.exact).length;
+        const high = result.duplicates.filter(
+          (d: any) => d.similarity >= thresholds.high && d.similarity < thresholds.exact,
+        ).length;
+        const medium = result.duplicates.filter(
+          (d: any) => d.similarity >= thresholds.medium && d.similarity < thresholds.high,
+        ).length;
+        const low = result.duplicates.filter(
+          (d: any) => d.similarity >= thresholds.low && d.similarity < thresholds.medium,
+        ).length;
+        if (critical > 0) {
+          lines.push(
+            `  🔥 Critical (≥${formatPct(thresholds.exact)}%): ${critical}  ← Exact duplicates, refactor NOW`,
+          );
+        }
+        if (high > 0) {
+          lines.push(
+            `  ⚠️  High (${formatPct(thresholds.high)}–${formatPct(thresholds.exact)}%): ${high}   ← Very similar, should review`,
+          );
+        }
+        if (medium > 0) {
+          lines.push(
+            `  ℹ️  Medium (${formatPct(thresholds.medium)}–${formatPct(thresholds.high)}%): ${medium} ← Similar, investigate`,
+          );
+        }
+        if (low > 0) {
+          lines.push(
+            `  💡 Low (${formatPct(thresholds.low)}–${formatPct(thresholds.medium)}%): ${low}   ← Somewhat similar`,
+          );
+        }
         lines.push("");
         lines.push(`Files affected: ${result.summary.filesAffected}`);
         lines.push(`Potential savings: ${result.summary.totalSavings} lines`);
@@ -363,10 +398,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const level = dup.level ?? "";
         let emoji = "💡";
         let label = "LOW";
-        if (similarity >= 0.95) {
+        if (similarity >= options.thresholds.exact || level === "exact") {
           emoji = "🔥";
           label = "CRITICAL";
-        } else if (level === "exact" || level === "high") {
+        } else if (level === "high") {
           emoji = "⚠️ ";
           label = "HIGH";
         } else if (level === "medium") {

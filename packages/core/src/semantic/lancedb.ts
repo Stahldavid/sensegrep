@@ -216,6 +216,7 @@ export namespace VectorStore {
         const required = [
           "id",
           "content",
+          "content_raw",
           "vector",
           "file",
           "startLine",
@@ -261,6 +262,7 @@ export namespace VectorStore {
     const sentinel = {
       id: "__opencode_init__",
       content: "",
+      content_raw: "",
       vector: Array.from({ length: dim }, () => 0),
       file: "",
       startLine: 0,
@@ -488,6 +490,7 @@ export namespace VectorStore {
     documents: {
       id: string
       content: string
+      contentRaw?: string
       metadata: Record<string, string | number | boolean | null>
     }[],
   ): Promise<void> {
@@ -504,6 +507,7 @@ export namespace VectorStore {
       return {
         id: d.id,
         content: d.content,
+        content_raw: d.contentRaw ?? d.content,
         vector: embeddings[i],
         file: String(md.file ?? ""),
         startLine: Number(md.startLine ?? 0),
@@ -533,6 +537,7 @@ export namespace VectorStore {
     documents: {
       id: string
       content: string
+      contentRaw?: string
       metadata: Record<string, string | number | boolean | null>
     }[],
   ): Promise<void> {
@@ -577,6 +582,7 @@ export namespace VectorStore {
     return {
       id: String(row?.id ?? ""),
       content: String(row?.content ?? ""),
+      contentRaw: String(row?.content_raw ?? row?.content ?? ""),
       vector: vectorArray,
       metadata: {
         file: String(row?.file ?? ""),

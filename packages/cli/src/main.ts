@@ -66,14 +66,20 @@ Search options:
 
 Duplicate detection options:
   --threshold <number>      Minimum similarity 0.0-1.0 (default: 0.85)
-  --scope <type>            function, method, or all (default: function)
+  --scope <type>            function, method, or all (default: function,method)
   --ignore-tests            Ignore test files
   --cross-file-only         Only report cross-file duplicates
   --only-exported           Only check exported functions
   --exclude-pattern <regex> Exclude functions matching pattern
   --min-lines <n>           Minimum lines (default: 10)
   --min-complexity <n>      Minimum complexity (default: 0)
+  --ignore-acceptable-patterns  Do not ignore simple validations/guards
+  --normalize-identifiers <true|false>  Normalize identifiers (default: true)
+  --no-normalize-identifiers    Disable identifier normalization
+  --rank-by-impact <true|false> Rank by impact score (default: true)
+  --no-rank-by-impact           Disable ranking by impact
   --limit <n>               Show top N results (default: 10)
+  --full-code               Show full code snippets (no truncation)
   --show-code               Display actual duplicate code
   --verbose                 Show full details
   --quiet                   Only show summary
@@ -335,7 +341,7 @@ async function run() {
     if (flags.scope) {
       const scopeStr = String(flags.scope).toLowerCase()
       if (scopeStr === "all") {
-        scopeFilter = undefined // no filter
+        scopeFilter = [] // no filter (all)
       } else if (scopeStr === "function") {
         scopeFilter = ["function"]
       } else if (scopeStr === "method") {
@@ -348,6 +354,14 @@ async function run() {
       // Default: function + method
       scopeFilter = ["function", "method"]
     }
+
+    let normalizeIdentifiers = toBool(flags["normalize-identifiers"])
+    if (flags["no-normalize-identifiers"] !== undefined) normalizeIdentifiers = false
+    if (normalizeIdentifiers === undefined) normalizeIdentifiers = true
+
+    let rankByImpact = toBool(flags["rank-by-impact"])
+    if (flags["no-rank-by-impact"] !== undefined) rankByImpact = false
+    if (rankByImpact === undefined) rankByImpact = true
 
     const options: DuplicateDetectOptions = {
       path: rootDir,
@@ -364,14 +378,23 @@ async function run() {
       excludePattern: flags["exclude-pattern"] ? String(flags["exclude-pattern"]) : undefined,
       minLines: flags["min-lines"] ? Number(flags["min-lines"]) : 10,
       minComplexity: flags["min-complexity"] ? Number(flags["min-complexity"]) : 0,
-      normalizeIdentifiers: true,
-      rankByImpact: true,
+      ignoreAcceptablePatterns: toBool(flags["ignore-acceptable-patterns"]) ?? false,
+      normalizeIdentifiers,
+      rankByImpact,
     }
 
     const showCode = toBool(flags["show-code"]) ?? false
+    const fullCode = toBool(flags["full-code"]) ?? false
     const verbose = toBool(flags.verbose) ?? false
     const quiet = toBool(flags.quiet) ?? false
     const limit = flags.limit ? Number(flags.limit) : 10
+    const thresholds: Required<NonNullable<DuplicateDetectOptions["thresholds"]>> = {
+      exact: 0.98,
+      high: 0.9,
+      medium: 0.85,
+      low: minThreshold,
+      ...(options.thresholds ?? {}),
+    }
 
     if (!quiet) {
       console.log("Detecting logical duplicates...")
@@ -393,11 +416,15 @@ async function run() {
 
     // Helper: Get category emoji and label
     function getCategoryInfo(level: string, similarity: number) {
-      if (similarity >= 0.95) return { emoji: "🔥", label: "CRITICAL", color: "critical" }
-      if (level === "exact" || level === "high") return { emoji: "⚠️ ", label: "HIGH", color: "high" }
+      if (similarity >= thresholds.exact || level === "exact") {
+        return { emoji: "🔥", label: "CRITICAL", color: "critical" }
+      }
+      if (level === "high") return { emoji: "⚠️ ", label: "HIGH", color: "high" }
       if (level === "medium") return { emoji: "ℹ️ ", label: "MEDIUM", color: "medium" }
       return { emoji: "💡", label: "LOW", color: "low" }
     }
+
+    const formatPct = (value: number) => (value * 100).toFixed(1)
 
     // Summary
     if (!quiet) {
@@ -406,15 +433,37 @@ async function run() {
       console.log("━".repeat(80))
       console.log(`Total duplicates: ${result.summary.totalDuplicates}`)
 
-      const critical = result.duplicates.filter(d => d.similarity >= 0.95).length
-      const high = result.duplicates.filter(d => d.similarity >= 0.90 && d.similarity < 0.95).length
-      const medium = result.duplicates.filter(d => d.similarity >= 0.85 && d.similarity < 0.90).length
-      const low = result.duplicates.filter(d => d.similarity < 0.85).length
+      const critical = result.duplicates.filter(d => d.similarity >= thresholds.exact).length
+      const high = result.duplicates.filter(
+        d => d.similarity >= thresholds.high && d.similarity < thresholds.exact,
+      ).length
+      const medium = result.duplicates.filter(
+        d => d.similarity >= thresholds.medium && d.similarity < thresholds.high,
+      ).length
+      const low = result.duplicates.filter(
+        d => d.similarity >= thresholds.low && d.similarity < thresholds.medium,
+      ).length
 
-      if (critical > 0) console.log(`  🔥 Critical (≥95%): ${critical}  ← Exact duplicates, refactor NOW`)
-      if (high > 0) console.log(`  ⚠️  High (90-94%): ${high}   ← Very similar, should review`)
-      if (medium > 0) console.log(`  ℹ️  Medium (85-89%): ${medium} ← Similar, investigate`)
-      if (low > 0) console.log(`  💡 Low (75-84%): ${low}   ← Somewhat similar`)
+      if (critical > 0) {
+        console.log(
+          `  🔥 Critical (≥${formatPct(thresholds.exact)}%): ${critical}  ← Exact duplicates, refactor NOW`,
+        )
+      }
+      if (high > 0) {
+        console.log(
+          `  ⚠️  High (${formatPct(thresholds.high)}–${formatPct(thresholds.exact)}%): ${high}   ← Very similar, should review`,
+        )
+      }
+      if (medium > 0) {
+        console.log(
+          `  ℹ️  Medium (${formatPct(thresholds.medium)}–${formatPct(thresholds.high)}%): ${medium} ← Similar, investigate`,
+        )
+      }
+      if (low > 0) {
+        console.log(
+          `  💡 Low (${formatPct(thresholds.low)}–${formatPct(thresholds.medium)}%): ${low}   ← Somewhat similar`,
+        )
+      }
 
       console.log("")
       console.log(`Files affected: ${result.summary.filesAffected}`)
@@ -452,7 +501,7 @@ async function run() {
       }
 
       // Show code if requested
-      if (showCode || verbose) {
+      if (showCode || verbose || fullCode) {
         console.log("")
         for (let j = 0; j < dup.instances.length; j++) {
           const inst = dup.instances[j]
@@ -462,7 +511,7 @@ async function run() {
 
           // Truncate code to max 15 lines for readability
           const codeLines = inst.content.split("\n")
-          const maxLines = showCode && !verbose ? 15 : 30
+          const maxLines = fullCode ? codeLines.length : showCode && !verbose ? 15 : 30
           const displayLines = codeLines.slice(0, maxLines)
 
           for (const line of displayLines) {

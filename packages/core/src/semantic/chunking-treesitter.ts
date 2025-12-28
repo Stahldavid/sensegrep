@@ -3,6 +3,7 @@ import { Log } from "../util/log.js"
 import { lazy } from "../util/lazy.js"
 import type { Tree } from "web-tree-sitter"
 import { createRequire } from "module"
+import path from "path"
 import type { Chunking } from "./chunking.js"
 import { getEmbeddingConfig } from "./embedding-config.js"
 
@@ -506,11 +507,16 @@ export namespace TreeSitterChunking {
     nodeName: string | undefined,
     isExported: boolean,
   ): string {
-    const relativePath = filePath.replace(/^.*\/packages\/opencode\//, "")
+    const relativePathRaw = path.relative(process.cwd(), filePath)
+    const relativePath =
+      relativePathRaw && !relativePathRaw.startsWith("..")
+        ? relativePathRaw
+        : filePath
+    const normalizedPath = relativePath.replace(/\\/g, "/")
     const keywords = extractKeywords(content, nodeName)
     const keywordsLine = keywords.length > 0 ? `\n// Keywords: ${keywords.join(", ")}` : ""
 
-    return `// File: ${relativePath}
+    return `// File: ${normalizedPath}
 // Type: ${nodeType}${nodeName ? `\n// Name: ${nodeName}` : ""}
 // Exported: ${isExported}${keywordsLine}
 
@@ -561,12 +567,26 @@ ${content}`
         }
         break
       case "export_statement":
-        // For export statements, try to get the type from the child
+        // For export statements, extract metadata from the child declaration
+        // Don't use isChunkBoundary here as it creates circular dependency
+        const declarationTypes = [
+          "function_declaration",
+          "function_signature",
+          "class_declaration",
+          "interface_declaration",
+          "type_alias_declaration",
+          "enum_declaration",
+          "lexical_declaration",
+          "variable_declaration",
+          "module",
+          "internal_module",
+        ]
         for (let i = 0; i < node.childCount; i++) {
           const child = node.child(i)
-          if (child && isChunkBoundary(child)) {
+          if (child && declarationTypes.includes(child.type)) {
             const childMeta = extractMetadata(child, filePath, parentScope)
-            return childMeta
+            // Override isExported since this is an export_statement
+            return { ...childMeta, isExported: true }
           }
         }
         break
@@ -1023,7 +1043,7 @@ ${content}`
         })
         // Start new chunk with the line that didn't fit
         currentLines = [line]
-        currentStartLine = currentStartLine + currentLines.length - 1 + i
+        currentStartLine = range.start + i
       } else {
         // Safe to add this line
         currentLines.push(line)
@@ -1041,7 +1061,7 @@ ${content}`
       chunks.push({
         content: finalContent,
         startLine: currentStartLine,
-        endLine: range.end,
+        endLine: currentStartLine + currentLines.length - 1,
         type: "code",
       })
     }

@@ -88,6 +88,86 @@ export namespace DuplicateDetector {
     },
   ]
 
+  const IDENTIFIER_REGEX = /\b[A-Za-z_$][A-Za-z0-9_$]*\b/g
+  const RESERVED_WORDS = new Set([
+    "abstract",
+    "any",
+    "as",
+    "asserts",
+    "async",
+    "await",
+    "bigint",
+    "boolean",
+    "break",
+    "case",
+    "catch",
+    "class",
+    "const",
+    "continue",
+    "debugger",
+    "declare",
+    "default",
+    "delete",
+    "do",
+    "else",
+    "enum",
+    "export",
+    "extends",
+    "false",
+    "finally",
+    "for",
+    "from",
+    "function",
+    "get",
+    "if",
+    "implements",
+    "import",
+    "in",
+    "infer",
+    "instanceof",
+    "interface",
+    "is",
+    "keyof",
+    "let",
+    "module",
+    "namespace",
+    "never",
+    "new",
+    "null",
+    "number",
+    "object",
+    "of",
+    "package",
+    "private",
+    "protected",
+    "public",
+    "readonly",
+    "require",
+    "return",
+    "set",
+    "static",
+    "string",
+    "super",
+    "switch",
+    "symbol",
+    "this",
+    "throw",
+    "true",
+    "try",
+    "type",
+    "typeof",
+    "undefined",
+    "unknown",
+    "var",
+    "void",
+    "while",
+    "with",
+    "yield",
+    "$NUM",
+    "$STR",
+    "$ID",
+  ])
+
   /**
    * Normalizar código para comparação (substituir identificadores por placeholders)
    */
@@ -108,6 +188,11 @@ export namespace DuplicateDetector {
     // Remover comentários
     normalized = normalized.replace(/\/\*[\s\S]*?\*\//g, "")
     normalized = normalized.replace(/\/\/.*/g, "")
+
+    // Normalizar identificadores (variáveis, funções, etc.)
+    normalized = normalized.replace(IDENTIFIER_REGEX, (match) =>
+      RESERVED_WORDS.has(match) ? match : "$ID",
+    )
 
     // Normalizar whitespace
     normalized = normalized.replace(/\s+/g, " ").trim()
@@ -223,6 +308,48 @@ export namespace DuplicateDetector {
     return dotProduct / (Math.sqrt(norm1) * Math.sqrt(norm2))
   }
 
+  const TOKENIZE_REGEX = /[A-Za-z_$][A-Za-z0-9_$]*|\d+|[^\s]/g
+
+  function tokenize(text: string): string[] {
+    const normalized = text.replace(/\s+/g, " ").trim()
+    if (!normalized) return []
+    return normalized.match(TOKENIZE_REGEX) ?? []
+  }
+
+  function buildTokenShingles(tokens: string[], size: number): Set<string> {
+    const set = new Set<string>()
+    if (tokens.length < size) return set
+    for (let i = 0; i <= tokens.length - size; i++) {
+      set.add(tokens.slice(i, i + size).join(" "))
+    }
+    return set
+  }
+
+  function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
+    if (a.size === 0 || b.size === 0) return 0
+    let intersection = 0
+    for (const item of a) {
+      if (b.has(item)) intersection++
+    }
+    const union = a.size + b.size - intersection
+    if (union === 0) return 0
+    return intersection / union
+  }
+
+  function textSimilarity(a: string, b: string): number | null {
+    if (!a || !b) return null
+    if (a === b) return 1
+    const tokensA = tokenize(a)
+    const tokensB = tokenize(b)
+    if (tokensA.length === 0 || tokensB.length === 0) return null
+    const lenPenalty = Math.min(tokensA.length, tokensB.length) / Math.max(tokensA.length, tokensB.length)
+    const shingleSize = 2
+    const shinglesA = buildTokenShingles(tokensA, shingleSize)
+    const shinglesB = buildTokenShingles(tokensB, shingleSize)
+    const jaccard = jaccardSimilarity(shinglesA, shinglesB)
+    return jaccard * Math.sqrt(lenPenalty)
+  }
+
   /**
    * Determinar nível de duplicação baseado em similaridade
    */
@@ -264,21 +391,37 @@ export namespace DuplicateDetector {
    * Verificar se duplicata deve ser ignorada (padrão aceitável)
    */
   function shouldFlag(group: DuplicateGroup): boolean {
-    const instance = group.instances[0]
-    const lines = instance.endLine - instance.startLine + 1
+    const categories = new Set<string>()
 
-    for (const pattern of ACCEPTABLE_PATTERNS) {
-      if (lines <= pattern.maxLines && (instance.complexity || 0) <= pattern.maxComplexity) {
-        if (pattern.pattern.test(instance.symbol) || pattern.pattern.test(instance.content)) {
-          log.debug("acceptable pattern detected", {
-            symbol: instance.symbol,
-            category: pattern.category,
-          })
-          group.category = pattern.category
-          group.isLikelyOk = true
-          return false
+    for (const instance of group.instances) {
+      const lines = instance.endLine - instance.startLine + 1
+      let matched: string | null = null
+
+      for (const pattern of ACCEPTABLE_PATTERNS) {
+        if (lines <= pattern.maxLines && (instance.complexity || 0) <= pattern.maxComplexity) {
+          if (pattern.pattern.test(instance.symbol) || pattern.pattern.test(instance.content)) {
+            matched = pattern.category
+            break
+          }
         }
       }
+
+      if (!matched) {
+        return true
+      }
+
+      categories.add(matched)
+    }
+
+    if (categories.size > 0) {
+      const [category] = Array.from(categories)
+      group.category = categories.size === 1 ? category : "acceptable"
+      group.isLikelyOk = true
+      log.debug("acceptable pattern detected", {
+        category: group.category,
+        instances: group.instances.length,
+      })
+      return false
     }
 
     return true
@@ -307,7 +450,7 @@ export namespace DuplicateDetector {
 
     log.info("detecting logical duplicates", { path: resolvedPath, thresholds, normalizeIdentifiers })
 
-    const scopeFilter = options.scopeFilter ?? ["function", "method"]
+    const scopeFilter = options.scopeFilter
 
     log.info("detecting logical duplicates (vectorstore)", {
       path: resolvedPath,
@@ -337,10 +480,10 @@ export namespace DuplicateDetector {
     const collection = await VectorStore.getCollectionUnsafe(resolvedPath, meta.embeddings.dimension)
 
     const filters: VectorStore.SearchFilters = { all: [] }
-    if (scopeFilter && scopeFilter.length > 0) {
-      filters.all!.push({ key: "symbolType", operator: "in", value: scopeFilter })
-    } else {
+    if (scopeFilter === undefined) {
       filters.all!.push({ key: "symbolType", operator: "in", value: ["function", "method"] })
+    } else if (scopeFilter.length > 0) {
+      filters.all!.push({ key: "symbolType", operator: "in", value: scopeFilter })
     }
     if (options.onlyExported) {
       filters.all!.push({ key: "isExported", operator: "equals", value: true })
@@ -354,6 +497,7 @@ export namespace DuplicateDetector {
       columns: [
         "id",
         "content",
+        "content_raw",
         "file",
         "startLine",
         "endLine",
@@ -373,19 +517,21 @@ export namespace DuplicateDetector {
         const startLine = Number(row.metadata.startLine ?? 0)
         const endLine = Number(row.metadata.endLine ?? 0)
         const content = String(row.content ?? "")
-        const normalized = normalizeIdentifiers ? normalizeCode(content) : undefined
+        const rawContent = String((row as any).contentRaw ?? "")
+        const normalized = normalizeIdentifiers ? normalizeCode(rawContent || content) : undefined
         return {
           id: row.id,
           file: String(row.metadata.file ?? ""),
           symbol: String(row.metadata.symbolName ?? "anonymous"),
           content,
+          rawContent,
           startLine,
           endLine,
           complexity: typeof row.metadata.complexity === "number" ? row.metadata.complexity : undefined,
           symbolType: row.metadata.symbolType ? String(row.metadata.symbolType) : undefined,
           vector: row.vector as number[],
           normalized,
-        } as CodeInstance & { id: string; vector: number[]; normalized?: string }
+        } as CodeInstance & { id: string; vector: number[]; normalized?: string; rawContent: string }
       })
       .filter((c) => {
         if (options.ignoreTests) {
@@ -437,9 +583,20 @@ export namespace DuplicateDetector {
         if (!other) continue
         if (options.crossFileOnly && other.file === candidate.file) continue
 
-        let similarity = 1 - neighbor.distance
-        if (normalizeIdentifiers && candidate.normalized && other.normalized) {
-          if (candidate.normalized === other.normalized) similarity = 1
+        const vectorSimilarity = 1 - neighbor.distance
+        let similarity = vectorSimilarity
+        const rawA = candidate.rawContent || candidate.content
+        const rawB = other.rawContent || other.content
+        const normA = normalizeIdentifiers ? candidate.normalized ?? normalizeCode(rawA) : rawA
+        const normB = normalizeIdentifiers ? other.normalized ?? normalizeCode(rawB) : rawB
+        if (normalizeIdentifiers && normA && normB && normA === normB) {
+          similarity = 1
+        } else {
+          const textSim = textSimilarity(normA, normB)
+          if (textSim !== null) {
+            if (textSim < 0.1) continue
+            similarity = 0.8 * vectorSimilarity + 0.2 * textSim
+          }
         }
 
         const level = getDuplicateLevel(similarity, thresholds)

@@ -60,12 +60,21 @@ export namespace Indexer {
   type Document = {
     id: string
     content: string
+    contentRaw: string
     metadata: Record<string, string | number | boolean | null>
     hash: string
   }
 
   function hashContent(content: string): string {
     return crypto.createHash("sha1").update(content).digest("hex")
+  }
+
+  function extractRawContentFromLines(lines: string[], startLine: number, endLine: number): string {
+    if (!lines.length) return ""
+    const start = Math.max(1, startLine)
+    const end = Math.min(lines.length, endLine)
+    if (end < start) return ""
+    return lines.slice(start - 1, end).join("\n")
   }
 
   // Max file size to index (500KB)
@@ -153,7 +162,7 @@ export namespace Indexer {
     // Add to vector store
     await VectorStore.addDocuments(
       collection,
-      documents.map(({ id, content, metadata }) => ({ id, content, metadata })),
+      documents.map(({ id, content, contentRaw, metadata }) => ({ id, content, contentRaw, metadata })),
     )
 
     return { count: documents.length, chunkHashes: documents.map((d) => d.hash) }
@@ -164,10 +173,12 @@ export namespace Indexer {
     if (chunks.length === 0) return []
 
     const chunksWithOverlap = Chunking.addOverlap(chunks)
+    const lines = input.content.split("\n")
 
     return chunksWithOverlap.map((chunk, i) => ({
       id: `${input.filePath}:${i}`,
       content: chunk.content,
+      contentRaw: extractRawContentFromLines(lines, chunk.startLine, chunk.endLine),
       hash: hashContent(chunk.content),
       metadata: {
         file: input.filePath,
@@ -223,6 +234,7 @@ export namespace Indexer {
     let batch: {
       id: string
       content: string
+      contentRaw: string
       metadata: Record<string, string | number | boolean | null>
     }[] = []
 
@@ -273,7 +285,14 @@ export namespace Indexer {
 
       indexed++
       totalChunks += documents.length
-      batch.push(...documents.map(({ id, content: docContent, metadata }) => ({ id, content: docContent, metadata })))
+      batch.push(
+        ...documents.map(({ id, content: docContent, contentRaw, metadata }) => ({
+          id,
+          content: docContent,
+          contentRaw,
+          metadata,
+        })),
+      )
 
       if (batch.length >= ADD_BATCH_SIZE) {
         await flush()
@@ -422,7 +441,12 @@ export namespace Indexer {
         const changedDocs = changedIndexes.map((i) => documents[i]).filter(Boolean)
         await VectorStore.updateDocuments(
           collection,
-          changedDocs.map(({ id, content: docContent, metadata }) => ({ id, content: docContent, metadata })),
+          changedDocs.map(({ id, content: docContent, contentRaw, metadata }) => ({
+            id,
+            content: docContent,
+            contentRaw,
+            metadata,
+          })),
         )
         indexed++
         totalChunks += changedDocs.length
@@ -435,7 +459,12 @@ export namespace Indexer {
       await VectorStore.deleteByFile(collection, file)
       await VectorStore.addDocuments(
         collection,
-        documents.map(({ id, content: docContent, metadata }) => ({ id, content: docContent, metadata })),
+        documents.map(({ id, content: docContent, contentRaw, metadata }) => ({
+          id,
+          content: docContent,
+          contentRaw,
+          metadata,
+        })),
       )
       indexed++
       totalChunks += documents.length
@@ -492,7 +521,12 @@ export namespace Indexer {
     const documents = await buildDocuments({ filePath, content })
     await VectorStore.updateDocuments(
       collection,
-      documents.map(({ id, content: docContent, metadata }) => ({ id, content: docContent, metadata })),
+      documents.map(({ id, content: docContent, contentRaw, metadata }) => ({
+        id,
+        content: docContent,
+        contentRaw,
+        metadata,
+      })),
     )
     const meta = await VectorStore.readIndexMeta(Instance.directory)
     if (meta?.files) {
