@@ -272,6 +272,7 @@ async function run() {
     const params: ToolType.InferParameters<typeof SenseGrepTool> = {
       query,
       rerank: false,
+      shake: true,
     }
 
     if (flags.pattern) params.pattern = String(flags.pattern)

@@ -5,10 +5,10 @@ import { once } from "node:events"
 import picomatch from "picomatch"
 import { Tool } from "./tool.js"
 import { VectorStore } from "../semantic/lancedb.js"
-import { Indexer } from "../semantic/indexer.js"
 import { Instance } from "../project/instance.js"
 import { Embeddings } from "../semantic/embeddings.js"
 import { Ripgrep } from "../file/ripgrep.js"
+import { TreeShaker } from "../semantic/tree-shaker.js"
 import path from "path"
 
 const DESCRIPTION = readFileSync(new URL("./sensegrep.txt", import.meta.url), "utf8")
@@ -202,6 +202,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       .describe('Filter by programming language (e.g. "typescript")'),
     parentScope: z.string().optional().describe('Filter by parent scope/class (e.g. "VectorStore")'),
     imports: z.string().optional().describe('Filter by imported module name (e.g. "react")'),
+    shake: z.boolean().default(true).describe("Enable semantic tree-shaking to show full file context with irrelevant regions collapsed (default: true)"),
   }),
   async execute(params, _ctx) {
     // Read index metadata first (before any embedding initialization)
@@ -371,7 +372,71 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       }
     }
 
-    // Format output - balanced with essential info + code
+    // Apply semantic tree-shaking if enabled (default: true)
+    const shouldShake = params.shake !== false
+    
+    if (shouldShake) {
+      // Group results by file and apply tree-shaking
+      const shakedResults = await TreeShaker.shakeResults(
+        finalResults.map((r) => ({
+          file: r.file,
+          startLine: r.startLine,
+          endLine: r.endLine,
+          content: r.content,
+          metadata: r.metadata as Record<string, unknown>,
+        })),
+        Instance.directory
+      )
+
+      // Format output with shaked content
+      const outputLines = [`Found ${finalResults.length} results across ${shakedResults.length} files\n`]
+
+      for (const shaked of shakedResults) {
+        // File header with stats
+        const statsInfo = shaked.stats.collapsedRegions > 0
+          ? ` (${shaked.stats.hiddenLines} lines hidden in ${shaked.stats.collapsedRegions} regions)`
+          : ""
+        outputLines.push(`## ${shaked.file}${statsInfo}`)
+
+        // Show metadata for the relevant matches in this file
+        const metaParts: string[] = []
+        for (const result of shaked.originalResults) {
+          const meta = result.metadata
+          const symbolInfo = [meta.symbolName, meta.symbolType].filter(Boolean).join(" ")
+          if (symbolInfo) metaParts.push(symbolInfo)
+        }
+        if (metaParts.length > 0) {
+          outputLines.push(`Matches: ${metaParts.join(", ")}`)
+        }
+
+        outputLines.push("```")
+
+        // Show shaked content (already collapsed)
+        const lines = shaked.shakedContent.split("\n")
+        for (const line of lines.slice(0, 100)) {
+          const truncated = line.length > MAX_LINE_LENGTH ? line.substring(0, MAX_LINE_LENGTH) + "..." : line
+          outputLines.push(truncated)
+        }
+        if (lines.length > 100) {
+          outputLines.push(`// ... (${lines.length - 100} more lines) ...`)
+        }
+
+        outputLines.push("```\n")
+      }
+
+      return {
+        title: params.query,
+        metadata: {
+          matches: finalResults.length,
+          files: shakedResults.length,
+          indexed: true,
+          shaked: true,
+        },
+        output: outputLines.join("\n"),
+      }
+    }
+
+    // Fallback: original formatting without tree-shaking
     const outputLines = [`Found ${finalResults.length} results\n`]
 
     for (const result of finalResults) {
