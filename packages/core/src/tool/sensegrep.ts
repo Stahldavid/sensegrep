@@ -376,6 +376,20 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     const shouldShake = params.shake !== false
     
     if (shouldShake) {
+      // Get pre-computed collapsible regions from the index
+      const indexMeta = await VectorStore.readIndexMeta(Instance.directory)
+      const precomputedRegionsMap = new Map<string, TreeShaker.CollapsibleRegion[]>()
+      
+      if (indexMeta?.files) {
+        // Build map of file -> collapsible regions
+        for (const result of finalResults) {
+          const fileStat = indexMeta.files[result.file]
+          if (fileStat?.collapsibleRegions) {
+            precomputedRegionsMap.set(result.file, fileStat.collapsibleRegions as TreeShaker.CollapsibleRegion[])
+          }
+        }
+      }
+
       // Group results by file and apply tree-shaking
       const shakedResults = await TreeShaker.shakeResults(
         finalResults.map((r) => ({
@@ -385,7 +399,8 @@ export const SenseGrepTool = Tool.define("sensegrep", {
           content: r.content,
           metadata: r.metadata as Record<string, unknown>,
         })),
-        Instance.directory
+        Instance.directory,
+        precomputedRegionsMap.size > 0 ? precomputedRegionsMap : undefined
       )
 
       // Format output with shaked content

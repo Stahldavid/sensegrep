@@ -102,6 +102,8 @@ export namespace TreeShaker {
     collapseMode?: "comment" | "signature-only"
     /** Maximum output lines (0 = no limit) */
     maxLines?: number
+    /** Pre-computed collapsible regions (avoids re-parsing) */
+    precomputedRegions?: CollapsibleRegion[]
   }
 
   export interface ShakeResult {
@@ -118,9 +120,10 @@ export namespace TreeShaker {
 
   /**
    * Represents a collapsible region in the code
+   * Exported for pre-computation during indexing
    */
-  interface CollapsibleRegion {
-    type: "method" | "function" | "constructor"
+  export interface CollapsibleRegion {
+    type: "method" | "function" | "constructor" | "arrow_function"
     name: string
     startLine: number // 1-indexed
     endLine: number // 1-indexed
@@ -205,9 +208,31 @@ export namespace TreeShaker {
   }
 
   /**
-   * Find all collapsible regions in the AST
+   * Extract collapsible regions from file content
+   * Used during indexing to pre-compute regions
    */
-  function findCollapsibleRegions(tree: Tree, lines: string[]): CollapsibleRegion[] {
+  export async function extractRegions(filePath: string, content: string): Promise<CollapsibleRegion[]> {
+    if (!isSupported(filePath)) {
+      return []
+    }
+
+    const lines = content.split("\n")
+    const isTSX = filePath.endsWith(".tsx") || filePath.endsWith(".jsx")
+    const parser = isTSX ? await tsxParser() : await tsParser()
+    const tree = parser.parse(content)
+
+    if (!tree) {
+      return []
+    }
+
+    return findCollapsibleRegions(tree, lines)
+  }
+
+  /**
+   * Find all collapsible regions in the AST
+   * Exported for pre-computation during indexing
+   */
+  export function findCollapsibleRegions(tree: Tree, lines: string[]): CollapsibleRegion[] {
     const regions: CollapsibleRegion[] = []
     const rootNode = tree.rootNode as unknown as SyntaxNode
 
@@ -379,7 +404,7 @@ export namespace TreeShaker {
    * Main entry point: shake a file to show only relevant regions
    */
   export async function shake(options: ShakeOptions): Promise<ShakeResult> {
-    const { filePath, relevantRanges, collapseMode = "comment", maxLines = 0 } = options
+    const { filePath, relevantRanges, collapseMode = "comment", maxLines = 0, precomputedRegions } = options
 
     // Check if supported
     if (!isSupported(filePath)) {
@@ -415,32 +440,44 @@ export namespace TreeShaker {
       }
     }
 
-    // Parse the file
-    const isTSX = filePath.endsWith(".tsx") || filePath.endsWith(".jsx")
-    const parser = isTSX ? await tsxParser() : await tsParser()
-    const tree = parser.parse(content)
+    // Use pre-computed regions if available, otherwise parse the file
+    let regions: CollapsibleRegion[]
+    
+    if (precomputedRegions && precomputedRegions.length > 0) {
+      // Use cached regions - no parsing needed!
+      regions = precomputedRegions
+      log.info("tree-shaker: using pre-computed regions (no parse)", {
+        filePath: path.basename(filePath),
+        regions: regions.length,
+      })
+    } else {
+      // Parse the file to extract regions
+      const isTSX = filePath.endsWith(".tsx") || filePath.endsWith(".jsx")
+      const parser = isTSX ? await tsxParser() : await tsParser()
+      const tree = parser.parse(content)
 
-    if (!tree) {
-      log.warn("tree-shaker: failed to parse file", { filePath })
-      return {
-        content,
-        stats: {
-          totalLines: lines.length,
-          visibleLines: lines.length,
-          collapsedRegions: 0,
-          hiddenLines: 0,
-        },
+      if (!tree) {
+        log.warn("tree-shaker: failed to parse file", { filePath })
+        return {
+          content,
+          stats: {
+            totalLines: lines.length,
+            visibleLines: lines.length,
+            collapsedRegions: 0,
+            hiddenLines: 0,
+          },
+        }
       }
+
+      // Find collapsible regions
+      regions = findCollapsibleRegions(tree, lines)
+
+      log.info("tree-shaker: parsed and found collapsible regions", {
+        filePath: path.basename(filePath),
+        regions: regions.length,
+        relevantRanges: relevantRanges.length,
+      })
     }
-
-    // Find collapsible regions
-    const regions = findCollapsibleRegions(tree, lines)
-
-    log.info("tree-shaker: found collapsible regions", {
-      filePath: path.basename(filePath),
-      regions: regions.length,
-      relevantRanges: relevantRanges.length,
-    })
 
     // Render with collapsing
     const result = renderWithCollapsing(lines, regions, relevantRanges, collapseMode)
@@ -473,7 +510,9 @@ export namespace TreeShaker {
       content: string
       metadata: Record<string, unknown>
     }>,
-    rootDir: string
+    rootDir: string,
+    /** Pre-computed collapsible regions per file (from index) */
+    precomputedRegionsMap?: Map<string, CollapsibleRegion[]>
   ): Promise<
     Array<{
       file: string
@@ -507,10 +546,14 @@ export namespace TreeShaker {
         endLine: r.endLine,
       }))
 
+      // Get pre-computed regions for this file if available
+      const precomputedRegions = precomputedRegionsMap?.get(file)
+
       try {
         const shakeResult = await shake({
           filePath,
           relevantRanges,
+          precomputedRegions,
         })
 
         output.push({

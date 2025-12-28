@@ -11,6 +11,16 @@ const log = Log.create({ service: "semantic.lancedb" })
 type LanceDBConnection = Awaited<ReturnType<typeof lancedb.connect>>
 type LanceTable = Awaited<ReturnType<LanceDBConnection["openTable"]>>
 
+/** Collapsible region for tree-shaking (pre-computed during indexing) */
+export interface CollapsibleRegion {
+  type: "method" | "function" | "constructor" | "arrow_function"
+  name: string
+  startLine: number
+  endLine: number
+  signatureEndLine: number
+  indentation: string
+}
+
 export namespace VectorStore {
   const BASE_PATH = path.join(Global.Path.data, ".lancedb")
   const TABLE_NAME = "chunks"
@@ -24,7 +34,14 @@ export namespace VectorStore {
       dimension: number
       device?: string
     }
-    files: Record<string, { size: number; mtimeMs: number; hash?: string; chunks?: string[] }>
+    files: Record<string, { 
+      size: number
+      mtimeMs: number
+      hash?: string
+      chunks?: string[]
+      /** Pre-computed collapsible regions for tree-shaking */
+      collapsibleRegions?: CollapsibleRegion[]
+    }>
     updatedAt: number
   }
 

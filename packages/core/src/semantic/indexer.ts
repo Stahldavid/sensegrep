@@ -6,6 +6,7 @@ import { VectorStore } from "./lancedb.js"
 import { Bus } from "../bus/index.js"
 import { BusEvent } from "../bus/bus-event.js"
 import { Embeddings } from "./embeddings.js"
+import { TreeShaker } from "./tree-shaker.js"
 import z from "zod"
 import path from "path"
 import { Ripgrep } from "../file/ripgrep.js"
@@ -47,7 +48,14 @@ export namespace Indexer {
     ".toml",
   ])
 
-  type FileStat = { size: number; mtimeMs: number; hash?: string; chunks?: string[] }
+  type FileStat = { 
+    size: number
+    mtimeMs: number
+    hash?: string
+    chunks?: string[]
+    /** Pre-computed collapsible regions for tree-shaking */
+    collapsibleRegions?: TreeShaker.CollapsibleRegion[]
+  }
 
   type Document = {
     id: string
@@ -247,6 +255,9 @@ export namespace Indexer {
       const content = await fs.readFile(fullPath, "utf8").catch(() => "")
       if (!content.trim()) continue
 
+      // Extract collapsible regions for tree-shaking (done during indexing to avoid re-parsing)
+      const collapsibleRegions = await TreeShaker.extractRegions(file, content)
+
       const documents = await buildDocuments({ filePath: file, content })
       if (documents.length === 0) continue
 
@@ -256,6 +267,7 @@ export namespace Indexer {
           mtimeMs: stat.mtimeMs,
           hash: hashContent(content),
           chunks: documents.map((d) => d.hash),
+          collapsibleRegions,
         }
       }
 
@@ -375,10 +387,14 @@ export namespace Indexer {
       const hash = hashContent(content)
       if (prev && prev.hash && prev.hash === hash) {
         skipped++
-        newStats[file] = { ...current, hash, chunks: prev.chunks }
+        // Keep existing collapsible regions when file hasn't changed
+        newStats[file] = { ...current, hash, chunks: prev.chunks, collapsibleRegions: prev.collapsibleRegions }
         remaining.delete(file)
         continue
       }
+
+      // Extract collapsible regions for tree-shaking
+      const collapsibleRegions = await TreeShaker.extractRegions(file, content)
 
       const documents = await buildDocuments({ filePath: file, content })
       if (documents.length === 0) {
@@ -397,7 +413,8 @@ export namespace Indexer {
 
         if (changedIndexes.length === 0) {
           skipped++
-          newStats[file] = { ...current, hash, chunks: chunkHashes }
+          // Keep existing collapsible regions when chunks haven't changed
+          newStats[file] = { ...current, hash, chunks: chunkHashes, collapsibleRegions: prev.collapsibleRegions }
           remaining.delete(file)
           continue
         }
@@ -409,7 +426,7 @@ export namespace Indexer {
         )
         indexed++
         totalChunks += changedDocs.length
-        newStats[file] = { ...current, hash, chunks: chunkHashes }
+        newStats[file] = { ...current, hash, chunks: chunkHashes, collapsibleRegions }
         remaining.delete(file)
         continue
       }
@@ -422,7 +439,7 @@ export namespace Indexer {
       )
       indexed++
       totalChunks += documents.length
-      newStats[file] = { ...current, hash, chunks: chunkHashes }
+      newStats[file] = { ...current, hash, chunks: chunkHashes, collapsibleRegions }
       remaining.delete(file)
     }
 
