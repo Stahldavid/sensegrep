@@ -91,14 +91,14 @@ class ResultItem extends vscode.TreeItem {
       if (result.isExported) {
         tooltip.appendMarkdown(`**Exported:** true\n\n`)
       }
-      tooltip.appendCodeblock(result.content.substring(0, 500), "typescript")
+      tooltip.appendCodeblock(formatPreview(result.content), "typescript")
       this.tooltip = tooltip
 
       this.iconPath = this.getIconForType(result.symbolType)
       this.command = {
         command: "sensegrep.goToResult",
         title: "Go to Result",
-        arguments: [result],
+        arguments: [{ result, query: this.query }],
       }
     } else {
       // File node
@@ -126,6 +126,29 @@ class ResultItem extends vscode.TreeItem {
         return new vscode.ThemeIcon("symbol-misc")
     }
   }
+}
+
+function formatPreview(content: string, maxLines: number = 12, maxChars: number = 500): string {
+  if (!content) return ""
+  const lines = content.split(/\r?\n/)
+  if (lines.length === 0) return ""
+
+  let previewLines = lines
+  if (lines.length > maxLines) {
+    const half = Math.floor(maxLines / 2)
+    const center = Math.floor(lines.length / 2)
+    const start = Math.max(0, center - half)
+    const end = Math.min(lines.length, start + maxLines)
+    previewLines = lines.slice(start, end)
+    if (start > 0) previewLines.unshift("…")
+    if (end < lines.length) previewLines.push("…")
+  }
+
+  let preview = previewLines.join("\n")
+  if (preview.length > maxChars) {
+    preview = preview.slice(0, maxChars) + "…"
+  }
+  return preview
 }
 
 

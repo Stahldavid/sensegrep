@@ -9,6 +9,7 @@ import type { SearchRecord } from "../providers/history-tree"
 import { StatusBarManager } from "../providers/statusbar"
 import { DuplicateDiagnosticsManager } from "../providers/duplicate-diagnostics"
 import { tryRecoverIndex } from "../providers/index-repair"
+import { getNonce, getSettingsViewHtml } from "../webview/templates"
 import * as path from "path"
 import fs from "node:fs/promises"
 
@@ -23,6 +24,77 @@ export function registerCommands(
   statusBar: StatusBarManager
 ): vscode.Disposable[] {
   const disposables: vscode.Disposable[] = []
+  let settingsPanel: vscode.WebviewPanel | null = null
+
+  const showSettingsPanel = async () => {
+    if (settingsPanel) {
+      settingsPanel.reveal()
+      return
+    }
+
+    const panel = vscode.window.createWebviewPanel(
+      "sensegrep.settings",
+      "Sensegrep Settings",
+      vscode.ViewColumn.One,
+      { enableScripts: true, retainContextWhenHidden: true }
+    )
+    settingsPanel = panel
+
+    const render = async () => {
+      const config = vscode.workspace.getConfiguration("sensegrep")
+      const inspected = config.inspect<string>("embeddings.provider")
+      const explicit =
+        inspected?.workspaceFolderValue ??
+        inspected?.workspaceValue ??
+        inspected?.globalValue
+      const provider =
+        explicit === "gemini" || explicit === "local"
+          ? explicit
+          : process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
+            ? "gemini"
+            : "local"
+
+      const apiKey = await core.getApiKey()
+      const nonce = getNonce()
+      panel.webview.html = getSettingsViewHtml(panel.webview, nonce, apiKey, provider)
+    }
+
+    panel.onDidDispose(() => {
+      settingsPanel = null
+    })
+
+    panel.webview.onDidReceiveMessage(async (message) => {
+      switch (message.type) {
+        case "saveApiKey":
+          if (message.apiKey) {
+            await core.setApiKey(message.apiKey)
+            panel.webview.postMessage({ type: "apiKeySaved" })
+            await searchViewProvider.refreshApiKeyBanner()
+          }
+          break
+        case "clearApiKey":
+          await core.clearApiKey()
+          panel.webview.postMessage({ type: "apiKeyCleared" })
+          await searchViewProvider.refreshApiKeyBanner()
+          break
+        case "setProvider":
+          if (message.provider === "local" || message.provider === "gemini") {
+            const cfg = vscode.workspace.getConfiguration("sensegrep")
+            await cfg.update(
+              "embeddings.provider",
+              message.provider,
+              vscode.ConfigurationTarget.Workspace
+            )
+            await core.reloadSettings()
+            panel.webview.postMessage({ type: "providerChanged", provider: message.provider })
+            await searchViewProvider.refreshApiKeyBanner()
+          }
+          break
+      }
+    })
+
+    await render()
+  }
 
   // Search command
   disposables.push(
@@ -195,6 +267,16 @@ export function registerCommands(
       vscode.window.showInformationMessage(
         `Sensegrep semantic folding: ${next ? "enabled" : "disabled"}`
       )
+      if (!next) {
+        await unfoldAllVisibleEditors()
+      }
+    })
+  )
+
+  // Unfold all visible editors (internal)
+  disposables.push(
+    vscode.commands.registerCommand("sensegrep.unfoldAllEditors", async () => {
+      await unfoldAllVisibleEditors()
     })
   )
 
@@ -285,7 +367,7 @@ export function registerCommands(
         ) {
           return
         }
-        statusBar.setError()
+        statusBar.setError(String(err))
         vscode.window.showErrorMessage(`Duplicate detection failed: ${err}`)
       }
     })
@@ -333,7 +415,7 @@ export function registerCommands(
           `Indexed ${result.files} files (${result.chunks} chunks) in ${(result.duration / 1000).toFixed(1)}s`
         )
       } catch (err) {
-        statusBar.setError()
+        statusBar.setError(String(err))
         vscode.window.showErrorMessage(`Indexing failed: ${err}`)
       }
     })
@@ -360,7 +442,7 @@ export function registerCommands(
           `Full reindex: ${result.files} files (${result.chunks} chunks) in ${(result.duration / 1000).toFixed(1)}s`
         )
       } catch (err) {
-        statusBar.setError()
+        statusBar.setError(String(err))
         vscode.window.showErrorMessage(`Reindexing failed: ${err}`)
       }
     })
@@ -368,8 +450,19 @@ export function registerCommands(
 
   // Show stats
   disposables.push(
-    vscode.commands.registerCommand("sensegrep.showStats", async () => {        
+    vscode.commands.registerCommand("sensegrep.showStats", async () => {
       try {
+        const lastError = statusBar.getLastError()
+        if (lastError) {
+          const action = await vscode.window.showErrorMessage(
+            `Sensegrep error: ${lastError}`,
+            "Show Stats"
+          )
+          if (action !== "Show Stats") {
+            return
+          }
+        }
+
         const stats = await core.getStats()
 
         if (!stats.indexed) {
@@ -457,7 +550,7 @@ export function registerCommands(
   // Open settings
   disposables.push(
     vscode.commands.registerCommand("sensegrep.openSettings", () => {
-      vscode.commands.executeCommand("workbench.action.openSettings", "sensegrep")
+      void showSettingsPanel()
     })
   )
 
@@ -485,6 +578,7 @@ export function registerCommands(
 
       if (action.action === "clear") {
         await core.clearApiKey()
+        await searchViewProvider.refreshApiKeyBanner()
         return
       }
 
@@ -501,6 +595,7 @@ export function registerCommands(
 
       if (apiKey) {
         await core.setApiKey(apiKey)
+        await searchViewProvider.refreshApiKeyBanner()
       }
     })
   )
@@ -521,8 +616,11 @@ export function registerCommands(
 
   // Go to result
   disposables.push(
-    vscode.commands.registerCommand("sensegrep.goToResult", async (result: SearchResult) => {
-      const filePath = path.isAbsolute(result.file) ? result.file : path.join(core.getRootDir(), result.file)
+    vscode.commands.registerCommand(
+      "sensegrep.goToResult",
+      async (payload: SearchResult | { result: SearchResult; query?: string }) => {
+        const { result } = normalizeGoToResultPayload(payload)
+        const filePath = path.isAbsolute(result.file) ? result.file : path.join(core.getRootDir(), result.file)
 
       const uri = vscode.Uri.file(filePath)
       const doc = await vscode.workspace.openTextDocument(uri)
@@ -544,6 +642,7 @@ export function registerCommands(
       })
 
       editor.setDecorations(decoration, [range])
+      highlightResultContent(editor, range, result)
 
       // Remove highlight after 2 seconds
       setTimeout(() => {
@@ -587,7 +686,16 @@ export function registerCommands(
           return
         }
 
-        const [a, b] = group.instances
+        let [a, b] = group.instances
+        if (group.instances.length > 2) {
+          const first = await pickDuplicateInstance("Select first instance", group.instances)
+          if (!first) return
+          const remaining = group.instances.filter((inst) => inst !== first)
+          const second = await pickDuplicateInstance("Compare with", remaining)
+          if (!second) return
+          a = first
+          b = second
+        }
         const rootDir = core.getRootDir()
 
         const snippetA = await getSnippetDocument(a, rootDir)
@@ -645,7 +753,7 @@ async function performSearch(
     ) {
       return
     }
-    statusBar.setError()
+    statusBar.setError(String(err))
     vscode.window.showErrorMessage(`Search failed: ${err}`)
   }
 }
@@ -766,7 +874,15 @@ async function applySemanticFolding(
   result: SearchResult
 ) {
   const config = vscode.workspace.getConfiguration("sensegrep")
-  if (!config.get<boolean>("semanticFolding")) return
+  const enabled = config.get<boolean>("semanticFolding")
+  if (enabled === false) {
+    try {
+      await vscode.commands.executeCommand("editor.unfoldAll")
+    } catch {
+      // ignore
+    }
+    return
+  }
 
   const regions = await core.getCollapsibleRegions(result.file, { fallbackToParse: true })
   if (!regions || regions.length === 0) return
@@ -782,9 +898,7 @@ async function applySemanticFolding(
   if (foldLines.length === 0) return
 
   try {
-    await vscode.commands.executeCommand("editor.unfold", {
-      selectionLines: [Math.max(0, result.startLine - 1)],
-    })
+    await vscode.commands.executeCommand("editor.unfoldAll")
     await vscode.commands.executeCommand("editor.fold", {
       selectionLines: foldLines,
     })
@@ -888,6 +1002,101 @@ function resolveRecord(input: unknown): SearchRecord | null {
   return null
 }
 
+async function pickDuplicateInstance(
+  placeHolder: string,
+  instances: DuplicateGroup["instances"]
+): Promise<DuplicateGroup["instances"][number] | null> {
+  const items = instances.map((inst) => ({
+    label: `${path.basename(inst.file)}:${inst.startLine}`,
+    description: inst.symbol || "anonymous",
+    detail: inst.file,
+    instance: inst,
+  }))
+  const picked = await vscode.window.showQuickPick(items, { placeHolder })
+  return picked?.instance ?? null
+}
+
+function normalizeGoToResultPayload(
+  payload: SearchResult | { result: SearchResult; query?: string }
+): { result: SearchResult; query?: string } {
+  if (payload && typeof payload === "object" && "result" in payload) {
+    return { result: payload.result, query: payload.query }
+  }
+  return { result: payload as SearchResult }
+}
+
+function highlightResultContent(
+  editor: vscode.TextEditor,
+  range: vscode.Range,
+  result: SearchResult
+) {
+  const content = result.content?.trim()
+  if (!content) return
+
+  const candidateLines = content
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim().length >= 2)
+    .slice(0, 20)
+
+  if (candidateLines.length === 0) return
+
+  const doc = editor.document
+  const ranges: vscode.Range[] = []
+  const maxRanges = 200
+
+  for (let line = range.start.line; line <= range.end.line; line += 1) {
+    const text = doc.lineAt(line).text
+    for (const snippet of candidateLines) {
+      let startIndex = 0
+      while (startIndex >= 0) {
+        const idx = text.indexOf(snippet, startIndex)
+        if (idx === -1) break
+        ranges.push(new vscode.Range(line, idx, line, idx + snippet.length))
+        if (ranges.length >= maxRanges) break
+        startIndex = idx + snippet.length
+      }
+      if (ranges.length >= maxRanges) break
+    }
+    if (ranges.length >= maxRanges) break
+  }
+
+  if (ranges.length === 0) return
+
+  const decoration = vscode.window.createTextEditorDecorationType({
+    backgroundColor: new vscode.ThemeColor("editor.findMatchBackground"),
+    borderRadius: "2px",
+  })
+
+  editor.setDecorations(decoration, ranges)
+
+  setTimeout(() => {
+    decoration.dispose()
+  }, 2000)
+}
+
+async function unfoldAllVisibleEditors() {
+  const editors = vscode.window.visibleTextEditors
+  const active = vscode.window.activeTextEditor
+
+  for (const editor of editors) {
+    await vscode.window.showTextDocument(editor.document, {
+      viewColumn: editor.viewColumn,
+      preserveFocus: true,
+      preview: false,
+    })
+    await vscode.commands.executeCommand("editor.unfoldAll")
+  }
+
+  if (active) {
+    await vscode.window.showTextDocument(active.document, {
+      viewColumn: active.viewColumn,
+      preserveFocus: true,
+      preview: false,
+    })
+  }
+}
+
 async function getSnippetDocument(
   instance: DuplicateGroup["instances"][number],
   rootDir: string
@@ -970,7 +1179,7 @@ async function runIndexWithProgress(
             progress.report({ message: event.message ?? "Complete", increment: 100 })
           }
           if (event.phase === "error") {
-            statusBar.setError()
+            statusBar.setError(event.message)
           }
         })
         return await core.indexProject(full)

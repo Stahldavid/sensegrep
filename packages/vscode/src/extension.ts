@@ -93,7 +93,7 @@ export async function activate(context: vscode.ExtensionContext) {
         }
       })
       .catch((err) => {
-        statusBar.setError()
+        statusBar.setError(String(err))
         console.error("Sensegrep auto-index failed:", err)
       })
   }
@@ -113,7 +113,7 @@ export async function activate(context: vscode.ExtensionContext) {
           statusBar.setIndexed(result.chunks)
         },
         onError: (err) => {
-          statusBar.setError()
+          statusBar.setError(String(err))
           vscode.window.showErrorMessage(`Sensegrep watcher error: ${err}`)
         },
       })
@@ -155,10 +155,20 @@ export async function activate(context: vscode.ExtensionContext) {
           .getConfiguration("sensegrep")
           .get<boolean>("semanticFolding")
         statusBar.updateFoldingState(enabled ?? true)
+        if (enabled === false) {
+          void vscode.commands.executeCommand("sensegrep.unfoldAllEditors")
+        }
       }
 
       if (event.affectsConfiguration("sensegrep.logLevel")) {
         void core.reloadSettings()
+      }
+
+      if (
+        event.affectsConfiguration("sensegrep.embeddings.provider") ||
+        event.affectsConfiguration("sensegrep.geminiApiKey")
+      ) {
+        void searchViewProvider.refreshApiKeyBanner()
       }
 
       if (

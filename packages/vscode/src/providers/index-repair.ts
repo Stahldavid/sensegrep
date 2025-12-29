@@ -40,7 +40,7 @@ export async function tryRecoverIndex(
       await retry()
     }
   } catch (reindexError) {
-    statusBar?.setError()
+    statusBar?.setError(String(reindexError))
     vscode.window.showErrorMessage(`Index repair failed: ${reindexError}`)
   }
 

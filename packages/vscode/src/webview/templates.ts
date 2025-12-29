@@ -295,7 +295,11 @@ export function getSearchViewHtml(
       overflow: hidden;
       transition: border-color 0.15s;
     }
-    
+
+    .result-item.clickable {
+      cursor: pointer;
+    }
+
     .result-item:hover {
       border-color: var(--vscode-focusBorder);
     }
@@ -350,6 +354,15 @@ export function getSearchViewHtml(
       margin: 0;
       max-height: 200px;
       overflow: auto;
+    }
+
+    .result-toggle-indicator {
+      margin-right: 6px;
+      color: var(--vscode-descriptionForeground);
+    }
+
+    .result-file-path {
+      cursor: pointer;
     }
     
     .result-code pre {
@@ -687,6 +700,21 @@ export function getSearchViewHtml(
       e.preventDefault();
       vscode.postMessage({ type: 'setApiKey' });
     });
+
+    resultsList.addEventListener('click', (event) => {
+      const target = event.target;
+      if (!target) return;
+      const item = target.closest ? target.closest('.result-item') : null;
+      if (!item) return;
+      const index = parseInt(item.dataset.index, 10);
+      if (Number.isNaN(index)) return;
+      const filePath = target.closest ? target.closest('.result-file-path') : null;
+      if (filePath) {
+        toggleResult(event, index);
+        return;
+      }
+      goToResult(index);
+    });
     
     function performSearch() {
       const query = searchInput.value.trim();
@@ -750,6 +778,10 @@ export function getSearchViewHtml(
       renderSummary(summary);
       renderShaked(shakedFiles);
 
+      currentResults = results || [];
+      expandedResults.clear();
+      Object.keys(fullResultContent).forEach((key) => delete fullResultContent[key]);
+
       resultsList.innerHTML = results.map((result, index) => {
         const relevanceClass = result.relevance >= 0.8 ? 'relevance-high' :     
                                result.relevance >= 0.6 ? 'relevance-medium' : 'relevance-low';
@@ -757,10 +789,10 @@ export function getSearchViewHtml(
         const explain = formatExplain(result);
 
         return \`
-          <div class="result-item" data-index="\${index}">
-            <div class="result-header" onclick="goToResult(\${index})">
+          <div class="result-item clickable" data-index="\${index}">
+            <div class="result-header">
               <div class="result-file">
-                <span class="result-file-path">\${escapeHtml(result.file)}:\${result.startLine}</span>
+                <span class="result-file-path"><span class="result-toggle-indicator" id="result-toggle-\${index}">▶</span>\${escapeHtml(result.file)}:\${result.startLine}</span>
                 <span class="result-symbol">
                   \${result.symbolType ? \`<span>[\${result.symbolType}]</span>\` : ''}
                   \${result.symbolName ? \`<span>\${escapeHtml(result.symbolName)}</span>\` : ''}
@@ -778,7 +810,7 @@ export function getSearchViewHtml(
               </div>
             </div>
             <div class="result-code">
-              <pre><code>\${escapeHtml(result.content)}</code></pre>
+              <pre><code id="result-code-\${index}">\${escapeHtml(result.content)}</code></pre>
             </div>
           </div>
         \`;
@@ -858,6 +890,35 @@ export function getSearchViewHtml(
       shakedContainer.classList.add('hidden');
     }
     
+    let currentResults = [];
+    const expandedResults = new Set();
+    const fullResultContent = {};
+
+    function toggleResult(event, index) {
+      event.stopPropagation();
+      const toggle = document.getElementById('result-toggle-' + index);
+      const code = document.getElementById('result-code-' + index);
+      if (!toggle || !code) return;
+
+      if (expandedResults.has(index)) {
+        expandedResults.delete(index);
+        const snippet = currentResults[index]?.content ?? '';
+        code.textContent = snippet;
+        toggle.textContent = '▶';
+        return;
+      }
+
+      if (fullResultContent[index]) {
+        expandedResults.add(index);
+        code.textContent = fullResultContent[index];
+        toggle.textContent = '▼';
+        return;
+      }
+
+      toggle.textContent = '…';
+      vscode.postMessage({ type: 'expandResult', index });
+    }
+
     function goToResult(index) {
       vscode.postMessage({ type: 'goToResult', index });
     }
@@ -897,6 +958,21 @@ export function getSearchViewHtml(
         case 'results':
           showResults(message.results, message.summary, message.shakedFiles);
           break;
+        case 'resultExpanded': {
+          const { index, content } = message;
+          fullResultContent[index] = content ?? '';
+          expandedResults.add(index);
+          const toggle = document.getElementById('result-toggle-' + index);
+          const code = document.getElementById('result-code-' + index);
+          if (toggle) toggle.textContent = '▼';
+          if (code) code.textContent = content ?? '';
+          break;
+        }
+        case 'resultExpandError': {
+          const toggle = document.getElementById('result-toggle-' + message.index);
+          if (toggle) toggle.textContent = '▶';
+          break;
+        }
         case 'error':
           showError(message.message);
           break;
@@ -911,6 +987,7 @@ export function getSearchViewHtml(
     
     // Expose function globally
     window.goToResult = goToResult;
+    window.toggleResult = toggleResult;
   </script>
 </body>
 </html>`;

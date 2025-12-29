@@ -16,7 +16,7 @@ export class DuplicateDiagnosticsManager implements vscode.Disposable {
 
   constructor(private readonly core: SensegrepCore) {}
 
-  update(duplicates: DuplicateGroup[]) {
+  update(duplicates: DuplicateGroup[], acceptableDuplicates: DuplicateGroup[] = []) {
     const config = vscode.workspace.getConfiguration("sensegrep")
     if (!config.get<boolean>("showDiagnostics")) {
       this.collection.clear()
@@ -25,10 +25,17 @@ export class DuplicateDiagnosticsManager implements vscode.Disposable {
 
     const byFile = new Map<string, vscode.Diagnostic[]>()
 
-    for (const group of duplicates) {
+    const groups = [
+      ...duplicates.map((group) => ({ group, acceptable: false })),
+      ...acceptableDuplicates.map((group) => ({ group, acceptable: true })),
+    ]
+
+    for (const entry of groups) {
+      const group = entry.group
       const similarity = Math.round(group.similarity * 100)
-      const severity =
-        severityByLevel[group.level] ?? vscode.DiagnosticSeverity.Information
+      const severity = entry.acceptable
+        ? vscode.DiagnosticSeverity.Hint
+        : severityByLevel[group.level] ?? vscode.DiagnosticSeverity.Information
       const instanceCount = group.instances.length
 
       for (const instance of group.instances) {
@@ -42,7 +49,9 @@ export class DuplicateDiagnosticsManager implements vscode.Disposable {
           0
         )
 
-        const message = `Duplicate code (${group.level}, ${similarity}% similar) with ${instanceCount - 1} other instance(s).`
+        const message = entry.acceptable
+          ? `Acceptable duplicate (${group.level}, ${similarity}% similar) with ${instanceCount - 1} other instance(s).`
+          : `Duplicate code (${group.level}, ${similarity}% similar) with ${instanceCount - 1} other instance(s).`
         const diagnostic = new vscode.Diagnostic(range, message, severity)
         diagnostic.source = "sensegrep"
 

@@ -5,6 +5,7 @@ import { ResultsTreeProvider } from "../providers/results-tree"
 import { HistoryTreeProvider } from "../providers/history-tree"
 import { getNonce, getSearchViewHtml } from "../webview/templates"
 import { tryRecoverIndex } from "../providers/index-repair"
+import * as path from "path"
 
 export class SearchViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "sensegrep.search"
@@ -38,6 +39,7 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
     const nonce = getNonce()
     webviewView.webview.html = getSearchViewHtml(webviewView.webview, nonce)
     this.renderLastResults()
+    void this.updateApiKeyBanner()
 
     // Handle messages from webview
     webviewView.webview.onDidReceiveMessage(async (message) => {
@@ -51,6 +53,9 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
         case "goToResult":
           await this.goToResult(message.index)
           break
+        case "expandResult":
+          await this.expandResult(message.index)
+          break
         case "setApiKey":
           await vscode.commands.executeCommand("sensegrep.setApiKey")
           break
@@ -59,6 +64,10 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
           break
       }
     })
+  }
+
+  public async refreshApiKeyBanner() {
+    await this.updateApiKeyBanner()
   }
 
   public async syncResults(
@@ -136,6 +145,7 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
         minComplexity: filters.minComplexity,
         maxComplexity: filters.maxComplexity,
         rerank: filters.rerank,
+        shakeOutput: filters.shakeOutput,
       })
       await this.applyResults(query, filters, results)
     } catch (err) {
@@ -273,7 +283,75 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
   private async goToResult(index: number) {
     const result = this.lastResults[index]
     if (!result) return
-    await vscode.commands.executeCommand("sensegrep.goToResult", result)
+    await vscode.commands.executeCommand("sensegrep.goToResult", {
+      result,
+      query: this.lastQuery ?? undefined,
+    })
+  }
+
+  private async expandResult(index: number) {
+    const result = this.lastResults[index]
+    if (!result || !this._view) return
+
+    try {
+      const rootDir = this.core.getRootDir()
+      const filePath = path.isAbsolute(result.file)
+        ? result.file
+        : path.join(rootDir, result.file)
+      const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath))
+      let start = Math.max(0, result.startLine - 1)
+      let end = Math.max(start, Math.min(doc.lineCount - 1, result.endLine - 1))
+      const regions = await this.core.getCollapsibleRegions(filePath, { fallbackToParse: true })
+      if (regions && regions.length > 0) {
+        const candidate = regions
+          .filter((region) => region.startLine <= result.startLine && region.endLine >= result.endLine)
+          .sort((a, b) => (a.endLine - a.startLine) - (b.endLine - b.startLine))[0]
+        if (candidate) {
+          start = Math.max(0, candidate.startLine - 1)
+          end = Math.max(start, Math.min(doc.lineCount - 1, candidate.endLine - 1))
+        }
+      }
+      const endChar = doc.lineAt(end).text.length
+      const range = new vscode.Range(start, 0, end, endChar)
+      const content = doc.getText(range)
+      this._view.webview.postMessage({
+        type: "resultExpanded",
+        index,
+        content,
+      })
+    } catch (err) {
+      this._view.webview.postMessage({
+        type: "resultExpandError",
+        index,
+        message: String(err),
+      })
+    }
+  }
+
+  private async updateApiKeyBanner() {
+    if (!this._view) return
+    const provider = this.getEffectiveProvider()
+    const apiKey =
+      (await this.core.getApiKey()) ||
+      process.env.GEMINI_API_KEY ||
+      process.env.GOOGLE_API_KEY
+    if (provider === "gemini" && !apiKey) {
+      this._view.webview.postMessage({ type: "showApiKeyBanner" })
+    } else {
+      this._view.webview.postMessage({ type: "hideApiKeyBanner" })
+    }
+  }
+
+  private getEffectiveProvider(): "local" | "gemini" {
+    const config = vscode.workspace.getConfiguration("sensegrep")
+    const inspected = config.inspect<string>("embeddings.provider")
+    const explicit =
+      inspected?.workspaceFolderValue ??
+      inspected?.workspaceValue ??
+      inspected?.globalValue
+    if (explicit === "gemini" || explicit === "local") return explicit
+    if (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) return "gemini"
+    return "local"
   }
 
   private async saveSearch(query: string, options: SearchOptions) {

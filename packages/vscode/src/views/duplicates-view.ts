@@ -95,7 +95,7 @@ export class DuplicatesViewProvider implements vscode.WebviewViewProvider {
       this.lastAcceptable = acceptable
       this.lastSummary = result.summary
       this.lastDisplayOptions = { limit: effectiveLimit, showCode, fullCode, showAcceptable }
-      this.diagnostics.update(result.duplicates)
+      this.diagnostics.update(result.duplicates, showAcceptable === false ? [] : acceptable)
       this._view?.webview.postMessage({
         type: "results",
         data: {
@@ -135,7 +135,7 @@ export class DuplicatesViewProvider implements vscode.WebviewViewProvider {
     this.lastAcceptable = acceptableDuplicates
     this.lastSummary = summary
     this.lastDisplayOptions = {}
-    this.diagnostics.update(duplicates)
+    this.diagnostics.update(duplicates, acceptableDuplicates)
     this._view?.webview.postMessage({
       type: "results",
       data: {
