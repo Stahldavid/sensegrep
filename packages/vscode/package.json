@@ -1,0 +1,484 @@
+{
+  "name": "sensegrep",
+  "displayName": "Sensegrep",
+  "description": "Semantic + structural code search with AI-powered duplicate detection",
+  "version": "0.1.8",
+  "publisher": "sensegrep",
+  
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sensegrep/sensegrep"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "semantic search",
+    "code search",
+    "duplicate detection",
+    "AI",
+    "embeddings"
+  ],
+  "activationEvents": [
+    "workspaceContains:**/*.ts",
+    "workspaceContains:**/*.tsx",
+    "workspaceContains:**/*.js",
+    "workspaceContains:**/*.jsx"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "sensegrep.search",
+        "title": "Semantic Search",
+        "category": "Sensegrep",
+        "icon": "$(search)"
+      },
+      {
+        "command": "sensegrep.searchAdvanced",
+        "title": "Semantic Search (Advanced)",
+        "category": "Sensegrep",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "sensegrep.searchSelection",
+        "title": "Find Similar Code",
+        "category": "Sensegrep",
+        "icon": "$(search-fuzzy)"
+      },
+      {
+        "command": "sensegrep.saveSearch",
+        "title": "Save Search",
+        "category": "Sensegrep",
+        "icon": "$(star-full)"
+      },
+      {
+        "command": "sensegrep.detectDuplicates",
+        "title": "Detect Duplicates",
+        "category": "Sensegrep",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "sensegrep.indexProject",
+        "title": "Index Project",
+        "category": "Sensegrep",
+        "icon": "$(database)"
+      },
+      {
+        "command": "sensegrep.reindexProject",
+        "title": "Reindex Project (Full)",
+        "category": "Sensegrep",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "sensegrep.showStats",
+        "title": "Show Index Stats",
+        "category": "Sensegrep",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "sensegrep.verifyIndex",
+        "title": "Verify Index Integrity",
+        "category": "Sensegrep",
+        "icon": "$(check)"
+      },
+      {
+        "command": "sensegrep.showStatusJson",
+        "title": "Show Index Status (JSON)",
+        "category": "Sensegrep",
+        "icon": "$(json)"
+      },
+      {
+        "command": "sensegrep.toggleWatch",
+        "title": "Toggle Watch Mode",
+        "category": "Sensegrep",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "sensegrep.openSettings",
+        "title": "Open Settings",
+        "category": "Sensegrep",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "sensegrep.foldUnrelated",
+        "title": "Fold Unrelated Code",
+        "category": "Sensegrep",
+        "icon": "$(fold)"
+      },
+      {
+        "command": "sensegrep.toggleSemanticFolding",
+        "title": "Toggle Semantic Folding",
+        "category": "Sensegrep",
+        "icon": "$(fold)"
+      },
+      {
+        "command": "sensegrep.setIndexRoot",
+        "title": "Set Index Root",
+        "category": "Sensegrep",
+        "icon": "$(root-folder)"
+      },
+      {
+        "command": "sensegrep.setApiKey",
+        "title": "Set Gemini API Key",
+        "category": "Sensegrep",
+        "icon": "$(key)"
+      },
+      {
+        "command": "sensegrep.refreshResults",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "sensegrep.clearResults",
+        "title": "Clear Results",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "sensegrep.goToResult",
+        "title": "Go to Location",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "sensegrep.exportSearchResults",
+        "title": "Export Search Results",
+        "category": "Sensegrep",
+        "icon": "$(export)"
+      },
+      {
+        "command": "sensegrep.exportDuplicateResults",
+        "title": "Export Duplicate Results",
+        "category": "Sensegrep",
+        "icon": "$(export)"
+      },
+      {
+        "command": "sensegrep.editSavedSearchTags",
+        "title": "Edit Search Tags",
+        "icon": "$(tag)"
+      },
+      {
+        "command": "sensegrep.removeSavedSearch",
+        "title": "Remove Saved Search",
+        "icon": "$(trash)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "sensegrep",
+          "title": "Sensegrep",
+          "icon": "resources/sensegrep.svg"
+        }
+      ]
+    },
+    "views": {
+      "sensegrep": [
+        {
+          "id": "sensegrep.search",
+          "name": "Search",
+          "type": "webview"
+        },
+        {
+          "id": "sensegrep.results",
+          "name": "Results"
+        },
+        {
+          "id": "sensegrep.duplicates",
+          "name": "Duplicates",
+          "type": "webview"
+        },
+        {
+          "id": "sensegrep.history",
+          "name": "Recent Searches"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "sensegrep.results",
+        "contents": "No search results yet.\n[Search Code](command:sensegrep.search)"
+      },
+      {
+        "view": "sensegrep.duplicates",
+        "contents": "No duplicates detected.\n[Detect Duplicates](command:sensegrep.detectDuplicates)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "sensegrep.refreshResults",
+          "when": "view == sensegrep.results",
+          "group": "navigation"
+        },
+        {
+          "command": "sensegrep.clearResults",
+          "when": "view == sensegrep.results",
+          "group": "navigation"
+        },
+        {
+          "command": "sensegrep.detectDuplicates",
+          "when": "view == sensegrep.duplicates",
+          "group": "navigation"
+        },
+        {
+          "command": "sensegrep.exportSearchResults",
+          "when": "view == sensegrep.results",
+          "group": "navigation"
+        },
+        {
+          "command": "sensegrep.exportDuplicateResults",
+          "when": "view == sensegrep.duplicates",
+          "group": "navigation"
+        },
+        {
+          "command": "sensegrep.saveSearch",
+          "when": "view == sensegrep.history",
+          "group": "navigation"
+        }
+      ],
+      "view/item": [
+        {
+          "command": "sensegrep.saveSearch",
+          "when": "view == sensegrep.history && viewItem == recentSearchItem",
+          "group": "inline"
+        },
+        {
+          "command": "sensegrep.editSavedSearchTags",
+          "when": "view == sensegrep.history && viewItem == savedSearchItem",
+          "group": "inline"
+        },
+        {
+          "command": "sensegrep.removeSavedSearch",
+          "when": "view == sensegrep.history && viewItem == savedSearchItem",
+          "group": "inline"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "sensegrep.searchSelection",
+          "when": "editorHasSelection",
+          "group": "sensegrep@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "sensegrep.search",
+          "when": "workspaceFolderCount > 0"
+        },
+        {
+          "command": "sensegrep.searchAdvanced",
+          "when": "workspaceFolderCount > 0"
+        },
+        {
+          "command": "sensegrep.detectDuplicates",
+          "when": "workspaceFolderCount > 0"
+        },
+        {
+          "command": "sensegrep.indexProject",
+          "when": "workspaceFolderCount > 0"
+        },
+        {
+          "command": "sensegrep.verifyIndex",
+          "when": "workspaceFolderCount > 0"
+        },
+        {
+          "command": "sensegrep.showStatusJson",
+          "when": "workspaceFolderCount > 0"
+        },
+        {
+          "command": "sensegrep.saveSearch",
+          "when": "workspaceFolderCount > 0"
+        },
+        {
+          "command": "sensegrep.foldUnrelated",
+          "when": "editorTextFocus"
+        },
+        {
+          "command": "sensegrep.toggleSemanticFolding",
+          "when": "workspaceFolderCount > 0"
+        },
+        {
+          "command": "sensegrep.setIndexRoot",
+          "when": "workspaceFolderCount > 0"
+        },
+        {
+          "command": "sensegrep.exportSearchResults",
+          "when": "workspaceFolderCount > 0"
+        },
+        {
+          "command": "sensegrep.exportDuplicateResults",
+          "when": "workspaceFolderCount > 0"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "sensegrep.search",
+        "key": "ctrl+shift+s",
+        "mac": "cmd+shift+s",
+        "when": "workspaceFolderCount > 0"
+      },
+      {
+        "command": "sensegrep.searchSelection",
+        "key": "ctrl+shift+f",
+        "mac": "cmd+shift+f",
+        "when": "editorHasSelection"
+      }
+    ],
+    "configuration": {
+      "title": "Sensegrep",
+      "properties": {
+        "sensegrep.autoIndex": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically index project on startup"
+        },
+        "sensegrep.watchMode": {
+          "type": "boolean",
+          "default": true,
+          "description": "Watch for file changes and reindex automatically"
+        },
+        "sensegrep.watchIntervalMs": {
+          "type": "number",
+          "default": 60000,
+          "description": "Minimum interval between auto-reindexing (ms)"
+        },
+        "sensegrep.showCodeLens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show CodeLens with similarity info and complexity"
+        },
+        "sensegrep.showDiagnostics": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show duplicate warnings in Problems panel"
+        },
+        "sensegrep.semanticFolding": {
+          "type": "boolean",
+          "default": true,
+          "description": "Collapse unrelated code when navigating to results"
+        },
+        "sensegrep.duplicateThreshold": {
+          "type": "number",
+          "default": 0.85,
+          "minimum": 0.5,
+          "maximum": 1,
+          "description": "Minimum similarity threshold for duplicate detection (0.5-1.0)"
+        },
+        "sensegrep.defaultSymbolTypes": {
+          "type": "array",
+          "default": [
+            "function",
+            "method"
+          ],
+          "items": {
+            "type": "string",
+            "enum": [
+            "function",
+            "method",
+            "class",
+            "interface",
+            "type",
+            "variable",
+            "namespace",
+            "enum"
+          ]
+        },
+          "description": "Default symbol types to search"
+        },
+        "sensegrep.excludePatterns": {
+          "type": "array",
+          "default": [
+            "*.test.ts",
+            "*.spec.ts",
+            "**/__tests__/**"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "File patterns to exclude from indexing"
+        },
+        "sensegrep.maxResultsPerFile": {
+          "type": "number",
+          "default": 3,
+          "description": "Maximum results per file"
+        },
+        "sensegrep.indexRoot": {
+          "type": "string",
+          "default": "",
+          "description": "Override root folder used for indexing/search (share index with CLI/MCP)"
+        },
+        "sensegrep.logLevel": {
+          "type": "string",
+          "enum": [
+            "DEBUG",
+            "INFO",
+            "WARN",
+            "ERROR"
+          ],
+          "default": "WARN",
+          "description": "Sensegrep log verbosity"
+        },
+        "sensegrep.embeddings.provider": {
+          "type": "string",
+          "enum": [
+            "local",
+            "gemini"
+          ],
+          "default": "local",
+          "description": "Embeddings provider (local uses transformers.js)"
+        },
+        "sensegrep.embeddings.model": {
+          "type": "string",
+          "default": "BAAI/bge-small-en-v1.5",
+          "description": "Embedding model name"
+        },
+        "sensegrep.embeddings.dimension": {
+          "type": "number",
+          "default": 384,
+          "description": "Embedding dimension"
+        },
+        "sensegrep.embeddings.device": {
+          "type": "string",
+          "enum": [
+            "cpu",
+            "cuda",
+            "webgpu",
+            "wasm"
+          ],
+          "default": "cpu",
+          "description": "Compute device for local embeddings"
+        },
+        "sensegrep.geminiApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Gemini API key (optional, can use GEMINI_API_KEY env var)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "node build.js",
+    "dev": "node build.js --watch",
+    "package": "vsce package --no-dependencies",
+    "publish": "vsce publish --no-dependencies",
+    "lint": "tsc --noEmit",
+    "test": "echo \"No tests yet\""
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.27",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^2.32.0",
+    "esbuild": "^0.27.2",
+    "picomatch": "^4.0.3",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@sensegrep/core": "file:../core"
+  }
+}

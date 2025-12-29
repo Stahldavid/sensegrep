@@ -1,6 +1,5 @@
 import path from "node:path"
 import fs from "node:fs/promises"
-import * as Watcher from "@parcel/watcher"
 import { FileIgnore } from "../file/ignore.js"
 import { Instance } from "../project/instance.js"
 import { Log } from "../util/log.js"
@@ -24,6 +23,14 @@ export namespace IndexWatcher {
   const DEFAULT_INTERVAL_MS = 60_000
   const MAX_CONSECUTIVE_ERRORS = 3
   const BACKOFF_MULTIPLIER = 2
+  let watcherPromise: Promise<typeof import("@parcel/watcher")> | null = null
+
+  async function loadWatcher(): Promise<typeof import("@parcel/watcher")> {
+    if (!watcherPromise) {
+      watcherPromise = import("@parcel/watcher")
+    }
+    return watcherPromise
+  }
 
   function shouldIgnore(rootDir: string, fullPath: string): boolean {
     const rel = path.relative(rootDir, fullPath)
@@ -198,6 +205,7 @@ export namespace IndexWatcher {
 
     resetInterval()
 
+    const Watcher = await loadWatcher()
     const subscription = await Watcher.subscribe(rootDir, (error, events) => {
       if (error) {
         log.error("watch error", { error: String(error) })

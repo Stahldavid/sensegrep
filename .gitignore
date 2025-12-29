@@ -19,3 +19,12 @@ dist/
 
 # npm lockfile
 package-lock.json
+
+# VS Code extension packages
+*.vsix
+
+# Local editor config
+.vscode/
+
+# Local session notes
+session-*.md

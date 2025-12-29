@@ -1,0 +1,13 @@
+.vscode-test/
+out/
+node_modules/
+*.vsix
+.DS_Store
+*.map
+src/
+tsconfig.json
+webview-ui/src/
+.gitignore
+**/*.ts
+!dist/**
+!dist/core/node_modules/**
