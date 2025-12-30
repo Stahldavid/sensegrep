@@ -1,0 +1,133 @@
+# Promptfoo config for SenseGrep vs Grep benchmark
+# RepoBench-R: Repository-level code retrieval
+
+description: "SenseGrep vs Grep Benchmark - RepoBench-R MVP"
+
+# Generate test cases from task directories
+prompts:
+  - file://tasks/{{ task_id }}/prompt.txt
+
+providers:
+  # Configuration 1: Grep-only baseline
+  - id: anthropic:claude-agent-sdk:grep-only
+    label: "grep-only"
+    config:
+      model: claude-sonnet-4-5-20250929
+      working_dir: "repos/{{ repo_name }}"
+      temperature: 0
+      # No MCP servers = agent uses native grep/rg/find tools only
+
+  # Configuration 2: SenseGrep-only
+  - id: anthropic:claude-agent-sdk:sensegrep
+    label: "sensegrep-only"
+    config:
+      model: claude-sonnet-4-5-20250929
+      working_dir: "repos/{{ repo_name }}"
+      temperature: 0
+      mcp_servers:
+        sensegrep:
+          command: "node"
+          args: ["../../packages/mcp/dist/server.js"]
+          env:
+            SENSEGREP_ROOT: "{{ working_dir }}"
+      system_prompt: |
+        IMPORTANT: You have access to the sensegrep MCP tool for semantic code search.
+        Use ONLY sensegrep for all code searches. DO NOT use grep, rg, ripgrep, or find.
+
+        The sensegrep tool supports:
+        - Semantic search by description
+        - Filtering by symbol type, language, complexity
+        - Metadata-based filtering (isExported, hasDocumentation, etc.)
+
+  # Configuration 3: Hybrid (both available, agent chooses)
+  - id: anthropic:claude-agent-sdk:hybrid
+    label: "hybrid"
+    config:
+      model: claude-sonnet-4-5-20250929
+      working_dir: "repos/{{ repo_name }}"
+      temperature: 0
+      mcp_servers:
+        sensegrep:
+          command: "node"
+          args: ["../../packages/mcp/dist/server.js"]
+          env:
+            SENSEGREP_ROOT: "{{ working_dir }}"
+      system_prompt: |
+        You have access to both sensegrep (semantic search) and grep (exact search) tools.
+
+        Use sensegrep for:
+        - Finding code by description or intent
+        - Searching by structure (e.g., "async functions that handle authentication")
+        - When you don't know the exact symbol name
+
+        Use grep/rg for:
+        - Exact literal string searches when you know precisely what to find
+        - Finding specific error messages or constants
+
+# Test cases - dynamically loaded from task metadata
+tests:
+  - vars:
+      task_id: "{{ task_id }}"
+      repo_name: "{{ repo_name }}"
+      ground_truth_file: "{{ ground_truth_file }}"
+      ground_truth_symbol: "{{ ground_truth_symbol }}"
+      task_description: "{{ task_description }}"
+
+    assert:
+      # M1: Tool call efficiency (primary metric)
+      - type: javascript
+        value: |
+          // Count total tool calls made by agent
+          const toolCalls = output.metadata?.toolUses?.length || 0;
+
+          // Score: lower calls = better (max 20 calls for full credit)
+          const score = Math.max(0, Math.min(1, (20 - toolCalls) / 20));
+
+          return {
+            pass: toolCalls <= 20,
+            score: score,
+            reason: `Tool calls: ${toolCalls} (score: ${score.toFixed(2)})`
+          };
+
+      # M2: Completion accuracy (llm-rubric for fuzzy matching)
+      - type: llm-rubric
+        value: |
+          The agent was asked to find the file and symbol for an import.
+
+          Task: {{ task_description }}
+          Ground truth: {{ ground_truth_file }}:{{ ground_truth_symbol }}
+          Agent response: {{ output }}
+
+          Scoring:
+          - 1.0: Agent found BOTH correct file AND correct symbol
+          - 0.6: Agent found correct file but wrong/missing symbol
+          - 0.3: Agent found related file but not the exact one
+          - 0.0: Agent did not find the correct code
+
+          Be lenient with path formats (relative vs absolute, slashes, etc.)
+          Symbol names must match (class/function name).
+        threshold: 0.6  # Require at least file match
+
+      # M3: Cost limit
+      - type: cost
+        threshold: 1.0  # Max $1 per task
+
+      # M4: Latency limit
+      - type: latency
+        threshold: 300000  # 5 minutes max
+
+# Default test options
+defaultTest:
+  options:
+    provider:
+      config:
+        max_iterations: 30  # Prevent infinite loops
+        timeout: 300000  # 5 min per task
+
+# Output settings
+outputPath: ./results/latest.json
+
+# Evaluation settings
+evaluateOptions:
+  maxConcurrency: 2  # Run 2 tasks in parallel
+  showProgressBar: true
