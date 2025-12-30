@@ -834,6 +834,33 @@ async function promptAdvancedSearch(): Promise<{
   })
   if (limitInput === undefined) return null
 
+  const variant = await vscode.window.showInputBox({
+    prompt: "Variant (optional)",
+    placeHolder: "e.g., interface, dataclass, protocol, async",
+  })
+  if (variant === undefined) return null
+
+  const decorator = await vscode.window.showInputBox({
+    prompt: "Decorator (optional)",
+    placeHolder: "e.g., @property, @dataclass",
+  })
+  if (decorator === undefined) return null
+
+  const isAsyncPick = await vscode.window.showQuickPick(["", "Yes"], {
+    placeHolder: "Async functions/methods only?",
+  })
+  if (isAsyncPick === undefined) return null
+
+  const isStaticPick = await vscode.window.showQuickPick(["", "Yes"], {
+    placeHolder: "Static methods only?",
+  })
+  if (isStaticPick === undefined) return null
+
+  const isAbstractPick = await vscode.window.showQuickPick(["", "Yes"], {
+    placeHolder: "Abstract classes/methods only?",
+  })
+  if (isAbstractPick === undefined) return null
+
   const rerankPick = await vscode.window.showQuickPick(["No", "Yes"], {
     placeHolder: "Enable reranking?",
   })
@@ -863,6 +890,12 @@ async function promptAdvancedSearch(): Promise<{
     const value = parseInt(limitInput, 10)
     if (!Number.isNaN(value)) options.limit = value
   }
+  // Multilingual support fields
+  if (variant?.trim()) options.variant = variant.trim()
+  if (decorator?.trim()) options.decorator = decorator.trim()
+  if (isAsyncPick === "Yes") options.isAsync = true
+  if (isStaticPick === "Yes") options.isStatic = true
+  if (isAbstractPick === "Yes") options.isAbstract = true
   options.rerank = rerankPick === "Yes"
 
   return { query, options }

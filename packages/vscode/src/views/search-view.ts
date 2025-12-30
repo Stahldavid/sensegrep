@@ -99,6 +99,12 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
       maxComplexity?: number
       rerank?: boolean
       shakeOutput?: boolean
+      // Multilingual support fields
+      variant?: string
+      decorator?: string
+      isAsync?: boolean
+      isStatic?: boolean
+      isAbstract?: boolean
     },
     allowRetry: boolean = true
   ) {
@@ -124,6 +130,12 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
         maxComplexity: filters.maxComplexity,
         rerank: filters.rerank,
         shakeOutput: filters.shakeOutput,
+        // Multilingual support fields
+        variant: filters.variant,
+        decorator: filters.decorator,
+        isAsync: filters.isAsync,
+        isStatic: filters.isStatic,
+        isAbstract: filters.isAbstract,
       })
 
       this.resultsProvider.setResults(results, query)

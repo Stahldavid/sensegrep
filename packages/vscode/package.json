@@ -376,19 +376,9 @@
             "method"
           ],
           "items": {
-            "type": "string",
-            "enum": [
-            "function",
-            "method",
-            "class",
-            "interface",
-            "type",
-            "variable",
-            "namespace",
-            "enum"
-          ]
-        },
-          "description": "Default symbol types to search"
+            "type": "string"
+          },
+          "description": "Default symbol types to search (e.g., function, method, class, interface, type, variable, namespace, enum)"
         },
         "sensegrep.excludePatterns": {
           "type": "array",

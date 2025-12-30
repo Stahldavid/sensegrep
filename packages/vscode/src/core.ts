@@ -80,6 +80,12 @@ export interface SearchOptions {
   hasDocumentation?: boolean
   rerank?: boolean
   shakeOutput?: boolean
+  // Multilingual support fields
+  variant?: string
+  decorator?: string
+  isAsync?: boolean
+  isStatic?: boolean
+  isAbstract?: boolean
 }
 
 export interface SearchSummaryGap {
@@ -326,6 +332,12 @@ export class SensegrepCore {
               shake: false,
               maxPerFile: options?.maxPerFile ?? maxResultsPerFile ?? 3,
               maxPerSymbol: options?.maxPerSymbol ?? 2,
+              // Multilingual support fields
+              variant: options?.variant,
+              decorator: options?.decorator,
+              isAsync: options?.isAsync,
+              isStatic: options?.isStatic,
+              isAbstract: options?.isAbstract,
             },
             {
               sessionID: "vscode",

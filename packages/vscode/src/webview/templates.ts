@@ -565,7 +565,39 @@ export function getSearchViewHtml(
             <input type="number" id="maxComplexity" placeholder="Max" min="0" style="width: 60px;">
           </div>
         </div>
-        
+
+        <div class="filter-group">
+          <label for="variant">Variant</label>
+          <input type="text" id="variant" placeholder="e.g. interface, dataclass, async">
+          <small style="color: var(--vscode-descriptionForeground); font-size: 11px;">
+            Language-specific variants (interface, dataclass, protocol, async, etc.)
+          </small>
+        </div>
+
+        <div class="filter-group">
+          <label for="decorator">Decorator</label>
+          <input type="text" id="decorator" placeholder="e.g. @property, @dataclass">
+          <small style="color: var(--vscode-descriptionForeground); font-size: 11px;">
+            Filter by decorator name (Python: @property, @staticmethod, etc.)
+          </small>
+        </div>
+
+        <div class="filter-group filter-checkboxes">
+          <label>Modifiers</label>
+          <label class="checkbox-item">
+            <input type="checkbox" id="isAsync">
+            Async functions/methods
+          </label>
+          <label class="checkbox-item">
+            <input type="checkbox" id="isStatic">
+            Static methods
+          </label>
+          <label class="checkbox-item">
+            <input type="checkbox" id="isAbstract">
+            Abstract classes/methods
+          </label>
+        </div>
+
         <div class="filter-group filter-checkboxes">
           <label>Options</label>
           <label class="checkbox-item">
@@ -638,8 +670,13 @@ export function getSearchViewHtml(
     const maxPerSymbol = document.getElementById('maxPerSymbol');
     const minComplexity = document.getElementById('minComplexity');
     const maxComplexity = document.getElementById('maxComplexity');
+    const variant = document.getElementById('variant');
+    const decorator = document.getElementById('decorator');
+    const isAsync = document.getElementById('isAsync');
+    const isStatic = document.getElementById('isStatic');
+    const isAbstract = document.getElementById('isAbstract');
     const exportedOnly = document.getElementById('exportedOnly');
-    const hasDocumentation = document.getElementById('hasDocumentation');       
+    const hasDocumentation = document.getElementById('hasDocumentation');
     const enableRerank = document.getElementById('enableRerank');
     const shakeOutput = document.getElementById('shakeOutput');
     const resetFilters = document.getElementById('resetFilters');
@@ -746,6 +783,11 @@ export function getSearchViewHtml(
         maxPerSymbol: maxPerSymbol.value ? parseInt(maxPerSymbol.value) : undefined,
         minComplexity: minComplexity.value ? parseInt(minComplexity.value) : undefined,
         maxComplexity: maxComplexity.value ? parseInt(maxComplexity.value) : undefined,
+        variant: variant.value || undefined,
+        decorator: decorator.value || undefined,
+        isAsync: isAsync.checked || undefined,
+        isStatic: isStatic.checked || undefined,
+        isAbstract: isAbstract.checked || undefined,
         isExported: exportedOnly.checked || undefined,
         hasDocumentation: hasDocumentation.checked || undefined,
         rerank: enableRerank.checked,
