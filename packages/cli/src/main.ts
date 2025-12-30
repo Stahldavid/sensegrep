@@ -199,6 +199,15 @@ async function run() {
   if (command === "index") {
     const full = flags.full === true
     const watch = toBool(flags.watch) === true
+    
+    // Auto-detect languages if not specified
+    const { detectProjectLanguages, formatDetectedLanguages } = await loadCore()
+    const detected = await detectProjectLanguages(rootDir)
+    if (detected.length > 0) {
+      const langSummary = detected.map((d: any) => `${d.language} (${d.fileCount})`).join(", ")
+      console.log(`Detected: ${langSummary}`)
+    }
+    
     let skipIndex = false
     if (flags.verify === true) {
       const check = await Instance.provide({
@@ -586,7 +595,6 @@ async function runLanguagesCommand(flags: Flags, rootDir: string) {
       console.log("No supported languages detected.")
     } else {
       console.log(formatDetectedLanguages(detected))
-      console.log(`\nRecommendation: sensegrep index --languages ${detected.map((d: any) => d.language).join(",")}`)
     }
     return
   }

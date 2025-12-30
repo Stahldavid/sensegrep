@@ -341,7 +341,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       startLine: number
       endLine: number
       semanticScore: number
-      metadata: Record<string, string | number | boolean | undefined>
+      metadata: Record<string, string | number | boolean | string[] | undefined>
       rerankScore?: number
     }
     let workingResults: WorkingResult[] = filteredResults.map((r) => ({

@@ -232,6 +232,12 @@ export namespace VectorStore {
           "hasDocumentation",
           "language",
           "imports",
+          // Multilingual support fields
+          "variant",
+          "isAsync",
+          "isStatic",
+          "isAbstract",
+          "decorators",
         ]
         if (fieldNames.length > 0 && required.some((name) => !fieldNames.includes(name))) {
           log.warn("Existing table schema missing fields; recreating", {
@@ -279,6 +285,12 @@ export namespace VectorStore {
       hasDocumentation: false,
       language: "",
       imports: "",
+      // Multilingual support fields
+      variant: "",
+      isAsync: false,
+      isStatic: false,
+      isAbstract: false,
+      decorators: "",
     }
     const created = await db.createTable(TABLE_NAME, [sentinel], {
       mode: "overwrite",
@@ -524,6 +536,12 @@ export namespace VectorStore {
         hasDocumentation: md.hasDocumentation !== undefined ? Boolean(md.hasDocumentation) : false,
         language: md.language ? String(md.language) : "",
         imports: md.imports ? String(md.imports) : "",
+        // Multilingual support fields
+        variant: md.variant ? String(md.variant) : "",
+        isAsync: md.isAsync !== undefined ? Boolean(md.isAsync) : false,
+        isStatic: md.isStatic !== undefined ? Boolean(md.isStatic) : false,
+        isAbstract: md.isAbstract !== undefined ? Boolean(md.isAbstract) : false,
+        decorators: Array.isArray(md.decorators) ? md.decorators.join(",") : (md.decorators ? String(md.decorators) : ""),
       }
     })
 
@@ -599,6 +617,12 @@ export namespace VectorStore {
         hasDocumentation: row?.hasDocumentation !== undefined ? Boolean(row.hasDocumentation) : undefined,
         language: row?.language ? String(row.language) : undefined,
         imports: row?.imports ? String(row.imports) : undefined,
+        // Multilingual support fields
+        variant: row?.variant ? String(row.variant) : undefined,
+        isAsync: row?.isAsync !== undefined ? Boolean(row.isAsync) : undefined,
+        isStatic: row?.isStatic !== undefined ? Boolean(row.isStatic) : undefined,
+        isAbstract: row?.isAbstract !== undefined ? Boolean(row.isAbstract) : undefined,
+        decorators: row?.decorators ? String(row.decorators).split(",").filter(Boolean) : undefined,
       },
       distance: Number(row?._distance ?? row?.distance ?? 0),
     }
@@ -668,7 +692,7 @@ export namespace VectorStore {
     {
       id: string
       content: string
-      metadata: Record<string, string | number | boolean | undefined>
+      metadata: Record<string, string | number | boolean | string[] | undefined>
       distance: number
     }[]
   > {
@@ -708,6 +732,12 @@ export namespace VectorStore {
         hasDocumentation: r.hasDocumentation !== undefined ? Boolean(r.hasDocumentation) : undefined,
         language: r.language ? String(r.language) : undefined,
         imports: r.imports ? String(r.imports) : undefined,
+        // Multilingual support fields
+        variant: r.variant ? String(r.variant) : undefined,
+        isAsync: r.isAsync !== undefined ? Boolean(r.isAsync) : undefined,
+        isStatic: r.isStatic !== undefined ? Boolean(r.isStatic) : undefined,
+        isAbstract: r.isAbstract !== undefined ? Boolean(r.isAbstract) : undefined,
+        decorators: r.decorators ? String(r.decorators).split(",").filter(Boolean) : undefined,
       },
       distance: Number(r._distance ?? r.distance ?? 0),
     }))

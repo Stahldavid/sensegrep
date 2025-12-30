@@ -196,6 +196,12 @@ export namespace Indexer {
         ...(chunk.hasDocumentation !== undefined && { hasDocumentation: chunk.hasDocumentation }),
         ...(chunk.language && { language: chunk.language }),
         ...(chunk.imports && { imports: chunk.imports }),
+        // Multilingual support fields
+        ...(chunk.variant && { variant: chunk.variant }),
+        ...(chunk.isAsync !== undefined && { isAsync: chunk.isAsync }),
+        ...(chunk.isStatic !== undefined && { isStatic: chunk.isStatic }),
+        ...(chunk.isAbstract !== undefined && { isAbstract: chunk.isAbstract }),
+        ...(chunk.decorators && chunk.decorators.length > 0 && { decorators: chunk.decorators.join(",") }),
       },
     }))
   }

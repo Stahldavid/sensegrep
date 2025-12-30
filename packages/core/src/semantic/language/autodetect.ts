@@ -185,10 +185,6 @@ export function formatDetectedLanguages(
       `  ${d.language}: ${d.fileCount} file${d.fileCount === 1 ? "" : "s"} (${d.percentage.toFixed(1)}%)`
     )
   }
-  lines.push("")
-  lines.push(
-    `Recommendation: sensegrep index --languages ${detected.map((d) => d.language).join(",")}`
-  )
 
   return lines.join("\n")
 }
