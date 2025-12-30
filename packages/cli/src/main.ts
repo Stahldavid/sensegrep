@@ -56,7 +56,7 @@ Search options:
   --max-per-file <n>        Max results per file (default: 1)
   --max-per-symbol <n>      Max results per symbol (default: 1)
   --has-docs <true|false>   Require documentation
-  --language <lang>         typescript|javascript|python (comma-separated for multiple)
+  --language <lang>         typescript|javascript|python|html (comma-separated for multiple)
   --parent <name>           Parent scope/class name
   --imports <name>          Filter by imported module name
   --rerank <true|false>     Enable cross-encoder reranking (default: false)

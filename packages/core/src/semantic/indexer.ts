@@ -23,6 +23,8 @@ export namespace Indexer {
     ".tsx",
     ".js",
     ".jsx",
+    ".html",
+    ".htm",
     ".py",
     ".go",
     ".rs",

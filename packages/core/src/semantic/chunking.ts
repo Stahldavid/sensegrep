@@ -1,7 +1,7 @@
 import { Log } from "../util/log.js"
 import { TreeSitterChunking } from "./chunking-treesitter.js"
 import { getEmbeddingConfig } from "./embedding-config.js"
-import { isSupported as isLanguageSupported, chunkPython } from "./language/index.js"
+import { isSupported as isLanguageSupported, chunkPython, chunkHtml } from "./language/index.js"
 
 const log = Log.create({ service: "semantic.chunking" })
 
@@ -89,6 +89,8 @@ export namespace Chunking {
       ".tsx",
       ".js",
       ".jsx",
+      ".html",
+      ".htm",
       ".py",
       ".go",
       ".rs",
@@ -143,6 +145,24 @@ export namespace Chunking {
         log.warn("Python chunking returned 0 chunks, falling back to regex", { filePath })
       } catch (error) {
         log.warn("Python chunking failed, falling back to regex", {
+          filePath,
+          error: error instanceof Error ? error.message : String(error),
+        })
+        // Fall through to regex chunking
+      }
+    }
+
+    // Try HTML chunking
+    if (filePath.endsWith(".html") || filePath.endsWith(".htm")) {
+      try {
+        const chunks = await chunkHtml(content, filePath)
+        if (chunks.length > 0) {
+          log.info("used tree-sitter chunking (HTML)", { filePath, chunks: chunks.length })
+          return chunks
+        }
+        log.warn("HTML chunking returned 0 chunks, falling back to regex", { filePath })
+      } catch (error) {
+        log.warn("HTML chunking failed, falling back to regex", {
           filePath,
           error: error instanceof Error ? error.message : String(error),
         })

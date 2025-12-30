@@ -47,6 +47,7 @@ export {
 // Language Implementations
 export { TypeScriptLanguage, JavaScriptLanguage, tsParser, tsxParser } from "./typescript.js"
 export { PythonLanguage, pythonParser, chunk as chunkPython } from "./python.js"
+export { HtmlLanguage, htmlParser, chunk as chunkHtml } from "./html.js"
 
 // ============================================================================
 // Auto-register languages on module load
@@ -54,8 +55,10 @@ export { PythonLanguage, pythonParser, chunk as chunkPython } from "./python.js"
 import { registerLanguage } from "./registry.js"
 import { TypeScriptLanguage, JavaScriptLanguage } from "./typescript.js"
 import { PythonLanguage } from "./python.js"
+import { HtmlLanguage } from "./html.js"
 
 // Register all built-in languages
 registerLanguage(TypeScriptLanguage)
 registerLanguage(JavaScriptLanguage)
 registerLanguage(PythonLanguage)
+registerLanguage(HtmlLanguage)

@@ -20,7 +20,7 @@ Semantic Metadata Filters (optional):
 - `minComplexity`: Minimum cyclomatic complexity (e.g. 5 for moderately complex code)
 - `maxComplexity`: Maximum cyclomatic complexity (e.g. 10 to avoid overly complex code)
 - `hasDocumentation`: Filter for documented/undocumented code (true/false)
-- `language`: Filter by language - "typescript", "javascript", "tsx", "jsx"
+- `language`: Filter by language - "typescript", "javascript", "python", "html"
 - `parentScope`: Filter by parent class/namespace (e.g. "VectorStore")
 - `imports`: Filter by imported module name (e.g. "react")
 
