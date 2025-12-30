@@ -1,7 +1,6 @@
 import { Log } from "../util/log.js"
 import { TreeSitterChunking } from "./chunking-treesitter.js"
-import { Chunking } from "./chunking.js"
-import { Embeddings } from "./embeddings.js"
+import { getLanguageForFile, isSupported as isLanguageSupported } from "./language/index.js"
 import { VectorStore } from "./lancedb.js"
 import * as fs from "fs/promises"
 import * as path from "path"
@@ -89,7 +88,9 @@ export namespace DuplicateDetector {
   ]
 
   const IDENTIFIER_REGEX = /\b[A-Za-z_$][A-Za-z0-9_$]*\b/g
-  const RESERVED_WORDS = new Set([
+  
+  // Reserved words by language for normalization
+  const RESERVED_WORDS_JS = new Set([
     "abstract",
     "any",
     "as",
@@ -168,14 +169,97 @@ export namespace DuplicateDetector {
     "$ID",
   ])
 
+  const RESERVED_WORDS_PYTHON = new Set([
+    "False",
+    "None",
+    "True",
+    "and",
+    "as",
+    "assert",
+    "async",
+    "await",
+    "break",
+    "class",
+    "continue",
+    "def",
+    "del",
+    "elif",
+    "else",
+    "except",
+    "finally",
+    "for",
+    "from",
+    "global",
+    "if",
+    "import",
+    "in",
+    "is",
+    "lambda",
+    "nonlocal",
+    "not",
+    "or",
+    "pass",
+    "raise",
+    "return",
+    "try",
+    "while",
+    "with",
+    "yield",
+    // Common built-ins
+    "self",
+    "cls",
+    "int",
+    "str",
+    "float",
+    "bool",
+    "list",
+    "dict",
+    "set",
+    "tuple",
+    "type",
+    "object",
+    "print",
+    "len",
+    "range",
+    "enumerate",
+    "zip",
+    "map",
+    "filter",
+    "sorted",
+    "reversed",
+    "any",
+    "all",
+    "isinstance",
+    "issubclass",
+    "hasattr",
+    "getattr",
+    "setattr",
+    "property",
+    "staticmethod",
+    "classmethod",
+    "super",
+    "$NUM",
+    "$STR",
+    "$ID",
+  ])
+
+  function getReservedWordsForFile(filePath: string): Set<string> {
+    const lang = getLanguageForFile(filePath)
+    if (lang?.id === "python") {
+      return RESERVED_WORDS_PYTHON
+    }
+    return RESERVED_WORDS_JS
+  }
+
   /**
    * Normalizar código para comparação (substituir identificadores por placeholders)
    */
-  function normalizeCode(content: string): string {
+  function normalizeCode(content: string, filePath?: string): string {
     // Substituir nomes de variáveis/parâmetros por placeholders genéricos
     // mantendo a estrutura do código
 
     let normalized = content
+    const reservedWords = filePath ? getReservedWordsForFile(filePath) : RESERVED_WORDS_JS
 
     // Substituir literais numéricos
     normalized = normalized.replace(/\b\d+\.?\d*\b/g, "$NUM")
@@ -185,13 +269,14 @@ export namespace DuplicateDetector {
     normalized = normalized.replace(/'[^']*'/g, "'$STR'")
     normalized = normalized.replace(/`[^`]*`/g, "`$STR`")
 
-    // Remover comentários
+    // Remover comentários (JS/TS and Python)
     normalized = normalized.replace(/\/\*[\s\S]*?\*\//g, "")
     normalized = normalized.replace(/\/\/.*/g, "")
+    normalized = normalized.replace(/#.*/g, "") // Python comments
 
     // Normalizar identificadores (variáveis, funções, etc.)
     normalized = normalized.replace(IDENTIFIER_REGEX, (match) =>
-      RESERVED_WORDS.has(match) ? match : "$ID",
+      reservedWords.has(match) ? match : "$ID",
     )
 
     // Normalizar whitespace
@@ -279,8 +364,8 @@ export namespace DuplicateDetector {
           }
           await walk(fullPath)
         } else if (entry.isFile()) {
-          // Aceitar apenas arquivos de código suportados
-          if (TreeSitterChunking.isSupported(fullPath)) {
+          // Aceitar apenas arquivos de código suportados (TS, JS, Python)
+          if (isLanguageSupported(fullPath)) {
             files.push(fullPath)
           }
         }

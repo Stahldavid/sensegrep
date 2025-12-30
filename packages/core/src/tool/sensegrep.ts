@@ -189,17 +189,25 @@ export const SenseGrepTool = Tool.define("sensegrep", {
 
     // Semantic metadata filters
     symbolType: z
-      .enum(["function", "class", "method", "interface", "type", "variable", "namespace", "enum"])
+      .enum(["function", "class", "method", "type", "variable", "enum", "module"])
       .optional()
-      .describe('Filter by symbol type (e.g. "function", "class", "method")'),
-    isExported: z.boolean().optional().describe("Filter for exported symbols only"),
+      .describe('Filter by semantic symbol type (universal across languages)'),
+    variant: z
+      .string()
+      .optional()
+      .describe('Filter by symbol variant (e.g. "interface", "dataclass", "async", "static")'),
+    isExported: z.boolean().optional().describe("Filter for exported/public symbols only"),
+    isAsync: z.boolean().optional().describe("Filter for async functions/methods"),
+    isStatic: z.boolean().optional().describe("Filter for static methods"),
+    isAbstract: z.boolean().optional().describe("Filter for abstract classes/methods"),
+    decorator: z.string().optional().describe('Filter by decorator (e.g. "@property", "@dataclass")'),
     minComplexity: z.number().optional().describe("Minimum cyclomatic complexity (e.g. 5 for moderately complex code)"),
     maxComplexity: z.number().optional().describe("Maximum cyclomatic complexity"),
     hasDocumentation: z.boolean().optional().describe("Filter for code with/without documentation"),
     language: z
-      .enum(["typescript", "javascript", "tsx", "jsx"])
+      .enum(["typescript", "javascript", "python"])
       .optional()
-      .describe('Filter by programming language (e.g. "typescript")'),
+      .describe('Filter by programming language'),
     parentScope: z.string().optional().describe('Filter by parent scope/class (e.g. "VectorStore")'),
     imports: z.string().optional().describe('Filter by imported module name (e.g. "react")'),
     shake: z.boolean().default(true).describe("Enable semantic tree-shaking to show full file context with irrelevant regions collapsed (default: true)"),
@@ -259,6 +267,27 @@ export const SenseGrepTool = Tool.define("sensegrep", {
 
     if (params.language) {
       filters.all!.push({ key: "language", operator: "equals", value: params.language })
+    }
+
+    // New multilingual filters
+    if (params.variant) {
+      filters.all!.push({ key: "variant", operator: "equals", value: params.variant })
+    }
+
+    if (params.isAsync !== undefined) {
+      filters.all!.push({ key: "isAsync", operator: "equals", value: params.isAsync })
+    }
+
+    if (params.isStatic !== undefined) {
+      filters.all!.push({ key: "isStatic", operator: "equals", value: params.isStatic })
+    }
+
+    if (params.isAbstract !== undefined) {
+      filters.all!.push({ key: "isAbstract", operator: "equals", value: params.isAbstract })
+    }
+
+    if (params.decorator) {
+      filters.all!.push({ key: "decorators", operator: "contains", value: params.decorator })
     }
 
     if (params.parentScope) {

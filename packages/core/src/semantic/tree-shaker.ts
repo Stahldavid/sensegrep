@@ -14,6 +14,7 @@ import type { Tree } from "web-tree-sitter"
 import { createRequire } from "module"
 import { readFile } from "node:fs/promises"
 import path from "path"
+import { getLanguageForFile } from "./language/index.js"
 
 const log = Log.create({ service: "semantic.tree-shaker" })
 
@@ -85,6 +86,28 @@ const tsxParser = lazy(async () => {
   return p
 })
 
+// Lazy-loaded Python parser
+const pythonParser = lazy(async () => {
+  const wasm = await import("web-tree-sitter")
+  const Parser = (wasm as any).default ?? (wasm as any)
+  const treePath = resolveWasmPath("web-tree-sitter/tree-sitter.wasm")
+  await Parser.init({
+    locateFile() {
+      return treePath
+    },
+  })
+
+  const pyPath = resolveWasmPath("tree-sitter-wasms/out/tree-sitter-python.wasm")
+  const Language = (Parser as any).Language ?? (wasm as any).Language
+  if (!Language?.load) {
+    throw new Error("tree-sitter Language.load not available")
+  }
+  const pyLanguage = await Language.load(pyPath)
+  const p = new Parser()
+  p.setLanguage(pyLanguage)
+  return p
+})
+
 export namespace TreeShaker {
   export interface Range {
     startLine: number
@@ -139,7 +162,8 @@ export namespace TreeShaker {
       filePath.endsWith(".ts") ||
       filePath.endsWith(".tsx") ||
       filePath.endsWith(".js") ||
-      filePath.endsWith(".jsx")
+      filePath.endsWith(".jsx") ||
+      filePath.endsWith(".py")
     )
   }
 
@@ -208,6 +232,18 @@ export namespace TreeShaker {
   }
 
   /**
+   * Get the appropriate parser for a file
+   */
+  async function getParserForFile(filePath: string) {
+    if (filePath.endsWith(".py")) {
+      return pythonParser()
+    } else if (filePath.endsWith(".tsx") || filePath.endsWith(".jsx")) {
+      return tsxParser()
+    }
+    return tsParser()
+  }
+
+  /**
    * Extract collapsible regions from file content
    * Used during indexing to pre-compute regions
    */
@@ -217,87 +253,119 @@ export namespace TreeShaker {
     }
 
     const lines = content.split("\n")
-    const isTSX = filePath.endsWith(".tsx") || filePath.endsWith(".jsx")
-    const parser = isTSX ? await tsxParser() : await tsParser()
+    const parser = await getParserForFile(filePath)
     const tree = parser.parse(content)
 
     if (!tree) {
       return []
     }
 
-    return findCollapsibleRegions(tree, lines)
+    const isPython = filePath.endsWith(".py")
+    return findCollapsibleRegions(tree, lines, isPython)
   }
 
   /**
    * Find all collapsible regions in the AST
    * Exported for pre-computation during indexing
    */
-  export function findCollapsibleRegions(tree: Tree, lines: string[]): CollapsibleRegion[] {
+  export function findCollapsibleRegions(tree: Tree, lines: string[], isPython = false): CollapsibleRegion[] {
     const regions: CollapsibleRegion[] = []
     const rootNode = tree.rootNode as unknown as SyntaxNode
 
     function visit(node: SyntaxNode) {
-      // Method definitions in classes
-      if (node.type === "method_definition") {
-        const name = extractNodeName(node)
-        const startLine = node.startPosition.row + 1
-        const endLine = node.endPosition.row + 1
-        const signatureEndLine = findSignatureEndLine(node, lines)
-        const indentation = getIndentation(lines[node.startPosition.row] || "")
+      if (isPython) {
+        // Python: function_definition, decorated_definition
+        if (node.type === "function_definition") {
+          const name = extractNodeName(node)
+          const startLine = node.startPosition.row + 1
+          const endLine = node.endPosition.row + 1
+          const signatureEndLine = findPythonSignatureEndLine(node)
+          const indentation = getIndentation(lines[node.startPosition.row] || "")
 
-        regions.push({
-          type: name === "constructor" ? "constructor" : "method",
-          name,
-          startLine,
-          endLine,
-          signatureEndLine,
-          indentation,
-        })
-      }
+          // Check if it's a method (inside a class)
+          const isMethod = node.parent?.type === "block" && 
+                          node.parent?.parent?.type === "class_definition"
 
-      // Function declarations
-      if (node.type === "function_declaration") {
-        const name = extractNodeName(node)
-        const startLine = node.startPosition.row + 1
-        const endLine = node.endPosition.row + 1
-        const signatureEndLine = findSignatureEndLine(node, lines)
-        const indentation = getIndentation(lines[node.startPosition.row] || "")
+          regions.push({
+            type: name === "__init__" ? "constructor" : (isMethod ? "method" : "function"),
+            name,
+            startLine,
+            endLine,
+            signatureEndLine,
+            indentation,
+          })
+        }
 
-        regions.push({
-          type: "function",
-          name,
-          startLine,
-          endLine,
-          signatureEndLine,
-          indentation,
-        })
-      }
+        // Handle decorated definitions (wraps function_definition or class_definition)
+        if (node.type === "decorated_definition") {
+          // The actual function/class is a child, we'll visit it separately
+          // Just need to adjust the start line to include decorators
+        }
+      } else {
+        // TypeScript/JavaScript handling (existing logic)
+        
+        // Method definitions in classes
+        if (node.type === "method_definition") {
+          const name = extractNodeName(node)
+          const startLine = node.startPosition.row + 1
+          const endLine = node.endPosition.row + 1
+          const signatureEndLine = findSignatureEndLine(node, lines)
+          const indentation = getIndentation(lines[node.startPosition.row] || "")
 
-      // Arrow functions in const/let declarations (top-level or exported)
-      if (node.type === "lexical_declaration" || node.type === "variable_declaration") {
-        const parent = node.parent
-        if (parent?.type === "program" || parent?.type === "export_statement") {
-          // Check if it contains an arrow function
-          for (let i = 0; i < node.childCount; i++) {
-            const declarator = node.child(i)
-            if (declarator?.type === "variable_declarator") {
-              for (let j = 0; j < declarator.childCount; j++) {
-                const value = declarator.child(j)
-                if (value?.type === "arrow_function") {
-                  const name = extractNodeName(node)
-                  const startLine = node.startPosition.row + 1
-                  const endLine = node.endPosition.row + 1
-                  const signatureEndLine = findSignatureEndLine(value, lines)
-                  const indentation = getIndentation(lines[node.startPosition.row] || "")
+          regions.push({
+            type: name === "constructor" ? "constructor" : "method",
+            name,
+            startLine,
+            endLine,
+            signatureEndLine,
+            indentation,
+          })
+        }
 
-                  regions.push({
-                    type: "function",
-                    name,
-                    startLine,
-                    endLine,
-                    signatureEndLine,
-                    indentation,
-                  })
+        // Function declarations
+        if (node.type === "function_declaration") {
+          const name = extractNodeName(node)
+          const startLine = node.startPosition.row + 1
+          const endLine = node.endPosition.row + 1
+          const signatureEndLine = findSignatureEndLine(node, lines)
+          const indentation = getIndentation(lines[node.startPosition.row] || "")
+
+          regions.push({
+            type: "function",
+            name,
+            startLine,
+            endLine,
+            signatureEndLine,
+            indentation,
+          })
+        }
+
+        // Arrow functions in const/let declarations (top-level or exported)
+        if (node.type === "lexical_declaration" || node.type === "variable_declaration") {
+          const parent = node.parent
+          if (parent?.type === "program" || parent?.type === "export_statement") {
+            // Check if it contains an arrow function
+            for (let i = 0; i < node.childCount; i++) {
+              const declarator = node.child(i)
+              if (declarator?.type === "variable_declarator") {
+                for (let j = 0; j < declarator.childCount; j++) {
+                  const value = declarator.child(j)
+                  if (value?.type === "arrow_function") {
+                    const name = extractNodeName(node)
+                    const startLine = node.startPosition.row + 1
+                    const endLine = node.endPosition.row + 1
+                    const signatureEndLine = findSignatureEndLine(value, lines)
+                    const indentation = getIndentation(lines[node.startPosition.row] || "")
+
+                    regions.push({
+                      type: "function",
+                      name,
+                      startLine,
+                      endLine,
+                      signatureEndLine,
+                      indentation,
+                    })
+                  }
                 }
               }
             }
@@ -318,6 +386,27 @@ export namespace TreeShaker {
     regions.sort((a, b) => a.startLine - b.startLine)
 
     return regions
+  }
+
+  /**
+   * Find signature end line for Python functions
+   * Python uses : to end the signature, body starts on next line (or same line for one-liners)
+   */
+  function findPythonSignatureEndLine(node: SyntaxNode): number {
+    // Look for the body block
+    const body = node.childForFieldName("body")
+    if (body) {
+      // The signature ends at the line before the body starts
+      // Unless it's a one-liner
+      const bodyStartLine = body.startPosition.row + 1
+      const nodeStartLine = node.startPosition.row + 1
+      if (bodyStartLine === nodeStartLine) {
+        // One-liner, signature is the whole thing
+        return nodeStartLine
+      }
+      return bodyStartLine - 1
+    }
+    return node.startPosition.row + 1
   }
 
   /**
@@ -452,8 +541,8 @@ export namespace TreeShaker {
       })
     } else {
       // Parse the file to extract regions
-      const isTSX = filePath.endsWith(".tsx") || filePath.endsWith(".jsx")
-      const parser = isTSX ? await tsxParser() : await tsParser()
+      const isPython = filePath.endsWith(".py")
+      const parser = await getParserForFile(filePath)
       const tree = parser.parse(content)
 
       if (!tree) {
@@ -470,7 +559,7 @@ export namespace TreeShaker {
       }
 
       // Find collapsible regions
-      regions = findCollapsibleRegions(tree, lines)
+      regions = findCollapsibleRegions(tree, lines, isPython)
 
       log.info("tree-shaker: parsed and found collapsible regions", {
         filePath: path.basename(filePath),

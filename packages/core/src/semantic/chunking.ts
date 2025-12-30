@@ -1,6 +1,7 @@
 import { Log } from "../util/log.js"
 import { TreeSitterChunking } from "./chunking-treesitter.js"
 import { getEmbeddingConfig } from "./embedding-config.js"
+import { isSupported as isLanguageSupported, chunkPython } from "./language/index.js"
 
 const log = Log.create({ service: "semantic.chunking" })
 
@@ -65,8 +66,13 @@ export namespace Chunking {
     // Semantic metadata for code chunks (collected from tree-sitter AST)
     symbolName?: string // Name of function/class/interface/type/namespace
     symbolType?: string // "function" | "class" | "interface" | "type" | "namespace" | "method" | "variable"
+    variant?: string // Specific variant: "interface", "dataclass", "protocol", "async", etc.
     complexity?: number // Cyclomatic complexity (0-N)
     isExported?: boolean // Whether this is an exported symbol
+    isAsync?: boolean // Whether this is an async function/method
+    isStatic?: boolean // Whether this is a static method
+    isAbstract?: boolean // Whether this is abstract
+    decorators?: string[] // List of decorators (e.g., ["@property", "@staticmethod"])
     parentScope?: string // Parent context, e.g., "MyClass" for methods
     scopeDepth?: number // Nesting level
     hasDocumentation?: boolean // Whether JSDoc/comments are present
@@ -108,17 +114,35 @@ export namespace Chunking {
    * Tries tree-sitter AST-based chunking first, falls back to regex
    */
   async function chunkCodeAsync(content: string, filePath: string): Promise<Chunk[]> {
-    // Try tree-sitter for supported languages
+    // Try tree-sitter for TypeScript/JavaScript
     if (TreeSitterChunking.isSupported(filePath)) {
       try {
         const chunks = await TreeSitterChunking.chunk(content, filePath)
         if (chunks.length > 0) {
-          log.info("used tree-sitter chunking", { filePath, chunks: chunks.length })
+          log.info("used tree-sitter chunking (TypeScript/JavaScript)", { filePath, chunks: chunks.length })
           return chunks
         }
         log.warn("tree-sitter returned 0 chunks, falling back to regex", { filePath })
       } catch (error) {
         log.warn("tree-sitter chunking failed, falling back to regex", {
+          filePath,
+          error: error instanceof Error ? error.message : String(error),
+        })
+        // Fall through to regex chunking
+      }
+    }
+
+    // Try Python chunking
+    if (filePath.endsWith(".py")) {
+      try {
+        const chunks = await chunkPython(content, filePath)
+        if (chunks.length > 0) {
+          log.info("used tree-sitter chunking (Python)", { filePath, chunks: chunks.length })
+          return chunks
+        }
+        log.warn("Python chunking returned 0 chunks, falling back to regex", { filePath })
+      } catch (error) {
+        log.warn("Python chunking failed, falling back to regex", {
           filePath,
           error: error instanceof Error ? error.message : String(error),
         })
