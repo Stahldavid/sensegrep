@@ -11,6 +11,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 let corePromise: Promise<any> | null = null;
 let toolPromise: Promise<any> | null = null;
+let cachedTools: Tool[] | null = null;
 const WATCH_INTERVAL_MS = 60_000;
 let watchHandle: { stop: () => Promise<void> } | null = null;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -106,96 +107,137 @@ async function stopWatch() {
   }
 }
 
-const tools: Tool[] = [
-  {
-    name: "sensegrep.search",
-    description: "Semantic + structural code search with optional regex filters. Automatically uses the embedding model from the index.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        query: { type: "string", description: "Search query" },
-        pattern: { type: "string", description: "Regex pattern filter" },
-        limit: { type: "number", description: "Max results (default: 20)" },
-        include: { type: "string", description: "File glob filter (e.g., 'src/**/*.ts')" },
-        symbol: { type: "string", description: "Filter by symbol name" },
-        name: { type: "string", description: "Alias for symbol name" },
-        symbolType: {
-          type: "string",
-          enum: ["function", "class", "method", "interface", "type", "variable", "namespace", "enum"],
-          description: "Filter by symbol type",
+async function generateTools(): Promise<Tool[]> {
+  if (cachedTools) return cachedTools;
+
+  const core = await loadCore();
+  const caps = core.getLanguageCapabilities();
+
+  // Format variants for description
+  const variantDesc = caps.variants
+    .slice(0, 10)
+    .map((v: any) => `${v.name} (${v.languages.join("/")})`)
+    .join(", ");
+
+  cachedTools = [
+    {
+      name: "sensegrep.search",
+      description: `Semantic + structural code search. Languages: ${caps.languages.join(", ")}`,
+      inputSchema: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Search query" },
+          pattern: { type: "string", description: "Regex pattern filter" },
+          limit: { type: "number", description: "Max results (default: 20)" },
+          include: { type: "string", description: "File glob filter (e.g., 'src/**/*.ts')" },
+          symbol: { type: "string", description: "Filter by symbol name" },
+          name: { type: "string", description: "Alias for symbol name" },
+          symbolType: {
+            type: "string",
+            enum: [...caps.symbolTypes],
+            description: "Semantic symbol type",
+          },
+          variant: {
+            type: "string",
+            description: `Language-specific variant. Available: ${variantDesc}...`,
+          },
+          decorator: {
+            type: "string",
+            description: `Filter by decorator (${caps.decorators.slice(0, 5).join(", ")}...)`,
+          },
+          isExported: { type: "boolean", description: "Only exported symbols" },
+          isAsync: { type: "boolean", description: "Only async functions/methods" },
+          isStatic: { type: "boolean", description: "Only static methods" },
+          isAbstract: { type: "boolean", description: "Only abstract classes/methods" },
+          minComplexity: { type: "number", description: "Minimum cyclomatic complexity" },
+          maxComplexity: { type: "number", description: "Maximum cyclomatic complexity" },
+          minScore: { type: "number", description: "Minimum relevance score 0-1" },
+          maxPerFile: { type: "number", description: "Max results per file (default: 1)" },
+          maxPerSymbol: { type: "number", description: "Max results per symbol (default: 1)" },
+          hasDocumentation: { type: "boolean", description: "Require documentation" },
+          language: {
+            type: "string",
+            enum: [...caps.languages],
+            description: "Filter by programming language",
+          },
+          parentScope: { type: "string", description: "Parent scope/class name" },
+          imports: { type: "string", description: "Filter by imported module name" },
+          rerank: { type: "boolean", description: "Enable cross-encoder reranking" },
+          rootDir: { type: "string", description: "Root directory (default: cwd)" },
         },
-        isExported: { type: "boolean", description: "Only exported symbols" },
-        minComplexity: { type: "number", description: "Minimum cyclomatic complexity" },
-        maxComplexity: { type: "number", description: "Maximum cyclomatic complexity" },
-        minScore: { type: "number", description: "Minimum relevance score 0-1" },
-        maxPerFile: { type: "number", description: "Max results per file (default: 1)" },
-        maxPerSymbol: { type: "number", description: "Max results per symbol (default: 1)" },
-        hasDocumentation: { type: "boolean", description: "Require documentation" },
-        language: {
-          type: "string",
-          enum: ["typescript", "javascript", "tsx", "jsx"],
-          description: "Filter by language",
-        },
-        parentScope: { type: "string", description: "Parent scope/class name" },
-        imports: { type: "string", description: "Filter by imported module name (e.g., 'react')" },
-        rerank: { type: "boolean", description: "Enable cross-encoder reranking" },
-        rootDir: { type: "string", description: "Root directory (default: cwd)" },
-      },
-      required: ["query"],
-    },
-  },
-  {
-    name: "sensegrep.detect_duplicates",
-    description: "Detect logical duplicates using the existing semantic index (vector store).",
-    inputSchema: {
-      type: "object",
-      properties: {
-        rootDir: { type: "string", description: "Root directory (default: cwd)" },
-        threshold: { type: "number", description: "Minimum similarity 0.0-1.0 (default: 0.85)" },
-        scope: { type: "string", description: "Scope: function, method, all (or comma-separated)" },
-        ignoreTests: { type: "boolean", description: "Ignore test files" },
-        crossFileOnly: { type: "boolean", description: "Only report cross-file duplicates" },
-        onlyExported: { type: "boolean", description: "Only exported symbols" },
-        excludePattern: { type: "string", description: "Exclude symbols matching regex" },
-        minLines: { type: "number", description: "Minimum lines (default: 10)" },
-        minComplexity: { type: "number", description: "Minimum complexity (default: 0)" },
-        ignoreAcceptablePatterns: { type: "boolean", description: "Do not ignore acceptable duplicates" },
-        normalizeIdentifiers: { type: "boolean", description: "Normalize identifiers (default: true)" },
-        rankByImpact: { type: "boolean", description: "Rank by impact (default: true)" },
-        limit: { type: "number", description: "Max duplicates to show (default: 10)" },
-        showCode: { type: "boolean", description: "Show code snippets" },
-        verbose: { type: "boolean", description: "Show detailed output" },
-        quiet: { type: "boolean", description: "Only show summary" },
-        json: { type: "boolean", description: "Return raw JSON result" },
+        required: ["query"],
       },
     },
-  },
-  {
-    name: "sensegrep.index",
-    description: "Create or update a semantic index for the given root directory.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        rootDir: { type: "string", description: "Root directory to index" },
-        mode: {
-          type: "string",
-          enum: ["incremental", "full"],
-          description: "Index mode (default: incremental)",
+    {
+      name: "sensegrep.languages",
+      description: "List supported languages, detect project languages, or show available variants",
+      inputSchema: {
+        type: "object",
+        properties: {
+          detect: { type: "boolean", description: "Detect languages in project" },
+          variants: { type: "boolean", description: "Show all variants by language" },
+          rootDir: { type: "string", description: "Root directory for detection" },
         },
       },
     },
-  },
-  {
-    name: "sensegrep.stats",
-    description: "Get index stats for the given root directory.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        rootDir: { type: "string", description: "Root directory" },
+    {
+      name: "sensegrep.detect_duplicates",
+      description: "Detect logical duplicates using the existing semantic index.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          rootDir: { type: "string", description: "Root directory (default: cwd)" },
+          threshold: { type: "number", description: "Minimum similarity 0.0-1.0 (default: 0.85)" },
+          scope: { type: "string", description: "Scope: function, method, all (or comma-separated)" },
+          language: { type: "string", description: "Filter by language (comma-separated)" },
+          crossLanguage: { type: "boolean", description: "Detect duplicates across languages (default: off)" },
+          ignoreTests: { type: "boolean", description: "Ignore test files" },
+          crossFileOnly: { type: "boolean", description: "Only report cross-file duplicates" },
+          onlyExported: { type: "boolean", description: "Only exported symbols" },
+          excludePattern: { type: "string", description: "Exclude symbols matching regex" },
+          minLines: { type: "number", description: "Minimum lines (default: 10)" },
+          minComplexity: { type: "number", description: "Minimum complexity (default: 0)" },
+          ignoreAcceptablePatterns: { type: "boolean", description: "Do not ignore acceptable duplicates" },
+          normalizeIdentifiers: { type: "boolean", description: "Normalize identifiers (default: true)" },
+          rankByImpact: { type: "boolean", description: "Rank by impact (default: true)" },
+          limit: { type: "number", description: "Max duplicates to show (default: 10)" },
+          showCode: { type: "boolean", description: "Show code snippets" },
+          verbose: { type: "boolean", description: "Show detailed output" },
+          quiet: { type: "boolean", description: "Only show summary" },
+          json: { type: "boolean", description: "Return raw JSON result" },
+        },
       },
     },
-  },
-];
+    {
+      name: "sensegrep.index",
+      description: "Create or update a semantic index for the given root directory.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          rootDir: { type: "string", description: "Root directory to index" },
+          mode: {
+            type: "string",
+            enum: ["incremental", "full"],
+            description: "Index mode (default: incremental)",
+          },
+          languages: { type: "string", description: "Languages to index (comma-separated, or 'auto')" },
+        },
+      },
+    },
+    {
+      name: "sensegrep.stats",
+      description: "Get index stats for the given root directory.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          rootDir: { type: "string", description: "Root directory" },
+        },
+      },
+    },
+  ];
+
+  return cachedTools;
+}
 
 const server = new Server(
   {
@@ -210,6 +252,7 @@ const server = new Server(
 );
 
 server.setRequestHandler(ListToolsRequestSchema, async () => {
+  const tools = await generateTools();
   return { tools };
 });
 
@@ -237,6 +280,53 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return {
         content: [{ type: "text", text: res.output }],
       };
+    }
+
+    if (name === "sensegrep.languages") {
+      const core = await loadCore();
+      const {
+        getLanguageCapabilities,
+        getVariantsGroupedByLanguage,
+        detectProjectLanguages,
+        formatDetectedLanguages,
+        getAllLanguages,
+      } = core;
+
+      const lines: string[] = [];
+
+      if ((args as any)?.detect) {
+        const detected = await detectProjectLanguages(rootDir);
+        if (detected.length === 0) {
+          lines.push("No supported languages detected.");
+        } else {
+          lines.push(formatDetectedLanguages(detected));
+          lines.push("");
+          lines.push(`Recommendation: Use --languages ${detected.map((d: any) => d.language).join(",")}`);
+        }
+      } else if ((args as any)?.variants) {
+        const variantsByLang = getVariantsGroupedByLanguage();
+        lines.push("Variants by language:\n");
+        for (const [lang, variants] of variantsByLang) {
+          lines.push(`  ${lang}:`);
+          for (const v of variants as any[]) {
+            lines.push(`    - ${v.name.padEnd(15)} ${v.description}`);
+          }
+          lines.push("");
+        }
+      } else {
+        const all = getAllLanguages();
+        const caps = getLanguageCapabilities();
+        lines.push("Supported languages:\n");
+        for (const lang of all) {
+          lines.push(`  ✅ ${lang.displayName} (${lang.extensions.join(", ")})`);
+        }
+        lines.push("");
+        lines.push(`Symbol types: ${caps.symbolTypes.join(", ")}`);
+        lines.push(`Variants: ${caps.variants.length} total`);
+        lines.push(`Decorators: ${caps.decorators.length} total`);
+      }
+
+      return { content: [{ type: "text", text: lines.join("\n") }] };
     }
 
     if (name === "sensegrep.index") {

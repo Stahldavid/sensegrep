@@ -13,6 +13,7 @@ import type {
   ChunkMetadata,
   SemanticSymbolType,
   SymbolVariant,
+  LanguageVariantDef,
 } from "./types.js"
 
 const require = createRequire(import.meta.url)
@@ -223,9 +224,24 @@ function hasJSDoc(node: SyntaxNode): boolean {
 
 export const TypeScriptLanguage: LanguageSupport = {
   id: "typescript",
+  displayName: "TypeScript",
   extensions: [".ts", ".tsx"],
   parserWasm: "tree-sitter-typescript.wasm",
   reservedWords: TYPESCRIPT_RESERVED_WORDS,
+
+  variants: [
+    { name: "interface", description: "Interface declaration", category: "type" },
+    { name: "alias", description: "Type alias (type X = ...)", category: "type" },
+    { name: "enum", description: "Enum declaration", category: "type" },
+    { name: "namespace", description: "Namespace/module", category: "type" },
+    { name: "async", description: "Async function/method", category: "modifier" },
+    { name: "static", description: "Static method", category: "modifier" },
+    { name: "abstract", description: "Abstract class/method", category: "modifier" },
+    { name: "arrow", description: "Arrow function", category: "modifier" },
+    { name: "generator", description: "Generator function", category: "modifier" },
+  ],
+
+  decorators: [], // TypeScript decorators are experimental
 
   isChunkBoundary(node: SyntaxNode): boolean {
     if (CHUNK_BOUNDARY_TYPES.includes(node.type as any)) {
@@ -565,8 +581,17 @@ export const TypeScriptLanguage: LanguageSupport = {
 export const JavaScriptLanguage: LanguageSupport = {
   ...TypeScriptLanguage,
   id: "javascript",
+  displayName: "JavaScript",
   extensions: [".js", ".jsx"],
   parserWasm: "tree-sitter-javascript.wasm",
+
+  // JavaScript doesn't have interfaces, type aliases, etc.
+  variants: [
+    { name: "async", description: "Async function/method", category: "modifier" },
+    { name: "static", description: "Static method", category: "modifier" },
+    { name: "arrow", description: "Arrow function", category: "modifier" },
+    { name: "generator", description: "Generator function", category: "modifier" },
+  ],
 
   extractMetadata(node: SyntaxNode, content: string, filePath: string): ChunkMetadata {
     const metadata = TypeScriptLanguage.extractMetadata.call(this, node, content, filePath)

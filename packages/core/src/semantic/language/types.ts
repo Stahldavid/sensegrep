@@ -114,6 +114,20 @@ export interface ChunkMetadata {
 export type SupportedLanguage = "typescript" | "javascript" | "python"
 
 /**
+ * Variant definition with metadata for discovery and help text.
+ */
+export interface LanguageVariantDef {
+  /** Variant name (e.g., "interface", "dataclass") */
+  readonly name: string
+
+  /** Human-readable description */
+  readonly description: string
+
+  /** Category for grouping in help text */
+  readonly category: "type" | "modifier" | "decorator"
+}
+
+/**
  * Interface that each language implementation must satisfy.
  * This provides all the language-specific logic needed for:
  * - Parsing (via tree-sitter)
@@ -124,6 +138,9 @@ export interface LanguageSupport {
   /** Language identifier */
   readonly id: SupportedLanguage
 
+  /** Human-readable name (e.g., "TypeScript", "Python") */
+  readonly displayName: string
+
   /** File extensions this language handles (e.g., [".ts", ".tsx"]) */
   readonly extensions: readonly string[]
 
@@ -132,6 +149,12 @@ export interface LanguageSupport {
 
   /** Reserved words for code normalization (used by duplicate detector) */
   readonly reservedWords: ReadonlySet<string>
+
+  /** Available variants with descriptions (for discovery/help) */
+  readonly variants: readonly LanguageVariantDef[]
+
+  /** Common decorators in this language */
+  readonly decorators: readonly string[]
 
   // ==========================================================================
   // AST Analysis
@@ -274,3 +297,51 @@ export interface SemanticFilters {
   /** Filter by parent scope (e.g., class name) */
   parentScope?: string
 }
+
+// ============================================================================
+// Language Capabilities (for dynamic help/schema generation)
+// ============================================================================
+
+/**
+ * Information about a variant, including which languages support it.
+ * Used for generating dynamic help text and MCP schemas.
+ */
+export interface VariantInfo {
+  /** Variant name */
+  readonly name: string
+
+  /** Human-readable description */
+  readonly description: string
+
+  /** Languages that support this variant */
+  readonly languages: readonly SupportedLanguage[]
+
+  /** Category for grouping */
+  readonly category: "type" | "modifier" | "decorator"
+}
+
+/**
+ * Aggregated capabilities across all loaded languages.
+ * Used for dynamic CLI help and MCP schema generation.
+ */
+export interface LanguageCapabilities {
+  /** All loaded languages */
+  readonly languages: readonly SupportedLanguage[]
+
+  /** Display names for loaded languages */
+  readonly languageNames: readonly { id: SupportedLanguage; displayName: string }[]
+
+  /** Universal semantic symbol types */
+  readonly symbolTypes: readonly SemanticSymbolType[]
+
+  /** All available variants with their supporting languages */
+  readonly variants: readonly VariantInfo[]
+
+  /** All available decorators across languages */
+  readonly decorators: readonly string[]
+}
+
+/**
+ * Variants grouped by language (for help text display)
+ */
+export type VariantsByLanguage = ReadonlyMap<SupportedLanguage, readonly LanguageVariantDef[]>

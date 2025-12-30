@@ -12,6 +12,9 @@ export type {
   SemanticSymbolType,
   SymbolVariant,
   SupportedLanguage,
+  LanguageVariantDef,
+  LanguageCapabilities,
+  VariantInfo,
 } from "./types.js"
 
 // Registry
@@ -24,6 +27,35 @@ export {
   isSupported,
 } from "./registry.js"
 
+// Capabilities (dynamic discovery)
+export {
+  getLanguageCapabilities,
+  getVariantsGroupedByLanguage,
+  getAvailableVariants,
+  getAvailableDecorators,
+  validateVariant,
+  validateDecorator,
+} from "./capabilities.js"
+
+// Autodetection
+export {
+  detectProjectLanguages,
+  formatDetectedLanguages,
+  type DetectedLanguage,
+} from "./autodetect.js"
+
 // Language Implementations
 export { TypeScriptLanguage, JavaScriptLanguage, tsParser, tsxParser } from "./typescript.js"
 export { PythonLanguage, pythonParser, chunk as chunkPython } from "./python.js"
+
+// ============================================================================
+// Auto-register languages on module load
+// ============================================================================
+import { registerLanguage } from "./registry.js"
+import { TypeScriptLanguage, JavaScriptLanguage } from "./typescript.js"
+import { PythonLanguage } from "./python.js"
+
+// Register all built-in languages
+registerLanguage(TypeScriptLanguage)
+registerLanguage(JavaScriptLanguage)
+registerLanguage(PythonLanguage)

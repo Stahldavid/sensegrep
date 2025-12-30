@@ -29,28 +29,34 @@ function usage() {
 sensegrep (CLI)
 
 Usage:
-  sensegrep index [--root <dir>] [--full|--incremental] [--verify] [--watch]
+  sensegrep index [--root <dir>] [--full|--incremental] [--verify] [--watch] [--languages <list>]
   sensegrep verify [--root <dir>]
   sensegrep status [--root <dir>]
   sensegrep search <query...> [options]
   sensegrep detect-duplicates [--root <dir>] [options]
+  sensegrep languages [--detect] [--variants]
 
 Search options:
   --query <text>            Query text (if not provided as positional)
   --pattern <regex>         Regex filter (post-filter)
   --limit <n>               Max results (default: 20)
   --include <glob>          File glob filter (e.g. "src/**/*.ts")
-  --type <symbolType>       function|class|method|interface|type|variable|namespace|enum
+  --type <symbolType>       function|class|method|type|variable|enum|module
+  --variant <name>          Language-specific variant (interface, dataclass, protocol, etc.)
+  --decorator <name>        Filter by decorator (@property, @dataclass, etc.)
   --symbol <name>           Filter by symbol name
   --name <name>             Alias for --symbol
   --exported <true|false>   Only exported symbols
+  --async                   Only async functions/methods
+  --static                  Only static methods
+  --abstract                Only abstract classes/methods
   --min-complexity <n>      Minimum cyclomatic complexity
   --max-complexity <n>      Maximum cyclomatic complexity
   --min-score <n>           Minimum relevance score 0-1
   --max-per-file <n>        Max results per file (default: 1)
   --max-per-symbol <n>      Max results per symbol (default: 1)
   --has-docs <true|false>   Require documentation
-  --language <lang>         typescript|javascript|tsx|jsx
+  --language <lang>         typescript|javascript|python (comma-separated for multiple)
   --parent <name>           Parent scope/class name
   --imports <name>          Filter by imported module name
   --rerank <true|false>     Enable cross-encoder reranking (default: false)
@@ -67,6 +73,8 @@ Search options:
 Duplicate detection options:
   --threshold <number>      Minimum similarity 0.0-1.0 (default: 0.85)
   --scope <type>            function, method, or all (default: function,method)
+  --language <lang>         Filter by language (comma-separated)
+  --cross-language          Detect duplicates across languages (default: off)
   --ignore-tests            Ignore test files
   --cross-file-only         Only report cross-file duplicates
   --only-exported           Only check exported functions
@@ -84,6 +92,11 @@ Duplicate detection options:
   --verbose                 Show full details
   --quiet                   Only show summary
   --json                    Output JSON
+
+Language management:
+  sensegrep languages                 List supported languages
+  sensegrep languages --detect        Detect project languages
+  sensegrep languages --variants      Show all variants by language
 `)
 }
 
@@ -250,7 +263,7 @@ async function run() {
     return
   }
 
-  if (command === "verify") {
+if (command === "verify") {
     const result = await Instance.provide({
       directory: rootDir,
       fn: () => Indexer.verifyIndex(),
@@ -263,6 +276,11 @@ async function run() {
     console.log(
       `Index summary: indexed=${stats.indexed} files=${stats.files} chunks=${stats.chunks} provider=${stats.embeddings?.provider ?? "n/a"}`,
     )
+    return
+  }
+
+  if (command === "languages") {
+    await runLanguagesCommand(flags, rootDir)
     return
   }
 
@@ -281,11 +299,16 @@ async function run() {
       shake: true,
     }
 
-    if (flags.pattern) params.pattern = String(flags.pattern)
+if (flags.pattern) params.pattern = String(flags.pattern)
     if (flags.limit) params.limit = Number(flags.limit)
     if (flags.include) params.include = String(flags.include)
     if (flags.type) params.symbolType = String(flags.type) as any
     if (flags.symbolType) params.symbolType = String(flags.symbolType) as any
+    if (flags.variant) params.variant = String(flags.variant)
+    if (flags.decorator) params.decorator = String(flags.decorator)
+    if (flags.async !== undefined) params.isAsync = true
+    if (flags.static !== undefined) params.isStatic = true
+    if (flags.abstract !== undefined) params.isAbstract = true
     if (flags.exported !== undefined) params.isExported = toBool(flags.exported)
     if (flags.minComplexity) params.minComplexity = Number(flags.minComplexity)
     if (flags["min-complexity"]) params.minComplexity = Number(flags["min-complexity"])
@@ -541,9 +564,59 @@ async function run() {
     return
   }
 
-  console.error(`Unknown command: ${command}`)
+console.error(`Unknown command: ${command}`)
   usage()
   process.exitCode = 1
+}
+
+async function runLanguagesCommand(flags: Flags, rootDir: string) {
+  const {
+    getLanguageCapabilities,
+    getVariantsGroupedByLanguage,
+    detectProjectLanguages,
+    formatDetectedLanguages,
+    getAllLanguages,
+  } = await loadCore()
+
+  if (flags.detect) {
+    console.log("Detecting languages in project...\n")
+    const detected = await detectProjectLanguages(rootDir)
+
+    if (detected.length === 0) {
+      console.log("No supported languages detected.")
+    } else {
+      console.log(formatDetectedLanguages(detected))
+      console.log(`\nRecommendation: sensegrep index --languages ${detected.map((d: any) => d.language).join(",")}`)
+    }
+    return
+  }
+
+  if (flags.variants) {
+    const variantsByLang = getVariantsGroupedByLanguage()
+    console.log("Variants by language:\n")
+    for (const [lang, variants] of variantsByLang) {
+      console.log(`  ${lang}:`)
+      for (const v of variants) {
+        console.log(`    - ${v.name.padEnd(15)} ${v.description}`)
+      }
+      console.log()
+    }
+    return
+  }
+
+  // Default: list languages
+  const all = getAllLanguages()
+  const caps = getLanguageCapabilities()
+
+  console.log("Supported languages:\n")
+  for (const lang of all) {
+    console.log(`  ✅ ${lang.displayName} (${lang.extensions.join(", ")})`)
+  }
+  console.log(`\nSymbol types: ${caps.symbolTypes.join(", ")}`)
+  console.log(`Variants: ${caps.variants.length} total`)
+  console.log(`Decorators: ${caps.decorators.length} total`)
+  console.log(`\nUse 'sensegrep languages --variants' to see all variants`)
+  console.log("Use 'sensegrep languages --detect' to detect project languages")
 }
 
 run().catch((error) => {

@@ -14,6 +14,7 @@ import type {
   ChunkMetadata,
   SemanticSymbolType,
   SymbolVariant,
+  LanguageVariantDef,
 } from "./types.js"
 
 const require = createRequire(import.meta.url)
@@ -411,9 +412,29 @@ function getClassNode(node: SyntaxNode): SyntaxNode | null {
 
 export const PythonLanguage: LanguageSupport = {
   id: "python",
+  displayName: "Python",
   extensions: [".py"],
   parserWasm: "tree-sitter-python.wasm",
   reservedWords: PYTHON_RESERVED_WORDS,
+
+  variants: [
+    { name: "dataclass", description: "@dataclass decorated class", category: "decorator" },
+    { name: "protocol", description: "Protocol for structural typing", category: "type" },
+    { name: "typeddict", description: "TypedDict for typed dictionaries", category: "type" },
+    { name: "namedtuple", description: "NamedTuple", category: "type" },
+    { name: "async", description: "Async function (async def)", category: "modifier" },
+    { name: "static", description: "@staticmethod method", category: "decorator" },
+    { name: "classmethod", description: "@classmethod method", category: "decorator" },
+    { name: "property", description: "@property getter", category: "decorator" },
+    { name: "abstract", description: "@abstractmethod", category: "decorator" },
+    { name: "generator", description: "Generator function (yield)", category: "modifier" },
+  ],
+
+  decorators: [
+    "@dataclass", "@property", "@staticmethod", "@classmethod",
+    "@abstractmethod", "@lru_cache", "@cached_property", "@override",
+    "@final", "@contextmanager", "@asynccontextmanager",
+  ],
 
   isChunkBoundary(node: SyntaxNode): boolean {
     // Direct chunk boundaries

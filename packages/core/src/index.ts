@@ -10,3 +10,36 @@ export { TreeShaker } from "./semantic/tree-shaker.js"
 export { Instance } from "./project/instance.js"
 export { Bus } from "./bus/index.js"
 export { Log } from "./util/log.js"
+
+// Configuration
+export * from "./config/index.js"
+
+// Language Support
+export {
+  // Types
+  type LanguageSupport,
+  type ChunkMetadata,
+  type SemanticSymbolType,
+  type SupportedLanguage,
+  type LanguageCapabilities,
+  type VariantInfo,
+  type DetectedLanguage,
+  // Registry
+  getLanguageForFile,
+  getLanguageById,
+  getAllLanguages,
+  isSupported,
+  // Capabilities
+  getLanguageCapabilities,
+  getVariantsGroupedByLanguage,
+  getAvailableVariants,
+  getAvailableDecorators,
+  validateVariant,
+  validateDecorator,
+  // Autodetection
+  detectProjectLanguages,
+  formatDetectedLanguages,
+  // Language implementations
+  TypeScriptLanguage,
+  PythonLanguage,
+} from "./semantic/language/index.js"
