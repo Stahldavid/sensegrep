@@ -1,92 +1,292 @@
 [
   {
+    "description": "task001: ciscoconfparse2 - DynamicAddressException",
     "vars": {
-      "task_id": "task001",
       "repo_name": "ciscoconfparse2",
+      "task_description": "Find definition for from typing import Union, Any, Set, Tuple, List, Dict\nfrom loguru import logger\nfrom ciscoconfparse2.errors import DynamicAddressException\nfrom ciscoconfparse2.ccp_util import (\n    _IPV6_REGEX_STR_COMPRESSED1,\n    _IPV6_REGEX_STR_COMPRESSED2,\n)\nfrom ciscoconfparse2.errors import InvalidCiscoEthernetTrunkAction\nfrom ciscoconfparse2.errors import InvalidCiscoEthernetVlan\nfrom ciscoconfparse2.errors import InvalidCiscoInterface\nfrom ciscoconfparse2.ccp_util import CiscoIOSInterface, CiscoIOSXRInterface\nfrom ciscoconfparse2.ccp_util import _IPV6_REGEX_STR_COMPRESSED3\nfrom ciscoconfparse2.ccp_util import IPv4Obj, IPv6Obj\nfrom ciscoconfparse2.ccp_util import CiscoRange\nfrom ciscoconfparse2.ccp_abc import BaseCfgLine\nfrom ciscoconfparse2.models_base import BaseFactoryLine\nfrom ciscoconfparse2.models_base import BaseFactoryInterfaceLine\nfrom ciscoconfparse2.models_cisco import HSRPInterfaceGroup\nimport re\nimport attrs",
       "ground_truth_file": "ciscoconfparse2/errors.py",
-      "ground_truth_symbol": "DynamicAddressException",
-      "task_description": "Find definition for from typing import Union, Any, Set, Tuple, List, Dict\nfrom loguru import logger\nfrom ciscoconfparse2.errors import DynamicAddressException\nfrom ciscoconfparse2.ccp_util import (\n    _IPV6_REGEX_STR_COMPRESSED1,\n    _IPV6_REGEX_STR_COMPRESSED2,\n)\nfrom ciscoconfparse2.errors import InvalidCiscoEthernetTrunkAction\nfrom ciscoconfparse2.errors import InvalidCiscoEthernetVlan\nfrom ciscoconfparse2.errors import InvalidCiscoInterface\nfrom ciscoconfparse2.ccp_util import CiscoIOSInterface, CiscoIOSXRInterface\nfrom ciscoconfparse2.ccp_util import _IPV6_REGEX_STR_COMPRESSED3\nfrom ciscoconfparse2.ccp_util import IPv4Obj, IPv6Obj\nfrom ciscoconfparse2.ccp_util import CiscoRange\nfrom ciscoconfparse2.ccp_abc import BaseCfgLine\nfrom ciscoconfparse2.models_base import BaseFactoryLine\nfrom ciscoconfparse2.models_base import BaseFactoryInterfaceLine\nfrom ciscoconfparse2.models_cisco import HSRPInterfaceGroup\nimport re\nimport attrs"
-    }
+      "ground_truth_symbol": "DynamicAddressException"
+    },
+    "assert": [
+      {
+        "type": "javascript",
+        "value": "\n// Count total tool calls made by agent\nconst toolCalls = output.metadata?.toolUses?.length || 0;\n\n// Score: lower calls = better (max 20 calls for full credit)\nconst score = Math.max(0, Math.min(1, (20 - toolCalls) / 20));\n\nreturn {\n  pass: toolCalls <= 20,\n  score: score,\n  reason: `Tool calls: ${toolCalls} (score: ${score.toFixed(2)})`\n};\n"
+      },
+      {
+        "type": "llm-rubric",
+        "value": "The agent was asked to find the file and symbol for an import.\n\nTask: Find definition for from typing import Union, Any, Set, Tuple, List, Dict\nfrom loguru import logger\nfrom ciscoconfparse2.errors import DynamicAddressException\nfrom ciscoconfparse2.ccp_util import (\n    _IPV6_REGEX_STR_COMPRESSED1,\n    _IPV6_REGEX_STR_COMPRESSED2,\n)\nfrom ciscoconfparse2.errors import InvalidCiscoEthernetTrunkAction\nfrom ciscoconfparse2.errors import InvalidCiscoEthernetVlan\nfrom ciscoconfparse2.errors import InvalidCiscoInterface\nfrom ciscoconfparse2.ccp_util import CiscoIOSInterface, CiscoIOSXRInterface\nfrom ciscoconfparse2.ccp_util import _IPV6_REGEX_STR_COMPRESSED3\nfrom ciscoconfparse2.ccp_util import IPv4Obj, IPv6Obj\nfrom ciscoconfparse2.ccp_util import CiscoRange\nfrom ciscoconfparse2.ccp_abc import BaseCfgLine\nfrom ciscoconfparse2.models_base import BaseFactoryLine\nfrom ciscoconfparse2.models_base import BaseFactoryInterfaceLine\nfrom ciscoconfparse2.models_cisco import HSRPInterfaceGroup\nimport re\nimport attrs\nGround truth: ciscoconfparse2/errors.py:DynamicAddressException\nAgent response: {{ output }}\n\nScoring:\n- 1.0: Agent found BOTH correct file AND correct symbol\n- 0.6: Agent found correct file but wrong/missing symbol\n- 0.3: Agent found related file but not the exact one\n- 0.0: Agent did not find the correct code\n\nBe lenient with path formats (relative vs absolute, slashes, etc.)\nSymbol names must match (class/function name).",
+        "threshold": 0.6
+      },
+      {
+        "type": "cost",
+        "threshold": 1.0
+      },
+      {
+        "type": "latency",
+        "threshold": 300000
+      }
+    ],
+    "prompt": "Find the code definition for the following import:\n\nFile: ciscoconfparse2/models_iosxr.py\nNext line:             except DynamicAddressException:\nImport: from typing import Union, Any, Set, Tuple, List, Dict\nfrom loguru import logger\nfrom ciscoconfparse2.errors import DynamicAddressException\nfrom ciscoconfparse2.ccp_util import (\n    _IPV6_REGEX_STR_COMPRESSED1,\n    _IPV6_REGEX_STR_COMPRESSED2,\n)\nfrom ciscoconfparse2.errors import InvalidCiscoEthernetTrunkAction\nfrom ciscoconfparse2.errors import InvalidCiscoEthernetVlan\nfrom ciscoconfparse2.errors import InvalidCiscoInterface\nfrom ciscoconfparse2.ccp_util import CiscoIOSInterface, CiscoIOSXRInterface\nfrom ciscoconfparse2.ccp_util import _IPV6_REGEX_STR_COMPRESSED3\nfrom ciscoconfparse2.ccp_util import IPv4Obj, IPv6Obj\nfrom ciscoconfparse2.ccp_util import CiscoRange\nfrom ciscoconfparse2.ccp_abc import BaseCfgLine\nfrom ciscoconfparse2.models_base import BaseFactoryLine\nfrom ciscoconfparse2.models_base import BaseFactoryInterfaceLine\nfrom ciscoconfparse2.models_cisco import HSRPInterfaceGroup\nimport re\nimport attrs\n\nWhich file and symbol contains the definition that will be imported?\nRespond with: FILE:SYMBOL"
   },
   {
+    "description": "task002: ciscoconfparse2 - IPv6Obj",
     "vars": {
-      "task_id": "task002",
       "repo_name": "ciscoconfparse2",
+      "task_description": "Find definition for import sys\nimport os\nfrom ciscoconfparse import IPv4Obj, IPv6Obj\nfrom loguru import logger",
       "ground_truth_file": "ciscoconfparse2/ccp_util.py",
-      "ground_truth_symbol": "IPv6Obj",
-      "task_description": "Find definition for import sys\nimport os\nfrom ciscoconfparse import IPv4Obj, IPv6Obj\nfrom loguru import logger"
-    }
+      "ground_truth_symbol": "IPv6Obj"
+    },
+    "assert": [
+      {
+        "type": "javascript",
+        "value": "\n// Count total tool calls made by agent\nconst toolCalls = output.metadata?.toolUses?.length || 0;\n\n// Score: lower calls = better (max 20 calls for full credit)\nconst score = Math.max(0, Math.min(1, (20 - toolCalls) / 20));\n\nreturn {\n  pass: toolCalls <= 20,\n  score: score,\n  reason: `Tool calls: ${toolCalls} (score: ${score.toFixed(2)})`\n};\n"
+      },
+      {
+        "type": "llm-rubric",
+        "value": "The agent was asked to find the file and symbol for an import.\n\nTask: Find definition for import sys\nimport os\nfrom ciscoconfparse import IPv4Obj, IPv6Obj\nfrom loguru import logger\nGround truth: ciscoconfparse2/ccp_util.py:IPv6Obj\nAgent response: {{ output }}\n\nScoring:\n- 1.0: Agent found BOTH correct file AND correct symbol\n- 0.6: Agent found correct file but wrong/missing symbol\n- 0.3: Agent found related file but not the exact one\n- 0.0: Agent did not find the correct code\n\nBe lenient with path formats (relative vs absolute, slashes, etc.)\nSymbol names must match (class/function name).",
+        "threshold": 0.6
+      },
+      {
+        "type": "cost",
+        "threshold": 1.0
+      },
+      {
+        "type": "latency",
+        "threshold": 300000
+      }
+    ],
+    "prompt": "Find the code definition for the following import:\n\nFile: dev_tools/compare_v4_v6_methods.py\nNext line: v6_list = dir(IPv6Obj(\"::1\"))\nImport: import sys\nimport os\nfrom ciscoconfparse import IPv4Obj, IPv6Obj\nfrom loguru import logger\n\nWhich file and symbol contains the definition that will be imported?\nRespond with: FILE:SYMBOL"
   },
   {
+    "description": "task003: ciscoconfparse2 - CiscoConfParse",
     "vars": {
-      "task_id": "task003",
       "repo_name": "ciscoconfparse2",
+      "task_description": "Find definition for from collections.abc import MutableSequence\nfrom conftest import parse_a01, parse_a01_factory\nfrom ciscoconfparse2.ciscoconfparse2 import CiscoConfParse\nfrom ciscoconfparse2.models_asa import ASAObjGroupService\nfrom ciscoconfparse2.ccp_util import L4Object\nfrom ciscoconfparse2.ccp_util import IPv4Obj\n    from ipaddr import IPv4Network, IPv6Network, IPv4Address, IPv6Address\n    from ipaddress import IPv4Network, IPv6Network, IPv4Address, IPv6Address\nfrom loguru import logger\nimport uuid\nimport sys\nimport re\nimport os\nimport pytest",
       "ground_truth_file": "ciscoconfparse2/ciscoconfparse2.py",
-      "ground_truth_symbol": "CiscoConfParse",
-      "task_description": "Find definition for from collections.abc import MutableSequence\nfrom conftest import parse_a01, parse_a01_factory\nfrom ciscoconfparse2.ciscoconfparse2 import CiscoConfParse\nfrom ciscoconfparse2.models_asa import ASAObjGroupService\nfrom ciscoconfparse2.ccp_util import L4Object\nfrom ciscoconfparse2.ccp_util import IPv4Obj\n    from ipaddr import IPv4Network, IPv6Network, IPv4Address, IPv6Address\n    from ipaddress import IPv4Network, IPv6Network, IPv4Address, IPv6Address\nfrom loguru import logger\nimport uuid\nimport sys\nimport re\nimport os\nimport pytest"
-    }
+      "ground_truth_symbol": "CiscoConfParse"
+    },
+    "assert": [
+      {
+        "type": "javascript",
+        "value": "\n// Count total tool calls made by agent\nconst toolCalls = output.metadata?.toolUses?.length || 0;\n\n// Score: lower calls = better (max 20 calls for full credit)\nconst score = Math.max(0, Math.min(1, (20 - toolCalls) / 20));\n\nreturn {\n  pass: toolCalls <= 20,\n  score: score,\n  reason: `Tool calls: ${toolCalls} (score: ${score.toFixed(2)})`\n};\n"
+      },
+      {
+        "type": "llm-rubric",
+        "value": "The agent was asked to find the file and symbol for an import.\n\nTask: Find definition for from collections.abc import MutableSequence\nfrom conftest import parse_a01, parse_a01_factory\nfrom ciscoconfparse2.ciscoconfparse2 import CiscoConfParse\nfrom ciscoconfparse2.models_asa import ASAObjGroupService\nfrom ciscoconfparse2.ccp_util import L4Object\nfrom ciscoconfparse2.ccp_util import IPv4Obj\n    from ipaddr import IPv4Network, IPv6Network, IPv4Address, IPv6Address\n    from ipaddress import IPv4Network, IPv6Network, IPv4Address, IPv6Address\nfrom loguru import logger\nimport uuid\nimport sys\nimport re\nimport os\nimport pytest\nGround truth: ciscoconfparse2/ciscoconfparse2.py:CiscoConfParse\nAgent response: {{ output }}\n\nScoring:\n- 1.0: Agent found BOTH correct file AND correct symbol\n- 0.6: Agent found correct file but wrong/missing symbol\n- 0.3: Agent found related file but not the exact one\n- 0.0: Agent did not find the correct code\n\nBe lenient with path formats (relative vs absolute, slashes, etc.)\nSymbol names must match (class/function name).",
+        "threshold": 0.6
+      },
+      {
+        "type": "cost",
+        "threshold": 1.0
+      },
+      {
+        "type": "latency",
+        "threshold": 300000
+      }
+    ],
+    "prompt": "Find the code definition for the following import:\n\nFile: tests/test_Models_Asa.py\nNext line:     parse = CiscoConfParse(config_a02, syntax=\"asa\", factory=True)\nImport: from collections.abc import MutableSequence\nfrom conftest import parse_a01, parse_a01_factory\nfrom ciscoconfparse2.ciscoconfparse2 import CiscoConfParse\nfrom ciscoconfparse2.models_asa import ASAObjGroupService\nfrom ciscoconfparse2.ccp_util import L4Object\nfrom ciscoconfparse2.ccp_util import IPv4Obj\n    from ipaddr import IPv4Network, IPv6Network, IPv4Address, IPv6Address\n    from ipaddress import IPv4Network, IPv6Network, IPv4Address, IPv6Address\nfrom loguru import logger\nimport uuid\nimport sys\nimport re\nimport os\nimport pytest\n\nWhich file and symbol contains the definition that will be imported?\nRespond with: FILE:SYMBOL"
   },
   {
+    "description": "task004: ciscoconfparse2 - IPv6Obj",
     "vars": {
-      "task_id": "task004",
       "repo_name": "ciscoconfparse2",
+      "task_description": "Find definition for import ipaddress\nimport pytest\nimport sys\nfrom ipaddress import IPv4Network, IPv6Network, IPv4Address, IPv6Address\nfrom loguru import logger\nfrom macaddress import OUI\nfrom ciscoconfparse2.ccp_util import CiscoRange\nfrom ciscoconfparse2.ccp_util import CiscoIOSInterface, CiscoIOSXRInterface\nfrom ciscoconfparse2.ccp_util import _RGX_IPV4ADDR, _RGX_IPV6ADDR\nfrom ciscoconfparse2.ccp_util import IPv6Obj, IPv4Obj, L4Object, ip_factory\nfrom ciscoconfparse2.ccp_util import MACObj, EUI64Obj\nfrom ciscoconfparse2.ccp_util import collapse_addresses",
       "ground_truth_file": "ciscoconfparse2/ccp_util.py",
-      "ground_truth_symbol": "IPv6Obj",
-      "task_description": "Find definition for import ipaddress\nimport pytest\nimport sys\nfrom ipaddress import IPv4Network, IPv6Network, IPv4Address, IPv6Address\nfrom loguru import logger\nfrom macaddress import OUI\nfrom ciscoconfparse2.ccp_util import CiscoRange\nfrom ciscoconfparse2.ccp_util import CiscoIOSInterface, CiscoIOSXRInterface\nfrom ciscoconfparse2.ccp_util import _RGX_IPV4ADDR, _RGX_IPV6ADDR\nfrom ciscoconfparse2.ccp_util import IPv6Obj, IPv4Obj, L4Object, ip_factory\nfrom ciscoconfparse2.ccp_util import MACObj, EUI64Obj\nfrom ciscoconfparse2.ccp_util import collapse_addresses"
-    }
+      "ground_truth_symbol": "IPv6Obj"
+    },
+    "assert": [
+      {
+        "type": "javascript",
+        "value": "\n// Count total tool calls made by agent\nconst toolCalls = output.metadata?.toolUses?.length || 0;\n\n// Score: lower calls = better (max 20 calls for full credit)\nconst score = Math.max(0, Math.min(1, (20 - toolCalls) / 20));\n\nreturn {\n  pass: toolCalls <= 20,\n  score: score,\n  reason: `Tool calls: ${toolCalls} (score: ${score.toFixed(2)})`\n};\n"
+      },
+      {
+        "type": "llm-rubric",
+        "value": "The agent was asked to find the file and symbol for an import.\n\nTask: Find definition for import ipaddress\nimport pytest\nimport sys\nfrom ipaddress import IPv4Network, IPv6Network, IPv4Address, IPv6Address\nfrom loguru import logger\nfrom macaddress import OUI\nfrom ciscoconfparse2.ccp_util import CiscoRange\nfrom ciscoconfparse2.ccp_util import CiscoIOSInterface, CiscoIOSXRInterface\nfrom ciscoconfparse2.ccp_util import _RGX_IPV4ADDR, _RGX_IPV6ADDR\nfrom ciscoconfparse2.ccp_util import IPv6Obj, IPv4Obj, L4Object, ip_factory\nfrom ciscoconfparse2.ccp_util import MACObj, EUI64Obj\nfrom ciscoconfparse2.ccp_util import collapse_addresses\nGround truth: ciscoconfparse2/ccp_util.py:IPv6Obj\nAgent response: {{ output }}\n\nScoring:\n- 1.0: Agent found BOTH correct file AND correct symbol\n- 0.6: Agent found correct file but wrong/missing symbol\n- 0.3: Agent found related file but not the exact one\n- 0.0: Agent did not find the correct code\n\nBe lenient with path formats (relative vs absolute, slashes, etc.)\nSymbol names must match (class/function name).",
+        "threshold": 0.6
+      },
+      {
+        "type": "cost",
+        "threshold": 1.0
+      },
+      {
+        "type": "latency",
+        "threshold": 300000
+      }
+    ],
+    "prompt": "Find the code definition for the following import:\n\nFile: tests/test_Ccp_Util.py\nNext line:         ({'val': '2b00:cd80:14:10::1/64', 'stdlib': False}, IPv6Obj(\"2b00:cd80:14:10::1/64\")),\nImport: import ipaddress\nimport pytest\nimport sys\nfrom ipaddress import IPv4Network, IPv6Network, IPv4Address, IPv6Address\nfrom loguru import logger\nfrom macaddress import OUI\nfrom ciscoconfparse2.ccp_util import CiscoRange\nfrom ciscoconfparse2.ccp_util import CiscoIOSInterface, CiscoIOSXRInterface\nfrom ciscoconfparse2.ccp_util import _RGX_IPV4ADDR, _RGX_IPV6ADDR\nfrom ciscoconfparse2.ccp_util import IPv6Obj, IPv4Obj, L4Object, ip_factory\nfrom ciscoconfparse2.ccp_util import MACObj, EUI64Obj\nfrom ciscoconfparse2.ccp_util import collapse_addresses\n\nWhich file and symbol contains the definition that will be imported?\nRespond with: FILE:SYMBOL"
   },
   {
+    "description": "task005: ciscoconfparse2 - InvalidParameters",
     "vars": {
-      "task_id": "task005",
       "repo_name": "ciscoconfparse2",
+      "task_description": "Find definition for from typing import Optional, Callable, Any, Union, List\nfrom operator import attrgetter\nfrom functools import wraps\nfrom collections.abc import Sequence\nfrom collections import UserList\nfrom ipaddress import IPv4Network, IPv6Network, IPv4Address, IPv6Address\nfrom ipaddress import collapse_addresses as ipaddr_collapse_addresses\nfrom ipaddress import AddressValueError\nfrom macaddress import EUI48, EUI64\nfrom dns.exception import DNSException\nfrom dns.resolver import Resolver\nfrom dns import reversename, query, zone\nfrom deprecated import deprecated\nfrom loguru import logger\nfrom ciscoconfparse2.protocol_values import ASA_TCP_PORTS, ASA_UDP_PORTS\nfrom ciscoconfparse2.errors import DuplicateMember, InvalidParameters, InvalidMember, MismatchedType, UntypedError\nfrom ciscoconfparse2.errors import InvalidShellVariableMapping\nfrom ciscoconfparse2.errors import NoRegexMatch\nfrom ciscoconfparse2.errors import PythonOptimizeException\nfrom ciscoconfparse2.errors import DynamicAddressException\nfrom ciscoconfparse2.errors import ListItemMissingAttribute\nfrom ciscoconfparse2.errors import UnexpectedType\nfrom ciscoconfparse2.errors import InvalidCiscoInterface\nfrom ciscoconfparse2.errors import InvalidCiscoRange\nfrom ciscoconfparse2.errors import DNSTimeoutError\nfrom ciscoconfparse2.errors import RequirementFailure\nimport subprocess\nimport locale\nimport socket\nimport shlex\nimport time\nimport copy\nimport sys\nimport re\nimport os\nimport attrs\nimport ciscoconfparse2",
       "ground_truth_file": "ciscoconfparse2/errors.py",
-      "ground_truth_symbol": "InvalidParameters",
-      "task_description": "Find definition for from typing import Optional, Callable, Any, Union, List\nfrom operator import attrgetter\nfrom functools import wraps\nfrom collections.abc import Sequence\nfrom collections import UserList\nfrom ipaddress import IPv4Network, IPv6Network, IPv4Address, IPv6Address\nfrom ipaddress import collapse_addresses as ipaddr_collapse_addresses\nfrom ipaddress import AddressValueError\nfrom macaddress import EUI48, EUI64\nfrom dns.exception import DNSException\nfrom dns.resolver import Resolver\nfrom dns import reversename, query, zone\nfrom deprecated import deprecated\nfrom loguru import logger\nfrom ciscoconfparse2.protocol_values import ASA_TCP_PORTS, ASA_UDP_PORTS\nfrom ciscoconfparse2.errors import DuplicateMember, InvalidParameters, InvalidMember, MismatchedType, UntypedError\nfrom ciscoconfparse2.errors import InvalidShellVariableMapping\nfrom ciscoconfparse2.errors import NoRegexMatch\nfrom ciscoconfparse2.errors import PythonOptimizeException\nfrom ciscoconfparse2.errors import DynamicAddressException\nfrom ciscoconfparse2.errors import ListItemMissingAttribute\nfrom ciscoconfparse2.errors import UnexpectedType\nfrom ciscoconfparse2.errors import InvalidCiscoInterface\nfrom ciscoconfparse2.errors import InvalidCiscoRange\nfrom ciscoconfparse2.errors import DNSTimeoutError\nfrom ciscoconfparse2.errors import RequirementFailure\nimport subprocess\nimport locale\nimport socket\nimport shlex\nimport time\nimport copy\nimport sys\nimport re\nimport os\nimport attrs\nimport ciscoconfparse2"
-    }
+      "ground_truth_symbol": "InvalidParameters"
+    },
+    "assert": [
+      {
+        "type": "javascript",
+        "value": "\n// Count total tool calls made by agent\nconst toolCalls = output.metadata?.toolUses?.length || 0;\n\n// Score: lower calls = better (max 20 calls for full credit)\nconst score = Math.max(0, Math.min(1, (20 - toolCalls) / 20));\n\nreturn {\n  pass: toolCalls <= 20,\n  score: score,\n  reason: `Tool calls: ${toolCalls} (score: ${score.toFixed(2)})`\n};\n"
+      },
+      {
+        "type": "llm-rubric",
+        "value": "The agent was asked to find the file and symbol for an import.\n\nTask: Find definition for from typing import Optional, Callable, Any, Union, List\nfrom operator import attrgetter\nfrom functools import wraps\nfrom collections.abc import Sequence\nfrom collections import UserList\nfrom ipaddress import IPv4Network, IPv6Network, IPv4Address, IPv6Address\nfrom ipaddress import collapse_addresses as ipaddr_collapse_addresses\nfrom ipaddress import AddressValueError\nfrom macaddress import EUI48, EUI64\nfrom dns.exception import DNSException\nfrom dns.resolver import Resolver\nfrom dns import reversename, query, zone\nfrom deprecated import deprecated\nfrom loguru import logger\nfrom ciscoconfparse2.protocol_values import ASA_TCP_PORTS, ASA_UDP_PORTS\nfrom ciscoconfparse2.errors import DuplicateMember, InvalidParameters, InvalidMember, MismatchedType, UntypedError\nfrom ciscoconfparse2.errors import InvalidShellVariableMapping\nfrom ciscoconfparse2.errors import NoRegexMatch\nfrom ciscoconfparse2.errors import PythonOptimizeException\nfrom ciscoconfparse2.errors import DynamicAddressException\nfrom ciscoconfparse2.errors import ListItemMissingAttribute\nfrom ciscoconfparse2.errors import UnexpectedType\nfrom ciscoconfparse2.errors import InvalidCiscoInterface\nfrom ciscoconfparse2.errors import InvalidCiscoRange\nfrom ciscoconfparse2.errors import DNSTimeoutError\nfrom ciscoconfparse2.errors import RequirementFailure\nimport subprocess\nimport locale\nimport socket\nimport shlex\nimport time\nimport copy\nimport sys\nimport re\nimport os\nimport attrs\nimport ciscoconfparse2\nGround truth: ciscoconfparse2/errors.py:InvalidParameters\nAgent response: {{ output }}\n\nScoring:\n- 1.0: Agent found BOTH correct file AND correct symbol\n- 0.6: Agent found correct file but wrong/missing symbol\n- 0.3: Agent found related file but not the exact one\n- 0.0: Agent did not find the correct code\n\nBe lenient with path formats (relative vs absolute, slashes, etc.)\nSymbol names must match (class/function name).",
+        "threshold": 0.6
+      },
+      {
+        "type": "cost",
+        "threshold": 1.0
+      },
+      {
+        "type": "latency",
+        "threshold": 300000
+      }
+    ],
+    "prompt": "Find the code definition for the following import:\n\nFile: ciscoconfparse2/ccp_util.py\nNext line:                 raise InvalidParameters(error)\nImport: from typing import Optional, Callable, Any, Union, List\nfrom operator import attrgetter\nfrom functools import wraps\nfrom collections.abc import Sequence\nfrom collections import UserList\nfrom ipaddress import IPv4Network, IPv6Network, IPv4Address, IPv6Address\nfrom ipaddress import collapse_addresses as ipaddr_collapse_addresses\nfrom ipaddress import AddressValueError\nfrom macaddress import EUI48, EUI64\nfrom dns.exception import DNSException\nfrom dns.resolver import Resolver\nfrom dns import reversename, query, zone\nfrom deprecated import deprecated\nfrom loguru import logger\nfrom ciscoconfparse2.protocol_values import ASA_TCP_PORTS, ASA_UDP_PORTS\nfrom ciscoconfparse2.errors import DuplicateMember, InvalidParameters, InvalidMember, MismatchedType, UntypedError\nfrom ciscoconfparse2.errors import InvalidShellVariableMapping\nfrom ciscoconfparse2.errors import NoRegexMatch\nfrom ciscoconfparse2.errors import PythonOptimizeException\nfrom ciscoconfparse2.errors import DynamicAddressException\nfrom ciscoconfparse2.errors import ListItemMissingAttribute\nfrom ciscoconfparse2.errors import UnexpectedType\nfrom ciscoconfparse2.errors import InvalidCiscoInterface\nfrom ciscoconfparse2.errors import InvalidCiscoRange\nfrom ciscoconfparse2.errors import DNSTimeoutError\nfrom ciscoconfparse2.errors import RequirementFailure\nimport subprocess\nimport locale\nimport socket\nimport shlex\nimport time\nimport copy\nimport sys\nimport re\nimport os\nimport attrs\nimport ciscoconfparse2\n\nWhich file and symbol contains the definition that will be imported?\nRespond with: FILE:SYMBOL"
   },
   {
+    "description": "task006: aitviewer-skel - CONFIG",
     "vars": {
-      "task_id": "task006",
       "repo_name": "aitviewer-skel",
+      "task_description": "Find definition for import collections\nimport numpy as np\nimport smplx\nimport torch\nimport torch.nn as nn\n            import trimesh\nfrom abc import ABC\nfrom aitviewer.configuration import CONFIG as C\nfrom aitviewer.utils.so3 import aa2rot_torch as aa2rot\nfrom aitviewer.utils.so3 import rot2aa_torch as rot2aa\nfrom aitviewer.utils.utils import compute_vertex_and_face_normals_torch",
       "ground_truth_file": "aitviewer/configuration.py",
-      "ground_truth_symbol": "CONFIG",
-      "task_description": "Find definition for import collections\nimport numpy as np\nimport smplx\nimport torch\nimport torch.nn as nn\n            import trimesh\nfrom abc import ABC\nfrom aitviewer.configuration import CONFIG as C\nfrom aitviewer.utils.so3 import aa2rot_torch as aa2rot\nfrom aitviewer.utils.so3 import rot2aa_torch as rot2aa\nfrom aitviewer.utils.utils import compute_vertex_and_face_normals_torch"
-    }
+      "ground_truth_symbol": "CONFIG"
+    },
+    "assert": [
+      {
+        "type": "javascript",
+        "value": "\n// Count total tool calls made by agent\nconst toolCalls = output.metadata?.toolUses?.length || 0;\n\n// Score: lower calls = better (max 20 calls for full credit)\nconst score = Math.max(0, Math.min(1, (20 - toolCalls) / 20));\n\nreturn {\n  pass: toolCalls <= 20,\n  score: score,\n  reason: `Tool calls: ${toolCalls} (score: ${score.toFixed(2)})`\n};\n"
+      },
+      {
+        "type": "llm-rubric",
+        "value": "The agent was asked to find the file and symbol for an import.\n\nTask: Find definition for import collections\nimport numpy as np\nimport smplx\nimport torch\nimport torch.nn as nn\n            import trimesh\nfrom abc import ABC\nfrom aitviewer.configuration import CONFIG as C\nfrom aitviewer.utils.so3 import aa2rot_torch as aa2rot\nfrom aitviewer.utils.so3 import rot2aa_torch as rot2aa\nfrom aitviewer.utils.utils import compute_vertex_and_face_normals_torch\nGround truth: aitviewer/configuration.py:CONFIG\nAgent response: {{ output }}\n\nScoring:\n- 1.0: Agent found BOTH correct file AND correct symbol\n- 0.6: Agent found correct file but wrong/missing symbol\n- 0.3: Agent found related file but not the exact one\n- 0.0: Agent did not find the correct code\n\nBe lenient with path formats (relative vs absolute, slashes, etc.)\nSymbol names must match (class/function name).",
+        "threshold": 0.6
+      },
+      {
+        "type": "cost",
+        "threshold": 1.0
+      },
+      {
+        "type": "latency",
+        "threshold": 300000
+      }
+    ],
+    "prompt": "Find the code definition for the following import:\n\nFile: aitviewer/models/smpl.py\nNext line:             C.smplx_models,\nImport: import collections\nimport numpy as np\nimport smplx\nimport torch\nimport torch.nn as nn\n            import trimesh\nfrom abc import ABC\nfrom aitviewer.configuration import CONFIG as C\nfrom aitviewer.utils.so3 import aa2rot_torch as aa2rot\nfrom aitviewer.utils.so3 import rot2aa_torch as rot2aa\nfrom aitviewer.utils.utils import compute_vertex_and_face_normals_torch\n\nWhich file and symbol contains the definition that will be imported?\nRespond with: FILE:SYMBOL"
   },
   {
+    "description": "task007: aitviewer-skel - Message",
     "vars": {
-      "task_id": "task007",
       "repo_name": "aitviewer-skel",
+      "task_description": "Find definition for import asyncio\nimport pickle\nimport queue\nimport subprocess\nimport threading\nimport websockets\nfrom typing import Callable\nfrom .message import Message, make_message",
       "ground_truth_file": "aitviewer/remote/message.py",
-      "ground_truth_symbol": "Message",
-      "task_description": "Find definition for import asyncio\nimport pickle\nimport queue\nimport subprocess\nimport threading\nimport websockets\nfrom typing import Callable\nfrom .message import Message, make_message"
-    }
+      "ground_truth_symbol": "Message"
+    },
+    "assert": [
+      {
+        "type": "javascript",
+        "value": "\n// Count total tool calls made by agent\nconst toolCalls = output.metadata?.toolUses?.length || 0;\n\n// Score: lower calls = better (max 20 calls for full credit)\nconst score = Math.max(0, Math.min(1, (20 - toolCalls) / 20));\n\nreturn {\n  pass: toolCalls <= 20,\n  score: score,\n  reason: `Tool calls: ${toolCalls} (score: ${score.toFixed(2)})`\n};\n"
+      },
+      {
+        "type": "llm-rubric",
+        "value": "The agent was asked to find the file and symbol for an import.\n\nTask: Find definition for import asyncio\nimport pickle\nimport queue\nimport subprocess\nimport threading\nimport websockets\nfrom typing import Callable\nfrom .message import Message, make_message\nGround truth: aitviewer/remote/message.py:Message\nAgent response: {{ output }}\n\nScoring:\n- 1.0: Agent found BOTH correct file AND correct symbol\n- 0.6: Agent found correct file but wrong/missing symbol\n- 0.3: Agent found related file but not the exact one\n- 0.0: Agent did not find the correct code\n\nBe lenient with path formats (relative vs absolute, slashes, etc.)\nSymbol names must match (class/function name).",
+        "threshold": 0.6
+      },
+      {
+        "type": "cost",
+        "threshold": 1.0
+      },
+      {
+        "type": "latency",
+        "threshold": 300000
+      }
+    ],
+    "prompt": "Find the code definition for the following import:\n\nFile: aitviewer/remote/viewer.py\nNext line:         self.send_message(Message.SET_FRAME, None, frame)\nImport: import asyncio\nimport pickle\nimport queue\nimport subprocess\nimport threading\nimport websockets\nfrom typing import Callable\nfrom .message import Message, make_message\n\nWhich file and symbol contains the definition that will be imported?\nRespond with: FILE:SYMBOL"
   },
   {
+    "description": "task008: aitviewer-skel - get_screen_texture_program",
     "vars": {
-      "task_id": "task008",
       "repo_name": "aitviewer-skel",
+      "task_description": "Find definition for import cv2\nimport numpy as np\nfrom moderngl_window import geometry\nfrom aitviewer.scene.node import Node\nfrom aitviewer.shaders import get_screen_texture_program\nfrom aitviewer.streamables.streamable import Streamable",
       "ground_truth_file": "aitviewer/shaders.py",
-      "ground_truth_symbol": "get_screen_texture_program",
-      "task_description": "Find definition for import cv2\nimport numpy as np\nfrom moderngl_window import geometry\nfrom aitviewer.scene.node import Node\nfrom aitviewer.shaders import get_screen_texture_program\nfrom aitviewer.streamables.streamable import Streamable"
-    }
+      "ground_truth_symbol": "get_screen_texture_program"
+    },
+    "assert": [
+      {
+        "type": "javascript",
+        "value": "\n// Count total tool calls made by agent\nconst toolCalls = output.metadata?.toolUses?.length || 0;\n\n// Score: lower calls = better (max 20 calls for full credit)\nconst score = Math.max(0, Math.min(1, (20 - toolCalls) / 20));\n\nreturn {\n  pass: toolCalls <= 20,\n  score: score,\n  reason: `Tool calls: ${toolCalls} (score: ${score.toFixed(2)})`\n};\n"
+      },
+      {
+        "type": "llm-rubric",
+        "value": "The agent was asked to find the file and symbol for an import.\n\nTask: Find definition for import cv2\nimport numpy as np\nfrom moderngl_window import geometry\nfrom aitviewer.scene.node import Node\nfrom aitviewer.shaders import get_screen_texture_program\nfrom aitviewer.streamables.streamable import Streamable\nGround truth: aitviewer/shaders.py:get_screen_texture_program\nAgent response: {{ output }}\n\nScoring:\n- 1.0: Agent found BOTH correct file AND correct symbol\n- 0.6: Agent found correct file but wrong/missing symbol\n- 0.3: Agent found related file but not the exact one\n- 0.0: Agent did not find the correct code\n\nBe lenient with path formats (relative vs absolute, slashes, etc.)\nSymbol names must match (class/function name).",
+        "threshold": 0.6
+      },
+      {
+        "type": "cost",
+        "threshold": 1.0
+      },
+      {
+        "type": "latency",
+        "threshold": 300000
+      }
+    ],
+    "prompt": "Find the code definition for the following import:\n\nFile: aitviewer/streamables/webcam.py\nNext line:         self.prog = get_screen_texture_program()\nImport: import cv2\nimport numpy as np\nfrom moderngl_window import geometry\nfrom aitviewer.scene.node import Node\nfrom aitviewer.shaders import get_screen_texture_program\nfrom aitviewer.streamables.streamable import Streamable\n\nWhich file and symbol contains the definition that will be imported?\nRespond with: FILE:SYMBOL"
   },
   {
+    "description": "task009: aitviewer-skel - get_depth_only_program",
     "vars": {
-      "task_id": "task009",
       "repo_name": "aitviewer-skel",
+      "task_description": "Find definition for import moderngl\nimport numpy as np\nfrom moderngl_window.opengl.vao import VAO\nfrom aitviewer.scene.material import Material\nfrom aitviewer.scene.node import Node\nfrom aitviewer.shaders import (\n    get_depth_only_program,\n    get_fragmap_program,\n    get_outline_program,\n    get_sphere_instanced_program,\n)\nfrom aitviewer.utils import usd\nfrom aitviewer.utils.decorators import hooked\nfrom aitviewer.utils.utils import set_lights_in_program, set_material_properties",
       "ground_truth_file": "aitviewer/shaders.py",
-      "ground_truth_symbol": "get_depth_only_program",
-      "task_description": "Find definition for import moderngl\nimport numpy as np\nfrom moderngl_window.opengl.vao import VAO\nfrom aitviewer.scene.material import Material\nfrom aitviewer.scene.node import Node\nfrom aitviewer.shaders import (\n    get_depth_only_program,\n    get_fragmap_program,\n    get_outline_program,\n    get_sphere_instanced_program,\n)\nfrom aitviewer.utils import usd\nfrom aitviewer.utils.decorators import hooked\nfrom aitviewer.utils.utils import set_lights_in_program, set_material_properties"
-    }
+      "ground_truth_symbol": "get_depth_only_program"
+    },
+    "assert": [
+      {
+        "type": "javascript",
+        "value": "\n// Count total tool calls made by agent\nconst toolCalls = output.metadata?.toolUses?.length || 0;\n\n// Score: lower calls = better (max 20 calls for full credit)\nconst score = Math.max(0, Math.min(1, (20 - toolCalls) / 20));\n\nreturn {\n  pass: toolCalls <= 20,\n  score: score,\n  reason: `Tool calls: ${toolCalls} (score: ${score.toFixed(2)})`\n};\n"
+      },
+      {
+        "type": "llm-rubric",
+        "value": "The agent was asked to find the file and symbol for an import.\n\nTask: Find definition for import moderngl\nimport numpy as np\nfrom moderngl_window.opengl.vao import VAO\nfrom aitviewer.scene.material import Material\nfrom aitviewer.scene.node import Node\nfrom aitviewer.shaders import (\n    get_depth_only_program,\n    get_fragmap_program,\n    get_outline_program,\n    get_sphere_instanced_program,\n)\nfrom aitviewer.utils import usd\nfrom aitviewer.utils.decorators import hooked\nfrom aitviewer.utils.utils import set_lights_in_program, set_material_properties\nGround truth: aitviewer/shaders.py:get_depth_only_program\nAgent response: {{ output }}\n\nScoring:\n- 1.0: Agent found BOTH correct file AND correct symbol\n- 0.6: Agent found correct file but wrong/missing symbol\n- 0.3: Agent found related file but not the exact one\n- 0.0: Agent did not find the correct code\n\nBe lenient with path formats (relative vs absolute, slashes, etc.)\nSymbol names must match (class/function name).",
+        "threshold": 0.6
+      },
+      {
+        "type": "cost",
+        "threshold": 1.0
+      },
+      {
+        "type": "latency",
+        "threshold": 300000
+      }
+    ],
+    "prompt": "Find the code definition for the following import:\n\nFile: aitviewer/renderables/spheres.py\nNext line:         self.depth_only_program = get_depth_only_program(vs_path)\nImport: import moderngl\nimport numpy as np\nfrom moderngl_window.opengl.vao import VAO\nfrom aitviewer.scene.material import Material\nfrom aitviewer.scene.node import Node\nfrom aitviewer.shaders import (\n    get_depth_only_program,\n    get_fragmap_program,\n    get_outline_program,\n    get_sphere_instanced_program,\n)\nfrom aitviewer.utils import usd\nfrom aitviewer.utils.decorators import hooked\nfrom aitviewer.utils.utils import set_lights_in_program, set_material_properties\n\nWhich file and symbol contains the definition that will be imported?\nRespond with: FILE:SYMBOL"
   },
   {
+    "description": "task010: aitviewer-skel - compute_union_of_bounds",
     "vars": {
-      "task_id": "task010",
       "repo_name": "aitviewer-skel",
+      "task_description": "Find definition for import numpy as np\nfrom aitviewer.renderables.arrows import Arrows\nfrom aitviewer.renderables.spheres import Spheres\nfrom aitviewer.scene.node import Node\nfrom aitviewer.utils.utils import (\n    compute_union_of_bounds,\n    compute_union_of_current_bounds,\n)",
       "ground_truth_file": "aitviewer/utils/utils.py",
-      "ground_truth_symbol": "compute_union_of_bounds",
-      "task_description": "Find definition for import numpy as np\nfrom aitviewer.renderables.arrows import Arrows\nfrom aitviewer.renderables.spheres import Spheres\nfrom aitviewer.scene.node import Node\nfrom aitviewer.utils.utils import (\n    compute_union_of_bounds,\n    compute_union_of_current_bounds,\n)"
-    }
+      "ground_truth_symbol": "compute_union_of_bounds"
+    },
+    "assert": [
+      {
+        "type": "javascript",
+        "value": "\n// Count total tool calls made by agent\nconst toolCalls = output.metadata?.toolUses?.length || 0;\n\n// Score: lower calls = better (max 20 calls for full credit)\nconst score = Math.max(0, Math.min(1, (20 - toolCalls) / 20));\n\nreturn {\n  pass: toolCalls <= 20,\n  score: score,\n  reason: `Tool calls: ${toolCalls} (score: ${score.toFixed(2)})`\n};\n"
+      },
+      {
+        "type": "llm-rubric",
+        "value": "The agent was asked to find the file and symbol for an import.\n\nTask: Find definition for import numpy as np\nfrom aitviewer.renderables.arrows import Arrows\nfrom aitviewer.renderables.spheres import Spheres\nfrom aitviewer.scene.node import Node\nfrom aitviewer.utils.utils import (\n    compute_union_of_bounds,\n    compute_union_of_current_bounds,\n)\nGround truth: aitviewer/utils/utils.py:compute_union_of_bounds\nAgent response: {{ output }}\n\nScoring:\n- 1.0: Agent found BOTH correct file AND correct symbol\n- 0.6: Agent found correct file but wrong/missing symbol\n- 0.3: Agent found related file but not the exact one\n- 0.0: Agent did not find the correct code\n\nBe lenient with path formats (relative vs absolute, slashes, etc.)\nSymbol names must match (class/function name).",
+        "threshold": 0.6
+      },
+      {
+        "type": "cost",
+        "threshold": 1.0
+      },
+      {
+        "type": "latency",
+        "threshold": 300000
+      }
+    ],
+    "prompt": "Find the code definition for the following import:\n\nFile: aitviewer/renderables/rigid_bodies.py\nNext line:         return compute_union_of_bounds(self.coords)\nImport: import numpy as np\nfrom aitviewer.renderables.arrows import Arrows\nfrom aitviewer.renderables.spheres import Spheres\nfrom aitviewer.scene.node import Node\nfrom aitviewer.utils.utils import (\n    compute_union_of_bounds,\n    compute_union_of_current_bounds,\n)\n\nWhich file and symbol contains the definition that will be imported?\nRespond with: FILE:SYMBOL"
   }
 ]

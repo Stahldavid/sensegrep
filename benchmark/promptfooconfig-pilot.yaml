@@ -1,0 +1,78 @@
+# Promptfoo config for SenseGrep vs Grep benchmark - PILOT
+# 10 tasks from RepoBench-R
+
+description: "SenseGrep vs Grep Benchmark - Pilot (10 tasks)"
+
+providers:
+  # Configuration 1: Grep-only baseline (Claude Code headless mode)
+  - id: python:./providers/grep-only.py
+    label: "grep-only"
+
+  # Configuration 2: SenseGrep-only (Claude Code headless mode with MCP)
+  - id: python:./providers/sensegrep-only.py
+    label: "sensegrep-only"
+
+  # Configuration 3: Hybrid (Claude Code headless mode, both tools available)
+  - id: python:./providers/hybrid.py
+    label: "hybrid"
+
+# Load tests from generated JSON
+tests: file://tests-pilot.json
+
+# Default test options
+defaultTest:
+  options:
+    provider:
+      config:
+        max_iterations: 30  # Prevent infinite loops
+        timeout: 300000  # 5 min per task
+  assert:
+    # M1: Tool call efficiency (primary metric)
+    - type: javascript
+      value: |
+        // Count total tool calls made by agent
+        const toolCalls = output.metadata?.toolUses?.length || 0;
+
+        // Score: lower calls = better (max 20 calls for full credit)
+        const score = Math.max(0, Math.min(1, (20 - toolCalls) / 20));
+
+        return {
+          pass: toolCalls <= 20,
+          score: score,
+          reason: `Tool calls: ${toolCalls} (score: ${score.toFixed(2)})`
+        };
+
+    # M2: Completion accuracy (llm-rubric for fuzzy matching)
+    - type: llm-rubric
+      value: |
+        The agent was asked to find the file and symbol for an import.
+
+        Task: {{ task_description }}
+        Ground truth: {{ ground_truth_file }}:{{ ground_truth_symbol }}
+        Agent response: {{ output }}
+
+        Scoring:
+        - 1.0: Agent found BOTH correct file AND correct symbol
+        - 0.6: Agent found correct file but wrong/missing symbol
+        - 0.3: Agent found related file but not the exact one
+        - 0.0: Agent did not find the correct code
+
+        Be lenient with path formats (relative vs absolute, slashes, etc.)
+        Symbol names must match (class/function name).
+      threshold: 0.6  # Require at least file match
+
+    # M3: Cost limit
+    - type: cost
+      threshold: 1.0  # Max $1 per task
+
+    # M4: Latency limit
+    - type: latency
+      threshold: 300000  # 5 minutes max
+
+# Output settings
+outputPath: ./results/pilot.json
+
+# Evaluation settings
+evaluateOptions:
+  maxConcurrency: 1  # Run tasks sequentially for now
+  showProgressBar: true
