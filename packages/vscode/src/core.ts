@@ -297,6 +297,65 @@ export class SensegrepCore {
     vscode.window.showInformationMessage("Sensegrep: Gemini API key cleared")
   }
 
+  async getLanguageCapabilities(): Promise<{
+    languages: Array<{ id: string; name: string }>
+    variants: Array<{ name: string; language: string; description: string }>
+    decorators: Array<{ name: string; language: string; description: string }>
+  }> {
+    try {
+      const core = await loadCore()
+
+      // Check if capabilities functions are available
+      if (!core.getLanguageCapabilities) {
+        // Fallback to default capabilities
+        return {
+          languages: [
+            { id: "typescript", name: "TypeScript" },
+            { id: "javascript", name: "JavaScript" },
+            { id: "python", name: "Python" }
+          ],
+          variants: [],
+          decorators: []
+        }
+      }
+
+      const capabilities = core.getLanguageCapabilities()
+
+      return {
+        languages: capabilities.map((cap: any) => ({
+          id: cap.language,
+          name: cap.language.charAt(0).toUpperCase() + cap.language.slice(1)
+        })),
+        variants: capabilities.flatMap((cap: any) =>
+          cap.variants.map((v: any) => ({
+            name: v.name,
+            language: cap.language,
+            description: v.description
+          }))
+        ),
+        decorators: capabilities.flatMap((cap: any) =>
+          cap.decorators.map((d: any) => ({
+            name: d.name,
+            language: cap.language,
+            description: d.description
+          }))
+        )
+      }
+    } catch (err) {
+      console.error("Failed to get language capabilities:", err)
+      // Fallback to defaults
+      return {
+        languages: [
+          { id: "typescript", name: "TypeScript" },
+          { id: "javascript", name: "JavaScript" },
+          { id: "python", name: "Python" }
+        ],
+        variants: [],
+        decorators: []
+      }
+    }
+  }
+
   async search(query: string, options?: SearchOptions): Promise<SearchResult[]> {
     await this.ensureInitialized()
 
