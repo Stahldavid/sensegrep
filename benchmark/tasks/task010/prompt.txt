@@ -1,0 +1,15 @@
+Find the code definition for the following import:
+
+File: aitviewer/renderables/rigid_bodies.py
+Next line:         return compute_union_of_bounds(self.coords)
+Import: import numpy as np
+from aitviewer.renderables.arrows import Arrows
+from aitviewer.renderables.spheres import Spheres
+from aitviewer.scene.node import Node
+from aitviewer.utils.utils import (
+    compute_union_of_bounds,
+    compute_union_of_current_bounds,
+)
+
+Which file and symbol contains the definition that will be imported?
+Respond with: FILE:SYMBOL

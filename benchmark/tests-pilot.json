@@ -1,0 +1,92 @@
+[
+  {
+    "vars": {
+      "task_id": "task001",
+      "repo_name": "ciscoconfparse2",
+      "ground_truth_file": "ciscoconfparse2/errors.py",
+      "ground_truth_symbol": "DynamicAddressException",
+      "task_description": "Find definition for from typing import Union, Any, Set, Tuple, List, Dict\nfrom loguru import logger\nfrom ciscoconfparse2.errors import DynamicAddressException\nfrom ciscoconfparse2.ccp_util import (\n    _IPV6_REGEX_STR_COMPRESSED1,\n    _IPV6_REGEX_STR_COMPRESSED2,\n)\nfrom ciscoconfparse2.errors import InvalidCiscoEthernetTrunkAction\nfrom ciscoconfparse2.errors import InvalidCiscoEthernetVlan\nfrom ciscoconfparse2.errors import InvalidCiscoInterface\nfrom ciscoconfparse2.ccp_util import CiscoIOSInterface, CiscoIOSXRInterface\nfrom ciscoconfparse2.ccp_util import _IPV6_REGEX_STR_COMPRESSED3\nfrom ciscoconfparse2.ccp_util import IPv4Obj, IPv6Obj\nfrom ciscoconfparse2.ccp_util import CiscoRange\nfrom ciscoconfparse2.ccp_abc import BaseCfgLine\nfrom ciscoconfparse2.models_base import BaseFactoryLine\nfrom ciscoconfparse2.models_base import BaseFactoryInterfaceLine\nfrom ciscoconfparse2.models_cisco import HSRPInterfaceGroup\nimport re\nimport attrs"
+    }
+  },
+  {
+    "vars": {
+      "task_id": "task002",
+      "repo_name": "ciscoconfparse2",
+      "ground_truth_file": "ciscoconfparse2/ccp_util.py",
+      "ground_truth_symbol": "IPv6Obj",
+      "task_description": "Find definition for import sys\nimport os\nfrom ciscoconfparse import IPv4Obj, IPv6Obj\nfrom loguru import logger"
+    }
+  },
+  {
+    "vars": {
+      "task_id": "task003",
+      "repo_name": "ciscoconfparse2",
+      "ground_truth_file": "ciscoconfparse2/ciscoconfparse2.py",
+      "ground_truth_symbol": "CiscoConfParse",
+      "task_description": "Find definition for from collections.abc import MutableSequence\nfrom conftest import parse_a01, parse_a01_factory\nfrom ciscoconfparse2.ciscoconfparse2 import CiscoConfParse\nfrom ciscoconfparse2.models_asa import ASAObjGroupService\nfrom ciscoconfparse2.ccp_util import L4Object\nfrom ciscoconfparse2.ccp_util import IPv4Obj\n    from ipaddr import IPv4Network, IPv6Network, IPv4Address, IPv6Address\n    from ipaddress import IPv4Network, IPv6Network, IPv4Address, IPv6Address\nfrom loguru import logger\nimport uuid\nimport sys\nimport re\nimport os\nimport pytest"
+    }
+  },
+  {
+    "vars": {
+      "task_id": "task004",
+      "repo_name": "ciscoconfparse2",
+      "ground_truth_file": "ciscoconfparse2/ccp_util.py",
+      "ground_truth_symbol": "IPv6Obj",
+      "task_description": "Find definition for import ipaddress\nimport pytest\nimport sys\nfrom ipaddress import IPv4Network, IPv6Network, IPv4Address, IPv6Address\nfrom loguru import logger\nfrom macaddress import OUI\nfrom ciscoconfparse2.ccp_util import CiscoRange\nfrom ciscoconfparse2.ccp_util import CiscoIOSInterface, CiscoIOSXRInterface\nfrom ciscoconfparse2.ccp_util import _RGX_IPV4ADDR, _RGX_IPV6ADDR\nfrom ciscoconfparse2.ccp_util import IPv6Obj, IPv4Obj, L4Object, ip_factory\nfrom ciscoconfparse2.ccp_util import MACObj, EUI64Obj\nfrom ciscoconfparse2.ccp_util import collapse_addresses"
+    }
+  },
+  {
+    "vars": {
+      "task_id": "task005",
+      "repo_name": "ciscoconfparse2",
+      "ground_truth_file": "ciscoconfparse2/errors.py",
+      "ground_truth_symbol": "InvalidParameters",
+      "task_description": "Find definition for from typing import Optional, Callable, Any, Union, List\nfrom operator import attrgetter\nfrom functools import wraps\nfrom collections.abc import Sequence\nfrom collections import UserList\nfrom ipaddress import IPv4Network, IPv6Network, IPv4Address, IPv6Address\nfrom ipaddress import collapse_addresses as ipaddr_collapse_addresses\nfrom ipaddress import AddressValueError\nfrom macaddress import EUI48, EUI64\nfrom dns.exception import DNSException\nfrom dns.resolver import Resolver\nfrom dns import reversename, query, zone\nfrom deprecated import deprecated\nfrom loguru import logger\nfrom ciscoconfparse2.protocol_values import ASA_TCP_PORTS, ASA_UDP_PORTS\nfrom ciscoconfparse2.errors import DuplicateMember, InvalidParameters, InvalidMember, MismatchedType, UntypedError\nfrom ciscoconfparse2.errors import InvalidShellVariableMapping\nfrom ciscoconfparse2.errors import NoRegexMatch\nfrom ciscoconfparse2.errors import PythonOptimizeException\nfrom ciscoconfparse2.errors import DynamicAddressException\nfrom ciscoconfparse2.errors import ListItemMissingAttribute\nfrom ciscoconfparse2.errors import UnexpectedType\nfrom ciscoconfparse2.errors import InvalidCiscoInterface\nfrom ciscoconfparse2.errors import InvalidCiscoRange\nfrom ciscoconfparse2.errors import DNSTimeoutError\nfrom ciscoconfparse2.errors import RequirementFailure\nimport subprocess\nimport locale\nimport socket\nimport shlex\nimport time\nimport copy\nimport sys\nimport re\nimport os\nimport attrs\nimport ciscoconfparse2"
+    }
+  },
+  {
+    "vars": {
+      "task_id": "task006",
+      "repo_name": "aitviewer-skel",
+      "ground_truth_file": "aitviewer/configuration.py",
+      "ground_truth_symbol": "CONFIG",
+      "task_description": "Find definition for import collections\nimport numpy as np\nimport smplx\nimport torch\nimport torch.nn as nn\n            import trimesh\nfrom abc import ABC\nfrom aitviewer.configuration import CONFIG as C\nfrom aitviewer.utils.so3 import aa2rot_torch as aa2rot\nfrom aitviewer.utils.so3 import rot2aa_torch as rot2aa\nfrom aitviewer.utils.utils import compute_vertex_and_face_normals_torch"
+    }
+  },
+  {
+    "vars": {
+      "task_id": "task007",
+      "repo_name": "aitviewer-skel",
+      "ground_truth_file": "aitviewer/remote/message.py",
+      "ground_truth_symbol": "Message",
+      "task_description": "Find definition for import asyncio\nimport pickle\nimport queue\nimport subprocess\nimport threading\nimport websockets\nfrom typing import Callable\nfrom .message import Message, make_message"
+    }
+  },
+  {
+    "vars": {
+      "task_id": "task008",
+      "repo_name": "aitviewer-skel",
+      "ground_truth_file": "aitviewer/shaders.py",
+      "ground_truth_symbol": "get_screen_texture_program",
+      "task_description": "Find definition for import cv2\nimport numpy as np\nfrom moderngl_window import geometry\nfrom aitviewer.scene.node import Node\nfrom aitviewer.shaders import get_screen_texture_program\nfrom aitviewer.streamables.streamable import Streamable"
+    }
+  },
+  {
+    "vars": {
+      "task_id": "task009",
+      "repo_name": "aitviewer-skel",
+      "ground_truth_file": "aitviewer/shaders.py",
+      "ground_truth_symbol": "get_depth_only_program",
+      "task_description": "Find definition for import moderngl\nimport numpy as np\nfrom moderngl_window.opengl.vao import VAO\nfrom aitviewer.scene.material import Material\nfrom aitviewer.scene.node import Node\nfrom aitviewer.shaders import (\n    get_depth_only_program,\n    get_fragmap_program,\n    get_outline_program,\n    get_sphere_instanced_program,\n)\nfrom aitviewer.utils import usd\nfrom aitviewer.utils.decorators import hooked\nfrom aitviewer.utils.utils import set_lights_in_program, set_material_properties"
+    }
+  },
+  {
+    "vars": {
+      "task_id": "task010",
+      "repo_name": "aitviewer-skel",
+      "ground_truth_file": "aitviewer/utils/utils.py",
+      "ground_truth_symbol": "compute_union_of_bounds",
+      "task_description": "Find definition for import numpy as np\nfrom aitviewer.renderables.arrows import Arrows\nfrom aitviewer.renderables.spheres import Spheres\nfrom aitviewer.scene.node import Node\nfrom aitviewer.utils.utils import (\n    compute_union_of_bounds,\n    compute_union_of_current_bounds,\n)"
+    }
+  }
+]

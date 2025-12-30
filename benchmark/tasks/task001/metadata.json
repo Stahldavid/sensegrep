@@ -1,0 +1,13 @@
+{
+  "task_id": "task001",
+  "repo_name": "ciscoconfparse2",
+  "level": "128k",
+  "ground_truth_file": "ciscoconfparse2/errors.py",
+  "ground_truth_symbol": "DynamicAddressException",
+  "task_description": "Find definition for from typing import Union, Any, Set, Tuple, List, Dict\nfrom loguru import logger\nfrom ciscoconfparse2.errors import DynamicAddressException\nfrom ciscoconfparse2.ccp_util import (\n    _IPV6_REGEX_STR_COMPRESSED1,\n    _IPV6_REGEX_STR_COMPRESSED2,\n)\nfrom ciscoconfparse2.errors import InvalidCiscoEthernetTrunkAction\nfrom ciscoconfparse2.errors import InvalidCiscoEthernetVlan\nfrom ciscoconfparse2.errors import InvalidCiscoInterface\nfrom ciscoconfparse2.ccp_util import CiscoIOSInterface, CiscoIOSXRInterface\nfrom ciscoconfparse2.ccp_util import _IPV6_REGEX_STR_COMPRESSED3\nfrom ciscoconfparse2.ccp_util import IPv4Obj, IPv6Obj\nfrom ciscoconfparse2.ccp_util import CiscoRange\nfrom ciscoconfparse2.ccp_abc import BaseCfgLine\nfrom ciscoconfparse2.models_base import BaseFactoryLine\nfrom ciscoconfparse2.models_base import BaseFactoryInterfaceLine\nfrom ciscoconfparse2.models_cisco import HSRPInterfaceGroup\nimport re\nimport attrs",
+  "original_task": {
+    "file_path": "ciscoconfparse2/models_iosxr.py",
+    "next_line": "            except DynamicAddressException:",
+    "import_statement": "from typing import Union, Any, Set, Tuple, List, Dict\nfrom loguru import logger\nfrom ciscoconfparse2.errors import DynamicAddressException\nfrom ciscoconfparse2.ccp_util import (\n    _IPV6_REGEX_STR_COMPRESSED1,\n    _IPV6_REGEX_STR_COMPRESSED2,\n)\nfrom ciscoconfparse2.errors import InvalidCiscoEthernetTrunkAction\nfrom ciscoconfparse2.errors import InvalidCiscoEthernetVlan\nfrom ciscoconfparse2.errors import InvalidCiscoInterface\nfrom ciscoconfparse2.ccp_util import CiscoIOSInterface, CiscoIOSXRInterface\nfrom ciscoconfparse2.ccp_util import _IPV6_REGEX_STR_COMPRESSED3\nfrom ciscoconfparse2.ccp_util import IPv4Obj, IPv6Obj\nfrom ciscoconfparse2.ccp_util import CiscoRange\nfrom ciscoconfparse2.ccp_abc import BaseCfgLine\nfrom ciscoconfparse2.models_base import BaseFactoryLine\nfrom ciscoconfparse2.models_base import BaseFactoryInterfaceLine\nfrom ciscoconfparse2.models_cisco import HSRPInterfaceGroup\nimport re\nimport attrs"
+  }
+}

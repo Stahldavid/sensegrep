@@ -1,0 +1,13 @@
+{
+  "task_id": "task007",
+  "repo_name": "aitviewer-skel",
+  "level": "4k",
+  "ground_truth_file": "aitviewer/remote/message.py",
+  "ground_truth_symbol": "Message",
+  "task_description": "Find definition for import asyncio\nimport pickle\nimport queue\nimport subprocess\nimport threading\nimport websockets\nfrom typing import Callable\nfrom .message import Message, make_message",
+  "original_task": {
+    "file_path": "aitviewer/remote/viewer.py",
+    "next_line": "        self.send_message(Message.SET_FRAME, None, frame)",
+    "import_statement": "import asyncio\nimport pickle\nimport queue\nimport subprocess\nimport threading\nimport websockets\nfrom typing import Callable\nfrom .message import Message, make_message"
+  }
+}

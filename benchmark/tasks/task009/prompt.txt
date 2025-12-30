@@ -1,0 +1,21 @@
+Find the code definition for the following import:
+
+File: aitviewer/renderables/spheres.py
+Next line:         self.depth_only_program = get_depth_only_program(vs_path)
+Import: import moderngl
+import numpy as np
+from moderngl_window.opengl.vao import VAO
+from aitviewer.scene.material import Material
+from aitviewer.scene.node import Node
+from aitviewer.shaders import (
+    get_depth_only_program,
+    get_fragmap_program,
+    get_outline_program,
+    get_sphere_instanced_program,
+)
+from aitviewer.utils import usd
+from aitviewer.utils.decorators import hooked
+from aitviewer.utils.utils import set_lights_in_program, set_material_properties
+
+Which file and symbol contains the definition that will be imported?
+Respond with: FILE:SYMBOL

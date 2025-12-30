@@ -1,0 +1,15 @@
+Find the code definition for the following import:
+
+File: aitviewer/remote/viewer.py
+Next line:         self.send_message(Message.SET_FRAME, None, frame)
+Import: import asyncio
+import pickle
+import queue
+import subprocess
+import threading
+import websockets
+from typing import Callable
+from .message import Message, make_message
+
+Which file and symbol contains the definition that will be imported?
+Respond with: FILE:SYMBOL

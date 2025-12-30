@@ -1,0 +1,13 @@
+{
+  "task_id": "task009",
+  "repo_name": "aitviewer-skel",
+  "level": "12k",
+  "ground_truth_file": "aitviewer/shaders.py",
+  "ground_truth_symbol": "get_depth_only_program",
+  "task_description": "Find definition for import moderngl\nimport numpy as np\nfrom moderngl_window.opengl.vao import VAO\nfrom aitviewer.scene.material import Material\nfrom aitviewer.scene.node import Node\nfrom aitviewer.shaders import (\n    get_depth_only_program,\n    get_fragmap_program,\n    get_outline_program,\n    get_sphere_instanced_program,\n)\nfrom aitviewer.utils import usd\nfrom aitviewer.utils.decorators import hooked\nfrom aitviewer.utils.utils import set_lights_in_program, set_material_properties",
+  "original_task": {
+    "file_path": "aitviewer/renderables/spheres.py",
+    "next_line": "        self.depth_only_program = get_depth_only_program(vs_path)",
+    "import_statement": "import moderngl\nimport numpy as np\nfrom moderngl_window.opengl.vao import VAO\nfrom aitviewer.scene.material import Material\nfrom aitviewer.scene.node import Node\nfrom aitviewer.shaders import (\n    get_depth_only_program,\n    get_fragmap_program,\n    get_outline_program,\n    get_sphere_instanced_program,\n)\nfrom aitviewer.utils import usd\nfrom aitviewer.utils.decorators import hooked\nfrom aitviewer.utils.utils import set_lights_in_program, set_material_properties"
+  }
+}

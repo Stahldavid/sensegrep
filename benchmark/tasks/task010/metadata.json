@@ -1,0 +1,13 @@
+{
+  "task_id": "task010",
+  "repo_name": "aitviewer-skel",
+  "level": "16k",
+  "ground_truth_file": "aitviewer/utils/utils.py",
+  "ground_truth_symbol": "compute_union_of_bounds",
+  "task_description": "Find definition for import numpy as np\nfrom aitviewer.renderables.arrows import Arrows\nfrom aitviewer.renderables.spheres import Spheres\nfrom aitviewer.scene.node import Node\nfrom aitviewer.utils.utils import (\n    compute_union_of_bounds,\n    compute_union_of_current_bounds,\n)",
+  "original_task": {
+    "file_path": "aitviewer/renderables/rigid_bodies.py",
+    "next_line": "        return compute_union_of_bounds(self.coords)",
+    "import_statement": "import numpy as np\nfrom aitviewer.renderables.arrows import Arrows\nfrom aitviewer.renderables.spheres import Spheres\nfrom aitviewer.scene.node import Node\nfrom aitviewer.utils.utils import (\n    compute_union_of_bounds,\n    compute_union_of_current_bounds,\n)"
+  }
+}

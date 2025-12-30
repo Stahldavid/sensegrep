@@ -1,0 +1,13 @@
+{
+  "task_id": "task006",
+  "repo_name": "aitviewer-skel",
+  "level": "2k",
+  "ground_truth_file": "aitviewer/configuration.py",
+  "ground_truth_symbol": "CONFIG",
+  "task_description": "Find definition for import collections\nimport numpy as np\nimport smplx\nimport torch\nimport torch.nn as nn\n            import trimesh\nfrom abc import ABC\nfrom aitviewer.configuration import CONFIG as C\nfrom aitviewer.utils.so3 import aa2rot_torch as aa2rot\nfrom aitviewer.utils.so3 import rot2aa_torch as rot2aa\nfrom aitviewer.utils.utils import compute_vertex_and_face_normals_torch",
+  "original_task": {
+    "file_path": "aitviewer/models/smpl.py",
+    "next_line": "            C.smplx_models,",
+    "import_statement": "import collections\nimport numpy as np\nimport smplx\nimport torch\nimport torch.nn as nn\n            import trimesh\nfrom abc import ABC\nfrom aitviewer.configuration import CONFIG as C\nfrom aitviewer.utils.so3 import aa2rot_torch as aa2rot\nfrom aitviewer.utils.so3 import rot2aa_torch as rot2aa\nfrom aitviewer.utils.utils import compute_vertex_and_face_normals_torch"
+  }
+}

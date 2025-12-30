@@ -1,0 +1,19 @@
+Find the code definition for the following import:
+
+File: tests/test_Ccp_Util.py
+Next line:         ({'val': '2b00:cd80:14:10::1/64', 'stdlib': False}, IPv6Obj("2b00:cd80:14:10::1/64")),
+Import: import ipaddress
+import pytest
+import sys
+from ipaddress import IPv4Network, IPv6Network, IPv4Address, IPv6Address
+from loguru import logger
+from macaddress import OUI
+from ciscoconfparse2.ccp_util import CiscoRange
+from ciscoconfparse2.ccp_util import CiscoIOSInterface, CiscoIOSXRInterface
+from ciscoconfparse2.ccp_util import _RGX_IPV4ADDR, _RGX_IPV6ADDR
+from ciscoconfparse2.ccp_util import IPv6Obj, IPv4Obj, L4Object, ip_factory
+from ciscoconfparse2.ccp_util import MACObj, EUI64Obj
+from ciscoconfparse2.ccp_util import collapse_addresses
+
+Which file and symbol contains the definition that will be imported?
+Respond with: FILE:SYMBOL

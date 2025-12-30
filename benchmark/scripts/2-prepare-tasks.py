@@ -22,16 +22,23 @@ def main():
     try:
         from datasets import load_dataset
     except ImportError:
-        print("❌ Error: 'datasets' library not installed")
+        print("ERROR: 'datasets' library not installed")
         print("Run: pip install datasets")
         return 1
 
-    print(f"📥 Loading RepoBench-R dataset...")
-    dataset = load_dataset("tianyang/repobench_python_v1.1", split="test")
+    print("Loading RepoBench-R dataset...")
+    # Load all splits and combine them
+    dataset_cff = load_dataset("tianyang/repobench_python_v1.1", split="cross_file_first")
+    dataset_cfr = load_dataset("tianyang/repobench_python_v1.1", split="cross_file_random")
+    dataset_inf = load_dataset("tianyang/repobench_python_v1.1", split="in_file")
+
+    # Combine all splits
+    from datasets import concatenate_datasets
+    dataset = concatenate_datasets([dataset_cff, dataset_cfr, dataset_inf])
 
     # Filter for our 2 repos
     repos = ["mpenning/ciscoconfparse2", "MarilynKeller/aitviewer-skel"]
-    print(f"🔍 Filtering for repos: {repos}")
+    print(f"Filtering for repos: {repos}")
 
     all_tasks = []
     for item in dataset:
@@ -64,14 +71,14 @@ def main():
             unselected = [t for t in repo_tasks if t not in selected]
             selected.extend(unselected[:remaining])
 
-    print(f"\n✅ Selected {len(selected)} tasks")
+    print(f"\nSelected {len(selected)} tasks")
 
     # Create task directories
     benchmark_root = Path(__file__).parent.parent
     tasks_dir = benchmark_root / "tasks"
     tasks_dir.mkdir(exist_ok=True)
 
-    print(f"📁 Creating task directories in {tasks_dir}")
+    print(f"Creating task directories in {tasks_dir}")
 
     for i, task in enumerate(selected, 1):
         task_id = f"task{i:03d}"
@@ -115,7 +122,7 @@ Respond with: FILE:SYMBOL"""
         with open(task_dir / "metadata.json", "w", encoding="utf-8") as f:
             json.dump(metadata, f, indent=2)
 
-    print(f"✅ Created {len(selected)} task directories")
+    print(f"Created {len(selected)} task directories")
     print(f"\nNext steps:")
     print(f"  1. Review tasks in: {tasks_dir}")
     print(f"  2. Run: promptfoo eval --config benchmark/promptfooconfig.yaml")

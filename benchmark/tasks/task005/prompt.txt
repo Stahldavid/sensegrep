@@ -1,0 +1,44 @@
+Find the code definition for the following import:
+
+File: ciscoconfparse2/ccp_util.py
+Next line:                 raise InvalidParameters(error)
+Import: from typing import Optional, Callable, Any, Union, List
+from operator import attrgetter
+from functools import wraps
+from collections.abc import Sequence
+from collections import UserList
+from ipaddress import IPv4Network, IPv6Network, IPv4Address, IPv6Address
+from ipaddress import collapse_addresses as ipaddr_collapse_addresses
+from ipaddress import AddressValueError
+from macaddress import EUI48, EUI64
+from dns.exception import DNSException
+from dns.resolver import Resolver
+from dns import reversename, query, zone
+from deprecated import deprecated
+from loguru import logger
+from ciscoconfparse2.protocol_values import ASA_TCP_PORTS, ASA_UDP_PORTS
+from ciscoconfparse2.errors import DuplicateMember, InvalidParameters, InvalidMember, MismatchedType, UntypedError
+from ciscoconfparse2.errors import InvalidShellVariableMapping
+from ciscoconfparse2.errors import NoRegexMatch
+from ciscoconfparse2.errors import PythonOptimizeException
+from ciscoconfparse2.errors import DynamicAddressException
+from ciscoconfparse2.errors import ListItemMissingAttribute
+from ciscoconfparse2.errors import UnexpectedType
+from ciscoconfparse2.errors import InvalidCiscoInterface
+from ciscoconfparse2.errors import InvalidCiscoRange
+from ciscoconfparse2.errors import DNSTimeoutError
+from ciscoconfparse2.errors import RequirementFailure
+import subprocess
+import locale
+import socket
+import shlex
+import time
+import copy
+import sys
+import re
+import os
+import attrs
+import ciscoconfparse2
+
+Which file and symbol contains the definition that will be imported?
+Respond with: FILE:SYMBOL

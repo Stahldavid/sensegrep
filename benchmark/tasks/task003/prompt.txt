@@ -1,0 +1,21 @@
+Find the code definition for the following import:
+
+File: tests/test_Models_Asa.py
+Next line:     parse = CiscoConfParse(config_a02, syntax="asa", factory=True)
+Import: from collections.abc import MutableSequence
+from conftest import parse_a01, parse_a01_factory
+from ciscoconfparse2.ciscoconfparse2 import CiscoConfParse
+from ciscoconfparse2.models_asa import ASAObjGroupService
+from ciscoconfparse2.ccp_util import L4Object
+from ciscoconfparse2.ccp_util import IPv4Obj
+    from ipaddr import IPv4Network, IPv6Network, IPv4Address, IPv6Address
+    from ipaddress import IPv4Network, IPv6Network, IPv4Address, IPv6Address
+from loguru import logger
+import uuid
+import sys
+import re
+import os
+import pytest
+
+Which file and symbol contains the definition that will be imported?
+Respond with: FILE:SYMBOL

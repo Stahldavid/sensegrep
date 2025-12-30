@@ -1,0 +1,13 @@
+{
+  "task_id": "task008",
+  "repo_name": "aitviewer-skel",
+  "level": "12k",
+  "ground_truth_file": "aitviewer/shaders.py",
+  "ground_truth_symbol": "get_screen_texture_program",
+  "task_description": "Find definition for import cv2\nimport numpy as np\nfrom moderngl_window import geometry\nfrom aitviewer.scene.node import Node\nfrom aitviewer.shaders import get_screen_texture_program\nfrom aitviewer.streamables.streamable import Streamable",
+  "original_task": {
+    "file_path": "aitviewer/streamables/webcam.py",
+    "next_line": "        self.prog = get_screen_texture_program()",
+    "import_statement": "import cv2\nimport numpy as np\nfrom moderngl_window import geometry\nfrom aitviewer.scene.node import Node\nfrom aitviewer.shaders import get_screen_texture_program\nfrom aitviewer.streamables.streamable import Streamable"
+  }
+}

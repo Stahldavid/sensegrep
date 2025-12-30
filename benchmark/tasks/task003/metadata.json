@@ -1,0 +1,13 @@
+{
+  "task_id": "task003",
+  "repo_name": "ciscoconfparse2",
+  "level": "32k",
+  "ground_truth_file": "ciscoconfparse2/ciscoconfparse2.py",
+  "ground_truth_symbol": "CiscoConfParse",
+  "task_description": "Find definition for from collections.abc import MutableSequence\nfrom conftest import parse_a01, parse_a01_factory\nfrom ciscoconfparse2.ciscoconfparse2 import CiscoConfParse\nfrom ciscoconfparse2.models_asa import ASAObjGroupService\nfrom ciscoconfparse2.ccp_util import L4Object\nfrom ciscoconfparse2.ccp_util import IPv4Obj\n    from ipaddr import IPv4Network, IPv6Network, IPv4Address, IPv6Address\n    from ipaddress import IPv4Network, IPv6Network, IPv4Address, IPv6Address\nfrom loguru import logger\nimport uuid\nimport sys\nimport re\nimport os\nimport pytest",
+  "original_task": {
+    "file_path": "tests/test_Models_Asa.py",
+    "next_line": "    parse = CiscoConfParse(config_a02, syntax=\"asa\", factory=True)",
+    "import_statement": "from collections.abc import MutableSequence\nfrom conftest import parse_a01, parse_a01_factory\nfrom ciscoconfparse2.ciscoconfparse2 import CiscoConfParse\nfrom ciscoconfparse2.models_asa import ASAObjGroupService\nfrom ciscoconfparse2.ccp_util import L4Object\nfrom ciscoconfparse2.ccp_util import IPv4Obj\n    from ipaddr import IPv4Network, IPv6Network, IPv4Address, IPv6Address\n    from ipaddress import IPv4Network, IPv6Network, IPv4Address, IPv6Address\nfrom loguru import logger\nimport uuid\nimport sys\nimport re\nimport os\nimport pytest"
+  }
+}

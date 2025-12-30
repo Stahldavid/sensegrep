@@ -1,0 +1,13 @@
+{
+  "task_id": "task002",
+  "repo_name": "ciscoconfparse2",
+  "level": "24k",
+  "ground_truth_file": "ciscoconfparse2/ccp_util.py",
+  "ground_truth_symbol": "IPv6Obj",
+  "task_description": "Find definition for import sys\nimport os\nfrom ciscoconfparse import IPv4Obj, IPv6Obj\nfrom loguru import logger",
+  "original_task": {
+    "file_path": "dev_tools/compare_v4_v6_methods.py",
+    "next_line": "v6_list = dir(IPv6Obj(\"::1\"))",
+    "import_statement": "import sys\nimport os\nfrom ciscoconfparse import IPv4Obj, IPv6Obj\nfrom loguru import logger"
+  }
+}

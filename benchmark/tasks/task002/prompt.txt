@@ -1,0 +1,11 @@
+Find the code definition for the following import:
+
+File: dev_tools/compare_v4_v6_methods.py
+Next line: v6_list = dir(IPv6Obj("::1"))
+Import: import sys
+import os
+from ciscoconfparse import IPv4Obj, IPv6Obj
+from loguru import logger
+
+Which file and symbol contains the definition that will be imported?
+Respond with: FILE:SYMBOL

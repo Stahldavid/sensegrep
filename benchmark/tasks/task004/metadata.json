@@ -1,0 +1,13 @@
+{
+  "task_id": "task004",
+  "repo_name": "ciscoconfparse2",
+  "level": "64k",
+  "ground_truth_file": "ciscoconfparse2/ccp_util.py",
+  "ground_truth_symbol": "IPv6Obj",
+  "task_description": "Find definition for import ipaddress\nimport pytest\nimport sys\nfrom ipaddress import IPv4Network, IPv6Network, IPv4Address, IPv6Address\nfrom loguru import logger\nfrom macaddress import OUI\nfrom ciscoconfparse2.ccp_util import CiscoRange\nfrom ciscoconfparse2.ccp_util import CiscoIOSInterface, CiscoIOSXRInterface\nfrom ciscoconfparse2.ccp_util import _RGX_IPV4ADDR, _RGX_IPV6ADDR\nfrom ciscoconfparse2.ccp_util import IPv6Obj, IPv4Obj, L4Object, ip_factory\nfrom ciscoconfparse2.ccp_util import MACObj, EUI64Obj\nfrom ciscoconfparse2.ccp_util import collapse_addresses",
+  "original_task": {
+    "file_path": "tests/test_Ccp_Util.py",
+    "next_line": "        ({'val': '2b00:cd80:14:10::1/64', 'stdlib': False}, IPv6Obj(\"2b00:cd80:14:10::1/64\")),",
+    "import_statement": "import ipaddress\nimport pytest\nimport sys\nfrom ipaddress import IPv4Network, IPv6Network, IPv4Address, IPv6Address\nfrom loguru import logger\nfrom macaddress import OUI\nfrom ciscoconfparse2.ccp_util import CiscoRange\nfrom ciscoconfparse2.ccp_util import CiscoIOSInterface, CiscoIOSXRInterface\nfrom ciscoconfparse2.ccp_util import _RGX_IPV4ADDR, _RGX_IPV6ADDR\nfrom ciscoconfparse2.ccp_util import IPv6Obj, IPv4Obj, L4Object, ip_factory\nfrom ciscoconfparse2.ccp_util import MACObj, EUI64Obj\nfrom ciscoconfparse2.ccp_util import collapse_addresses"
+  }
+}
