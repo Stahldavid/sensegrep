@@ -178,14 +178,16 @@ export const SenseGrepTool = Tool.define("sensegrep", {
   parameters: z.object({
     query: z.string().describe("Natural language query to search for semantically similar code/content"),
     pattern: z.string().optional().describe("Optional regex pattern for keyword matching (BM25-style)"),
-    limit: z.number().optional().describe("Maximum number of results to return (default: 20)"),
+    limit: z.number().optional().describe("Maximum number of results to return (default: 10)"),
+    maxPerFile: z.number().optional().describe("Maximum results per file (default: 2)"),
+    maxPerSymbol: z.number().optional().describe("Maximum results per symbol (default: 2)"),
+
     include: z.string().optional().describe('File pattern to filter results (e.g. "*.ts", "src/**/*.tsx")'),
     rerank: z.boolean().default(false).describe("Enable cross-encoder reranking (default: false)"),
     minScore: z.number().optional().describe("Minimum relevance score 0-1 (filters low-confidence results)"),
     symbol: z.string().optional().describe('Filter by symbol name (e.g. "VectorStore")'),
     name: z.string().optional().describe('Alias for "symbol"'),
-    maxPerFile: z.number().optional().describe("Maximum results per file (default: 1)"),
-    maxPerSymbol: z.number().optional().describe("Maximum results per symbol (default: 1)"),
+
 
     // Semantic metadata filters
     symbolType: z
@@ -236,7 +238,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     // Clear any cached tables that might have wrong dimension expectations
     VectorStore.clearProjectCache(Instance.directory)
 
-    const limit = params.limit ?? 20
+    const limit = params.limit ?? 10
     const shouldRerank = params.rerank === true
 
     // Get collection, passing the expected dimension from index metadata
@@ -386,8 +388,8 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     const dedupedResults = dedupeOverlapping(rankedResults)
 
     // Enforce diversity across file/symbol to avoid repeating the same source
-    const maxPerFile = typeof params.maxPerFile === "number" ? Math.max(0, params.maxPerFile) : 1
-    const maxPerSymbol = typeof params.maxPerSymbol === "number" ? Math.max(0, params.maxPerSymbol) : 1
+    const maxPerFile = typeof params.maxPerFile === "number" ? Math.max(0, params.maxPerFile) : 2
+    const maxPerSymbol = typeof params.maxPerSymbol === "number" ? Math.max(0, params.maxPerSymbol) : 2
     const diversifiedResults = diversifyResults(dedupedResults, { maxPerFile, maxPerSymbol })
 
     // Take top results

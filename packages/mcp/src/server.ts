@@ -110,8 +110,9 @@ async function stopWatch() {
 async function generateTools(): Promise<Tool[]> {
   if (cachedTools) return cachedTools;
 
-  const core = await loadCore();
-  const caps = core.getLanguageCapabilities();
+  try {
+    const core = await loadCore();
+    const caps = core.getLanguageCapabilities();
 
   // Format variants for description
   const variantDesc = caps.variants
@@ -128,7 +129,7 @@ async function generateTools(): Promise<Tool[]> {
         properties: {
           query: { type: "string", description: "Search query" },
           pattern: { type: "string", description: "Regex pattern filter" },
-          limit: { type: "number", description: "Max results (default: 20)" },
+          limit: { type: "number", description: "Max results (default: 10)" },
           include: { type: "string", description: "File glob filter (e.g., 'src/**/*.ts')" },
           symbol: { type: "string", description: "Filter by symbol name" },
           name: { type: "string", description: "Alias for symbol name" },
@@ -152,8 +153,8 @@ async function generateTools(): Promise<Tool[]> {
           minComplexity: { type: "number", description: "Minimum cyclomatic complexity" },
           maxComplexity: { type: "number", description: "Maximum cyclomatic complexity" },
           minScore: { type: "number", description: "Minimum relevance score 0-1" },
-          maxPerFile: { type: "number", description: "Max results per file (default: 1)" },
-          maxPerSymbol: { type: "number", description: "Max results per symbol (default: 1)" },
+          maxPerFile: { type: "number", description: "Max results per file (default: 2)" },
+          maxPerSymbol: { type: "number", description: "Max results per symbol (default: 2)" },
           hasDocumentation: { type: "boolean", description: "Require documentation" },
           language: {
             type: "string",
@@ -236,13 +237,18 @@ async function generateTools(): Promise<Tool[]> {
     },
   ];
 
-  return cachedTools;
+    return cachedTools;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[sensegrep] Failed to generate tools: ${message}`);
+    return [];
+  }
 }
 
 const server = new Server(
   {
     name: "sensegrep",
-    version: "0.1.11",
+    version: "0.1.14",
   },
   {
     capabilities: {
@@ -571,18 +577,33 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 });
 
 async function main() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  void startWatch();
+  try {
+    // Pre-load tools to catch initialization errors before connecting
+    console.error("[sensegrep] Pre-loading tools...");
+    await generateTools();
+    console.error("[sensegrep] Tools loaded successfully");
 
-  // Setup cleanup handlers
-  const cleanup = async () => {
-    await stopWatch();
-    process.exit(0);
-  };
+    // Connect transport
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    console.error("[sensegrep] Server connected");
 
-  process.on("SIGINT", cleanup);
-  process.on("SIGTERM", cleanup);
+    // Start watcher after successful connection
+    void startWatch();
+
+    // Setup cleanup handlers
+    const cleanup = async () => {
+      await stopWatch();
+      process.exit(0);
+    };
+
+    process.on("SIGINT", cleanup);
+    process.on("SIGTERM", cleanup);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[sensegrep] Server initialization failed: ${message}`);
+    process.exit(1);
+  }
 }
 
 main().catch((error) => {
