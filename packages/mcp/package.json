@@ -1,6 +1,6 @@
 {
   "name": "@sensegrep/mcp",
-  "version": "0.1.12",
+  "version": "0.1.16",
   "type": "module",
   "main": "./dist/server.js",
   "bin": {
@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.1",
-    "@sensegrep/core": "^0.1.12",
+    "@sensegrep/core": "^0.1.16",
     "zod": "^4.2.1"
   },
   "publishConfig": {
