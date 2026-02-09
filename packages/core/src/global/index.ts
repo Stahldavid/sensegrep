@@ -1,14 +1,14 @@
-import fs from "fs/promises"
-import { xdgData, xdgCache, xdgConfig, xdgState } from "xdg-basedir"
-import path from "path"
-import os from "os"
+import fs from "fs/promises";
+import os from "os";
+import path from "path";
+import { xdgCache, xdgConfig, xdgData, xdgState } from "xdg-basedir";
 
-const app = "sensegrep"
+const app = "sensegrep";
 
-const data = path.join(xdgData!, app)
-const cache = path.join(xdgCache!, app)
-const config = path.join(xdgConfig!, app)
-const state = path.join(xdgState!, app)
+const data = path.join(xdgData!, app);
+const cache = path.join(xdgCache!, app);
+const config = path.join(xdgConfig!, app);
+const state = path.join(xdgState!, app);
 
 export namespace Global {
   export const Path = {
@@ -19,26 +19,25 @@ export namespace Global {
     cache,
     config,
     state,
-  } as const
+  } as const;
 }
 
 await Promise.all([
   fs.mkdir(Global.Path.data, { recursive: true }),
+  fs.mkdir(Global.Path.cache, { recursive: true }),
   fs.mkdir(Global.Path.config, { recursive: true }),
   fs.mkdir(Global.Path.state, { recursive: true }),
   fs.mkdir(Global.Path.log, { recursive: true }),
   fs.mkdir(Global.Path.bin, { recursive: true }),
-])
+]);
 
-const CACHE_VERSION = "1"
+const CACHE_VERSION = "1";
 
-const version = await fs
-  .readFile(path.join(Global.Path.cache, "version"), "utf8")
-  .catch(() => "0")
+const version = await fs.readFile(path.join(Global.Path.cache, "version"), "utf8").catch(() => "0");
 
 if (version !== CACHE_VERSION) {
   try {
-    const contents = await fs.readdir(Global.Path.cache)
+    const contents = await fs.readdir(Global.Path.cache);
     await Promise.all(
       contents.map((item) =>
         fs.rm(path.join(Global.Path.cache, item), {
@@ -46,7 +45,7 @@ if (version !== CACHE_VERSION) {
           force: true,
         }),
       ),
-    )
+    );
   } catch (e) {}
-  await fs.writeFile(path.join(Global.Path.cache, "version"), CACHE_VERSION)
+  await fs.writeFile(path.join(Global.Path.cache, "version"), CACHE_VERSION);
 }
