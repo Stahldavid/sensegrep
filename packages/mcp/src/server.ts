@@ -126,7 +126,7 @@ async function generateTools(): Promise<Tool[]> {
       inputSchema: {
         type: "object",
         properties: {
-          query: { type: "string", description: "Search query" },
+          query: { type: "string", description: "Semantic search query: pass a natural-language sentence/text or a code snippet, not isolated keywords" },
           pattern: { type: "string", description: "Regex pattern filter" },
           limit: { type: "number", description: "Max results (default: 20)" },
           include: { type: "string", description: "File glob filter (e.g., 'src/**/*.ts')" },
@@ -242,7 +242,7 @@ async function generateTools(): Promise<Tool[]> {
 const server = new Server(
   {
     name: "sensegrep",
-    version: "0.1.11",
+    version: "0.1.17",
   },
   {
     capabilities: {
