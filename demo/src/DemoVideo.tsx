@@ -47,13 +47,13 @@ export const DemoVideo = ({ variant = "short" }: DemoVideoProps) => {
                 <IntroScene
                   headline={
                     variant === "full"
-                      ? "Find the right function fast, without file-hunting."
-                      : "Find auth logic by meaning, not keyword."
+                      ? "Find the right function in minutes, not file-hunting hours."
+                      : "Find the right function by intent, not keywords."
                   }
                   subline={
                     variant === "full"
                       ? "Open-source semantic + structural code search for real codebases."
-                      : "Semantic + structural search with Gemini embeddings"
+                      : "Open-source semantic + structural search for real codebases."
                   }
                 />
               </Series.Sequence>
@@ -97,6 +97,7 @@ export const DemoVideo = ({ variant = "short" }: DemoVideoProps) => {
                 <FeaturesScene
                   beforeStep={getTranscriptStep("tree-before")}
                   afterStep={getTranscriptStep("tree-after")}
+                  variant={variant}
                 />
               </Series.Sequence>
             )
@@ -104,7 +105,12 @@ export const DemoVideo = ({ variant = "short" }: DemoVideoProps) => {
 
           return (
             <Series.Sequence key={index} durationInFrames={sequence.duration}>
-              <OutroScene repo={transcript.repo} provider={transcript.provider} variant={variant} />
+              <OutroScene
+                repo={transcript.repo}
+                provider={transcript.provider}
+                variant={variant}
+                benchmark={transcript.benchmark}
+              />
             </Series.Sequence>
           )
         })}

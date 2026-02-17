@@ -17,7 +17,18 @@ export type VideoTranscript = {
     runs: number
     tasks: number
     modes: number
-    avgCalls: number
+    sensegrep: {
+      avgCalls: number
+      avgTokens: number
+    }
+    hybrid?: {
+      avgCalls: number
+      avgTokens: number
+    }
+    grep?: {
+      avgCalls: number
+      avgTokens: number
+    }
   }
   steps: TranscriptStep[]
 }

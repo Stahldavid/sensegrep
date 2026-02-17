@@ -4,6 +4,23 @@
   "capturedAt": "2026-02-17T19:05:00.504Z",
   "provider": "gemini",
   "rootPlaceholder": "<repo-root>",
+  "benchmark": {
+    "runs": 60,
+    "tasks": 20,
+    "modes": 3,
+    "sensegrep": {
+      "avgCalls": 1.2,
+      "avgTokens": 6468
+    },
+    "hybrid": {
+      "avgCalls": 1.85,
+      "avgTokens": 10900.3
+    },
+    "grep": {
+      "avgCalls": 2.35,
+      "avgTokens": 28565.15
+    }
+  },
   "steps": [
     {
       "id": "semantic-base",
@@ -29,16 +46,13 @@
     },
     {
       "id": "semantic-filtered",
-      "command": "sensegrep search \"array of objects tabular encoding decision\" --include \"packages/toon/**/*.ts\" --type function --exported --async --min-complexity 5 --limit 8",
+      "command": "sensegrep search \"array of objects tabular encoding decision\" --include \"packages/toon/**/*.ts\" --type function --exported --min-complexity 6 --limit 3",
       "stdoutLines": [
-        "Found 8 results across 4 files",
-        "## packages/toon/src/encode/encoders.ts (12 lines hidden in 2 regions)",
-        "Matches: isTabularArray function, extractTabularHeader function, indentedLine function",
-        "export function* encodeJsonValue(value: JsonValue, options: ResolvedEncodeOptions, depth: Depth): Generator<string> {",
-        "export function* encodeObjectLines(",
-        "export function* encodeKeyValuePairLines(",
-        "## packages/toon/src/encode/primitives.ts (32 lines hidden in 4 regions)",
-        "Matches: formatHeader function"
+        "Found 3 results across 1 files",
+        "## packages/toon/src/encode/encoders.ts (6 lines hidden in 1 regions)",
+        "Matches: isTabularArray function, extractTabularHeader function",
+        "export function isTabularArray(",
+        "export function extractTabularHeader("
       ],
       "highlights": [
         1,

@@ -1,15 +1,25 @@
 import React from "react"
 import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion"
+import type { VideoTranscript } from "../types"
 
 type OutroSceneProps = {
   repo: string
   provider: string
   variant: "short" | "full"
+  benchmark?: VideoTranscript["benchmark"]
 }
 
-export const OutroScene: React.FC<OutroSceneProps> = ({ repo, provider, variant }) => {
+function formatTokensCompact(value: number) {
+  if (value >= 1000) {
+    return `${(value / 1000).toFixed(1)}k`
+  }
+  return String(Math.round(value))
+}
+
+export const OutroScene: React.FC<OutroSceneProps> = ({ repo, provider, variant, benchmark }) => {
   const frame = useCurrentFrame()
   const { fps } = useVideoConfig()
+  const isShort = variant === "short"
 
   const titleScale = spring({ frame, fps, config: { damping: 12 } })
   const installOpacity = interpolate(frame, [fps * 0.35, fps * 0.9], [0, 1], {
@@ -49,56 +59,159 @@ export const OutroScene: React.FC<OutroSceneProps> = ({ repo, provider, variant 
             letterSpacing: -2,
           }}
         >
-          {variant === "full" ? "Start in under 2 minutes" : "Search by meaning, then filter with structure"}
+          {variant === "full" ? "Start in under 2 minutes" : "Open-source code search in 2 commands"}
         </div>
-        {variant === "full" ? (
+        <div
+          style={{
+            marginTop: isShort ? 14 : 10,
+            fontSize: isShort ? 26 : 29,
+            color: "#cbd5e1",
+            fontWeight: 700,
+            fontFamily: "'Inter', 'Segoe UI', sans-serif",
+          }}
+        >
+          github.com/Stahldavid/sensegrep
+        </div>
+      </div>
+
+      {variant === "full" && benchmark ? (
+        <div
+          style={{
+            marginTop: 14,
+            padding: "10px 18px",
+            borderRadius: 14,
+            border: "1px solid #818cf844",
+            background: "#0f102088",
+            textAlign: "center",
+          }}
+        >
           <div
             style={{
-              marginTop: 14,
-              fontSize: 29,
-              color: "#cbd5e1",
+              fontSize: 15,
+              color: "#a5b4fc",
               fontWeight: 700,
               fontFamily: "'Inter', 'Segoe UI', sans-serif",
             }}
           >
-            github.com/Stahldavid/sensegrep
+            AI SDK benchmark · {benchmark.runs} runs ({benchmark.tasks} tasks x {benchmark.modes} modes)
           </div>
-        ) : null}
-      </div>
+          <div
+            style={{
+              marginTop: 6,
+              fontSize: 16,
+              color: "#86efac",
+              fontWeight: 700,
+              fontFamily: "'Inter', 'Segoe UI', sans-serif",
+            }}
+          >
+            sensegrep: {benchmark.sensegrep.avgCalls.toFixed(1)} calls · {formatTokensCompact(benchmark.sensegrep.avgTokens)} tokens
+          </div>
+          {benchmark.hybrid && benchmark.grep ? (
+            <div
+              style={{
+                marginTop: 4,
+                fontSize: 14,
+                color: "#cbd5e1",
+                fontFamily: "'Inter', 'Segoe UI', sans-serif",
+              }}
+            >
+              hybrid: {benchmark.hybrid.avgCalls.toFixed(2)} calls · {formatTokensCompact(benchmark.hybrid.avgTokens)} tokens | grep:{" "}
+              {benchmark.grep.avgCalls.toFixed(2)} calls · {formatTokensCompact(benchmark.grep.avgTokens)} tokens
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {variant === "full" ? (
         <div
           style={{
-            marginTop: 18,
-            padding: "10px 24px",
-            borderRadius: 12,
-            background: "#1e1e35",
-            border: "1px solid #818cf844",
-            color: "#86efac",
-            fontSize: 20,
-            fontWeight: 700,
-            fontFamily: "'Cascadia Code', 'Fira Code', monospace",
+            marginTop: 14,
+            textAlign: "center",
           }}
         >
-          npm i -g @sensegrep/cli && sensegrep index --root .
+          <div
+            style={{
+              display: "inline-block",
+              padding: "10px 24px",
+              borderRadius: 12,
+              background: "#1e1e35",
+              border: "1px solid #818cf844",
+              color: "#86efac",
+              fontSize: 20,
+              fontWeight: 700,
+              fontFamily: "'Cascadia Code', 'Fira Code', monospace",
+            }}
+          >
+            npm i -g @sensegrep/cli && sensegrep index --root .
+          </div>
+          <div
+            style={{
+              marginTop: 10,
+              color: "#94a3b8",
+              fontSize: 18,
+              fontFamily: "'Inter', 'Segoe UI', sans-serif",
+              fontWeight: 600,
+            }}
+          >
+            or use MCP instantly: npx -y @sensegrep/mcp
+          </div>
         </div>
-      ) : null}
-
-      <div style={{ textAlign: "center", marginTop: variant === "full" ? 20 : 28, opacity: variant === "full" ? 1 : installOpacity }}>
+      ) : (
         <div
           style={{
-            display: "inline-block",
-            padding: "12px 30px",
-            borderRadius: 12,
-            backgroundColor: "#1e1e35",
-            border: "1px solid #818cf844",
+            marginTop: 20,
+            opacity: installOpacity,
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
           }}
         >
-          <span style={{ fontSize: 24, fontFamily: "'Cascadia Code', 'Fira Code', monospace", color: "#4ade80" }}>
-            {variant === "full" ? "Apache-2.0 · CLI · MCP · VS Code" : "npm i -g @sensegrep/cli"}
-          </span>
+          <div
+            style={{
+              display: "inline-block",
+              padding: "10px 20px",
+              borderRadius: 12,
+              backgroundColor: "#1e1e35",
+              border: "1px solid #818cf844",
+            }}
+          >
+            <span style={{ fontSize: 21, fontFamily: "'Cascadia Code', 'Fira Code', monospace", color: "#4ade80" }}>
+              npm i -g @sensegrep/cli
+            </span>
+          </div>
+          <div
+            style={{
+              display: "inline-block",
+              padding: "10px 20px",
+              borderRadius: 12,
+              backgroundColor: "#1e1e35",
+              border: "1px solid #818cf844",
+            }}
+          >
+            <span style={{ fontSize: 21, fontFamily: "'Cascadia Code', 'Fira Code', monospace", color: "#4ade80" }}>
+              npx -y @sensegrep/mcp
+            </span>
+          </div>
         </div>
-      </div>
+      )}
+
+      {variant === "short" ? (
+        <div style={{ textAlign: "center", marginTop: 16, opacity: installOpacity }}>
+          <div
+            style={{
+              display: "inline-block",
+              padding: "12px 30px",
+              borderRadius: 12,
+              backgroundColor: "#1e1e35",
+              border: "1px solid #818cf844",
+            }}
+          >
+            <span style={{ fontSize: 24, fontFamily: "'Cascadia Code', 'Fira Code', monospace", color: "#4ade80" }}>
+              CLI · MCP · VS Code
+            </span>
+          </div>
+        </div>
+      ) : null}
 
       <div
         style={{
@@ -108,7 +221,9 @@ export const OutroScene: React.FC<OutroSceneProps> = ({ repo, provider, variant 
           fontFamily: "'Inter', 'Segoe UI', sans-serif",
         }}
       >
-        {repo.replace("https://github.com/", "")}{" "}· {provider} embeddings · {variant === "short" ? "10s hero" : "25s full"}
+        {variant === "short"
+          ? `${repo.replace("https://github.com/", "")} · ${provider} embeddings`
+          : "Apache-2.0 · CLI · MCP · VS Code"}
       </div>
     </AbsoluteFill>
   )
