@@ -62,6 +62,13 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
         case "openSettings":
           await vscode.commands.executeCommand("sensegrep.openSettings")
           break
+        case "getCapabilities":
+          const capabilities = await this.core.getLanguageCapabilities()
+          webviewView.webview.postMessage({
+            type: "capabilities",
+            capabilities
+          })
+          break
       }
     })
   }

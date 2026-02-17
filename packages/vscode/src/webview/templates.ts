@@ -568,7 +568,8 @@ export function getSearchViewHtml(
 
         <div class="filter-group">
           <label for="variant">Variant</label>
-          <input type="text" id="variant" placeholder="e.g. interface, dataclass, async">
+          <input type="text" id="variant" list="variantList" placeholder="e.g. interface, dataclass, async">
+          <datalist id="variantList"></datalist>
           <small style="color: var(--vscode-descriptionForeground); font-size: 11px;">
             Language-specific variants (interface, dataclass, protocol, async, etc.)
           </small>
@@ -576,7 +577,8 @@ export function getSearchViewHtml(
 
         <div class="filter-group">
           <label for="decorator">Decorator</label>
-          <input type="text" id="decorator" placeholder="e.g. @property, @dataclass">
+          <input type="text" id="decorator" list="decoratorList" placeholder="e.g. @property, @dataclass">
+          <datalist id="decoratorList"></datalist>
           <small style="color: var(--vscode-descriptionForeground); font-size: 11px;">
             Filter by decorator name (Python: @property, @staticmethod, etc.)
           </small>
@@ -692,9 +694,16 @@ export function getSearchViewHtml(
     const shakedList = document.getElementById('shakedList');
     const apiKeyBanner = document.getElementById('apiKeyBanner');
     const setApiKeyLink = document.getElementById('setApiKeyLink');
-    
+    const variantList = document.getElementById('variantList');
+    const decoratorList = document.getElementById('decoratorList');
+
     // State
     let isSearching = false;
+    let languageCapabilities = {
+      languages: [],
+      variants: [],
+      decorators: []
+    };
     
     // Event Listeners
     searchBtn.addEventListener('click', performSearch);
@@ -736,6 +745,10 @@ export function getSearchViewHtml(
     setApiKeyLink.addEventListener('click', (e) => {
       e.preventDefault();
       vscode.postMessage({ type: 'setApiKey' });
+    });
+
+    language.addEventListener('change', () => {
+      updateVariantDecoratorLists();
     });
 
     resultsList.addEventListener('click', (event) => {
@@ -971,6 +984,50 @@ export function getSearchViewHtml(
       return div.innerHTML;
     }
 
+    function handleCapabilities(capabilities) {
+      if (!capabilities) return;
+
+      languageCapabilities = capabilities;
+
+      // Populate language dropdown
+      if (capabilities.languages && capabilities.languages.length > 0) {
+        const currentValue = language.value;
+        language.innerHTML = '<option value="">All</option>' +
+          capabilities.languages.map(lang =>
+            \`<option value="\${lang.id}">\${lang.name}</option>\`
+          ).join('');
+        // Restore previous selection if still valid
+        if (currentValue) {
+          language.value = currentValue;
+        }
+      }
+
+      // Update variant/decorator lists for current language
+      updateVariantDecoratorLists();
+    }
+
+    function updateVariantDecoratorLists() {
+      const selectedLang = language.value;
+
+      // Update variant list
+      const relevantVariants = selectedLang
+        ? languageCapabilities.variants.filter(v => v.language === selectedLang)
+        : languageCapabilities.variants;
+
+      variantList.innerHTML = relevantVariants.map(v =>
+        \`<option value="\${v.name}" label="\${v.description || v.name}">\`
+      ).join('');
+
+      // Update decorator list
+      const relevantDecorators = selectedLang
+        ? languageCapabilities.decorators.filter(d => d.language === selectedLang)
+        : languageCapabilities.decorators;
+
+      decoratorList.innerHTML = relevantDecorators.map(d =>
+        \`<option value="\${d.name}" label="\${d.description || d.name}">\`
+      ).join('');
+    }
+
     function formatExplain(result) {
       const parts = [];
       parts.push(\`Relevance: \${Math.round(result.relevance * 100)}%\`);
@@ -1024,9 +1081,15 @@ export function getSearchViewHtml(
         case 'hideApiKeyBanner':
           apiKeyBanner.classList.add('hidden');
           break;
+        case 'capabilities':
+          handleCapabilities(message.capabilities);
+          break;
       }
     });
     
+    // Request language capabilities on load
+    vscode.postMessage({ type: 'getCapabilities' });
+
     // Expose function globally
     window.goToResult = goToResult;
     window.toggleResult = toggleResult;

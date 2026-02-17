@@ -307,6 +307,107 @@ export class SensegrepCore {
     vscode.window.showInformationMessage("Sensegrep: Gemini API key cleared")
   }
 
+  async getLanguageCapabilities(): Promise<{
+    languages: Array<{ id: string; name: string }>
+    variants: Array<{ name: string; language: string; description: string }>
+    decorators: Array<{ name: string; language: string; description: string }>
+  }> {
+    try {
+      const core = await loadCore()
+
+      // Check if capabilities functions are available
+      if (!core.getLanguageCapabilities) {
+        // Fallback to default capabilities
+        return {
+          languages: [
+            { id: "typescript", name: "TypeScript" },
+            { id: "javascript", name: "JavaScript" },
+            { id: "python", name: "Python" }
+          ],
+          variants: [],
+          decorators: []
+        }
+      }
+
+      const capabilities = core.getLanguageCapabilities()
+
+      // Support both old per-language capability arrays and the newer
+      // aggregated capability object exposed by @sensegrep/core.
+      if (Array.isArray(capabilities)) {
+        return {
+          languages: capabilities.map((cap: any) => ({
+            id: cap.language,
+            name: cap.language.charAt(0).toUpperCase() + cap.language.slice(1)
+          })),
+          variants: capabilities.flatMap((cap: any) =>
+            (cap.variants || []).map((v: any) => ({
+              name: v.name,
+              language: cap.language,
+              description: v.description
+            }))
+          ),
+          decorators: capabilities.flatMap((cap: any) =>
+            (cap.decorators || []).map((d: any) => ({
+              name: typeof d === "string" ? d : d.name,
+              language: cap.language,
+              description: typeof d === "string" ? `Decorator ${d}` : d.description
+            }))
+          )
+        }
+      }
+
+      const languageNames = Array.isArray(capabilities?.languageNames)
+        ? capabilities.languageNames
+        : []
+      const languages = languageNames.length > 0
+        ? languageNames.map((lang: any) => ({
+          id: lang.id,
+          name: lang.displayName || (lang.id?.charAt(0).toUpperCase() + lang.id?.slice(1))
+        }))
+        : (Array.isArray(capabilities?.languages) ? capabilities.languages : []).map((id: string) => ({
+          id,
+          name: id.charAt(0).toUpperCase() + id.slice(1)
+        }))
+
+      const variants = (Array.isArray(capabilities?.variants) ? capabilities.variants : []).flatMap((variant: any) => {
+        const langs = Array.isArray(variant.languages) && variant.languages.length > 0
+          ? variant.languages
+          : ["all"]
+        return langs.map((language: string) => ({
+          name: variant.name,
+          language,
+          description: variant.description
+        }))
+      })
+
+      const decorators = (Array.isArray(capabilities?.decorators) ? capabilities.decorators : []).map((decorator: any) => ({
+        name: typeof decorator === "string" ? decorator : decorator.name,
+        language: "all",
+        description: typeof decorator === "string"
+          ? `Decorator ${decorator}`
+          : (decorator.description || `Decorator ${decorator.name}`)
+      }))
+
+      return {
+        languages,
+        variants,
+        decorators
+      }
+    } catch (err) {
+      console.error("Failed to get language capabilities:", err)
+      // Fallback to defaults
+      return {
+        languages: [
+          { id: "typescript", name: "TypeScript" },
+          { id: "javascript", name: "JavaScript" },
+          { id: "python", name: "Python" }
+        ],
+        variants: [],
+        decorators: []
+      }
+    }
+  }
+
   async search(query: string, options?: SearchOptions): Promise<SearchResult[]> {
     await this.ensureInitialized()
 
