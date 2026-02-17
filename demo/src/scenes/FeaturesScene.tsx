@@ -6,13 +6,15 @@ import type { TranscriptStep } from "../types"
 type FeaturesSceneProps = {
   beforeStep: TranscriptStep
   afterStep: TranscriptStep
+  variant?: "short" | "full"
 }
 
-export const FeaturesScene: React.FC<FeaturesSceneProps> = ({ beforeStep, afterStep }) => {
+export const FeaturesScene: React.FC<FeaturesSceneProps> = ({ beforeStep, afterStep, variant = "full" }) => {
   const frame = useCurrentFrame()
   const { fps } = useVideoConfig()
   const titleOpacity = spring({ frame, fps, config: { damping: 20 } })
   const removedLines = Math.max(0, beforeStep.stdoutLines.length - afterStep.stdoutLines.length)
+  const diffSwitchAt = variant === "short" ? 0.55 : 1.2
 
   return (
     <AbsoluteFill
@@ -45,7 +47,7 @@ export const FeaturesScene: React.FC<FeaturesSceneProps> = ({ beforeStep, afterS
           accentColor="#22c55e"
           beforeLines={beforeStep.stdoutLines.map((text, index) => ({ text, delay: 0.2 + index * 0.08, color: "#fca5a5" }))}
           afterLines={afterStep.stdoutLines.map((text, index) => ({ text, delay: 0.2 + index * 0.08, color: "#86efac" }))}
-          diffSwitchAt={1.8}
+          diffSwitchAt={diffSwitchAt}
           leftTitle="Before: raw symbol context"
           rightTitle="After: relevant logic only"
         />
