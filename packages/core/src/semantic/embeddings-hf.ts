@@ -334,7 +334,7 @@ export namespace EmbeddingsHF {
    * Generate embeddings for text(s)
    * Returns normalized embeddings suitable for cosine similarity
    */
-  export async function embed(texts: string | string[], options?: EmbedOptions): Promise<number[][]> {
+  export async function embed(texts: string | string[], options?: EmbedOptions & { skipValidation?: boolean }): Promise<number[][]> {
     const input = Array.isArray(texts) ? texts : [texts]
     if (input.length === 0) return []
 
@@ -343,27 +343,32 @@ export namespace EmbeddingsHF {
       return embedGemini(input, options, config)
     }
 
-    // Validate text lengths before embedding
-    const validatedTexts: string[] = []
-    let truncatedCount = 0
-    for (const text of input) {
-      const validated = await validateTextLength(text, "local", config.embedModel)
-      validatedTexts.push(validated.text)
-      if (validated.truncated) truncatedCount++
-    }
+    let validatedTexts: string[]
+    if (options?.skipValidation) {
+      validatedTexts = input
+    } else {
+      // Validate text lengths before embedding
+      validatedTexts = []
+      let truncatedCount = 0
+      for (const text of input) {
+        const validated = await validateTextLength(text, "local", config.embedModel)
+        validatedTexts.push(validated.text)
+        if (validated.truncated) truncatedCount++
+      }
 
-    if (truncatedCount > 0) {
-      log.warn(`Truncated ${truncatedCount}/${input.length} texts to fit token limit`, {
-        model: config.embedModel,
-        limit: TOKEN_LIMITS.local,
-      })
+      if (truncatedCount > 0) {
+        log.warn(`Truncated ${truncatedCount}/${input.length} texts to fit token limit`, {
+          model: config.embedModel,
+          limit: TOKEN_LIMITS.local,
+        })
+      }
     }
 
     const pipe = await embeddingPipeline(config)
     const results: number[][] = []
 
     // Process in batches to avoid memory issues
-    const batchSize = 32
+    const batchSize = 64
     for (let i = 0; i < validatedTexts.length; i += batchSize) {
       const batch = validatedTexts.slice(i, i + batchSize)
       const output = await pipe(batch, {
@@ -402,7 +407,7 @@ export namespace EmbeddingsHF {
 
   async function embedGemini(
     texts: string[],
-    options: EmbedOptions | undefined,
+    options: (EmbedOptions & { skipValidation?: boolean }) | undefined,
     config: EmbeddingConfig,
   ): Promise<number[][]> {
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
@@ -417,20 +422,25 @@ export namespace EmbeddingsHF {
     const taskType = options?.taskType
     const titles = typeof options?.title === "string" ? texts.map(() => options!.title as string) : options?.title
 
-    // Validate text lengths before embedding
-    const validatedTexts: string[] = []
-    let truncatedCount = 0
-    for (const text of texts) {
-      const validated = await validateTextLength(text, "gemini", model)
-      validatedTexts.push(validated.text)
-      if (validated.truncated) truncatedCount++
-    }
+    let validatedTexts: string[]
+    if (options?.skipValidation) {
+      validatedTexts = texts
+    } else {
+      // Validate text lengths before embedding
+      validatedTexts = []
+      let truncatedCount = 0
+      for (const text of texts) {
+        const validated = await validateTextLength(text, "gemini", model)
+        validatedTexts.push(validated.text)
+        if (validated.truncated) truncatedCount++
+      }
 
-    if (truncatedCount > 0) {
-      log.warn(`Truncated ${truncatedCount}/${texts.length} texts to fit token limit`, {
-        model,
-        limit: TOKEN_LIMITS.gemini,
-      })
+      if (truncatedCount > 0) {
+        log.warn(`Truncated ${truncatedCount}/${texts.length} texts to fit token limit`, {
+          model,
+          limit: TOKEN_LIMITS.gemini,
+        })
+      }
     }
 
     // Gemini "batchEmbedContents" accepts max 100 documents.

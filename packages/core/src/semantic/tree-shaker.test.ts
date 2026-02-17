@@ -2,7 +2,7 @@
  * Tests for Semantic Tree-Shaker
  */
 
-import { describe, it, expect } from "bun:test"
+import { describe, it, expect } from "vitest"
 import { TreeShaker } from "./tree-shaker.js"
 import path from "path"
 import { writeFile, mkdir, rm } from "node:fs/promises"
@@ -107,10 +107,14 @@ describe("TreeShaker", () => {
       expect(TreeShaker.isSupported("file.jsx")).toBe(true)
     })
 
-    it("should not support other files", () => {
-      expect(TreeShaker.isSupported("file.py")).toBe(false)
+    it("should not support unsupported file types", () => {
       expect(TreeShaker.isSupported("file.md")).toBe(false)
       expect(TreeShaker.isSupported("file.json")).toBe(false)
+      expect(TreeShaker.isSupported("file.css")).toBe(false)
+    })
+
+    it("should support Python files", () => {
+      expect(TreeShaker.isSupported("file.py")).toBe(true)
     })
   })
 

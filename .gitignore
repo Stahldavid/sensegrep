@@ -28,3 +28,11 @@ package-lock.json
 
 # Local session notes
 session-*.md
+
+# Benchmarks (large external repos)
+bench/
+
+# Temporary files
+temp_audio.*
+
+demo/

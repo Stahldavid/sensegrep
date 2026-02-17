@@ -80,7 +80,7 @@ export namespace Indexer {
   // Max file size to index (500KB)
   const MAX_FILE_SIZE = 500 * 1024
   // Batch documents to reduce embedding overhead during full indexing
-  const ADD_BATCH_SIZE = 64
+  const ADD_BATCH_SIZE = 256
 
   // Events for progress reporting
   export const Event = {
@@ -206,6 +206,37 @@ export namespace Indexer {
     }))
   }
 
+  // Concurrency limit for parallel file preparation
+  const FILE_CONCURRENCY = 8
+
+  /**
+   * Run async tasks with bounded concurrency
+   */
+  async function mapConcurrent<T, R>(
+    items: T[],
+    concurrency: number,
+    fn: (item: T, index: number) => Promise<R>,
+  ): Promise<R[]> {
+    const results: R[] = new Array(items.length)
+    let next = 0
+    async function worker() {
+      while (next < items.length) {
+        const i = next++
+        results[i] = await fn(items[i], i)
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()))
+    return results
+  }
+
+  type PreparedFile = {
+    file: string
+    stat: { size: number; mtimeMs: number }
+    hash: string
+    collapsibleRegions: TreeShaker.CollapsibleRegion[]
+    documents: Document[]
+  }
+
   /**
    * Full index of the project
    */
@@ -233,79 +264,81 @@ export namespace Indexer {
     await VectorStore.deleteCollection(Instance.directory).catch(() => {})
     const freshCollection = await VectorStore.getCollection(Instance.directory)
 
+    // --- Pass 1: Parallel file preparation (I/O + parsing + chunking) ---
+    let progressCounter = 0
+    const prepared = await mapConcurrent(files, FILE_CONCURRENCY, async (file) => {
+      const idx = ++progressCounter
+      Bus.publish(Event.Progress, {
+        phase: "indexing",
+        current: idx,
+        total: files.length,
+        file,
+      })
+
+      try {
+        const fullPath = path.join(Instance.directory, file)
+        const stat = await fs.stat(fullPath).catch(() => null)
+        if (!stat) return null
+        if (stat.size > MAX_FILE_SIZE) {
+          log.info("skipping large file", { filePath: file, size: stat.size })
+          return null
+        }
+
+        const content = await fs.readFile(fullPath, "utf8").catch(() => "")
+        if (!content.trim()) return null
+
+        // Run tree-shaker regions and chunking concurrently per file
+        const [collapsibleRegions, documents] = await Promise.all([
+          TreeShaker.extractRegions(file, content),
+          buildDocuments({ filePath: file, content }),
+        ])
+
+        if (documents.length === 0) return null
+
+        return {
+          file,
+          stat: { size: stat.size, mtimeMs: stat.mtimeMs },
+          hash: hashContent(content),
+          collapsibleRegions,
+          documents,
+        } as PreparedFile
+      } catch (err) {
+        log.warn("failed to prepare file", { file, error: err instanceof Error ? err.message : String(err) })
+        return null
+      }
+    })
+
+    // --- Pass 2: Collect results and batch embed ---
     let indexed = 0
     let totalChunks = 0
     const fileStats: Record<string, FileStat> = {}
-
-    let batch: {
+    const allDocs: {
       id: string
       content: string
       contentRaw: string
       metadata: Record<string, string | number | boolean | null>
     }[] = []
 
-    const flush = async () => {
-      if (batch.length === 0) return
-      await VectorStore.addDocuments(freshCollection, batch)
-      batch = []
-    }
-
-    // Index each file
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i]
-
-      Bus.publish(Event.Progress, {
-        phase: "indexing",
-        current: i + 1,
-        total: files.length,
-        file,
-      })
-
-      const fullPath = path.join(Instance.directory, file)
-      const stat = await fs.stat(fullPath).catch(() => null)
-      if (!stat) continue
-      const size = stat.size
-      if (size > MAX_FILE_SIZE) {
-        log.info("skipping large file", { filePath: file, size })
-        continue
-      }
-
-      const content = await fs.readFile(fullPath, "utf8").catch(() => "")
-      if (!content.trim()) continue
-
-      // Extract collapsible regions for tree-shaking (done during indexing to avoid re-parsing)
-      const collapsibleRegions = await TreeShaker.extractRegions(file, content)
-
-      const documents = await buildDocuments({ filePath: file, content })
-      if (documents.length === 0) continue
-
-      if (stat) {
-        fileStats[file] = {
-          size: stat.size,
-          mtimeMs: stat.mtimeMs,
-          hash: hashContent(content),
-          chunks: documents.map((d) => d.hash),
-          collapsibleRegions,
-        }
-      }
-
+    for (const item of prepared) {
+      if (!item) continue
       indexed++
-      totalChunks += documents.length
-      batch.push(
-        ...documents.map(({ id, content: docContent, contentRaw, metadata }) => ({
-          id,
-          content: docContent,
-          contentRaw,
-          metadata,
-        })),
-      )
-
-      if (batch.length >= ADD_BATCH_SIZE) {
-        await flush()
+      totalChunks += item.documents.length
+      fileStats[item.file] = {
+        size: item.stat.size,
+        mtimeMs: item.stat.mtimeMs,
+        hash: item.hash,
+        chunks: item.documents.map((d) => d.hash),
+        collapsibleRegions: item.collapsibleRegions,
+      }
+      for (const doc of item.documents) {
+        allDocs.push({ id: doc.id, content: doc.content, contentRaw: doc.contentRaw, metadata: doc.metadata })
       }
     }
 
-    await flush()
+    // Flush in large batches for maximum embedding throughput
+    for (let i = 0; i < allDocs.length; i += ADD_BATCH_SIZE) {
+      await VectorStore.addDocuments(freshCollection, allDocs.slice(i, i + ADD_BATCH_SIZE))
+    }
 
     const config = Embeddings.getConfig()
     await VectorStore.writeIndexMeta(Instance.directory, {
@@ -383,101 +416,143 @@ export namespace Indexer {
     const remaining = new Set(Object.keys(previous))
     let removed = 0
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i]
-      const fullPath = path.join(Instance.directory, file)
-      const stat = await fs.stat(fullPath).catch(() => null)
-      if (!stat) continue
-      if (stat.size > MAX_FILE_SIZE) {
-        // Leave in remaining so any previous index entries get removed
-        continue
-      }
+    // Actions to batch after parallel preparation
+    type FileAction =
+      | { action: "skip"; file: string; stats: FileStat }
+      | { action: "delete"; file: string }
+      | { action: "partial_update"; file: string; stats: FileStat; changedDocs: Document[] }
+      | { action: "full_reindex"; file: string; stats: FileStat; documents: Document[] }
 
-      const current: FileStat = { size: stat.size, mtimeMs: stat.mtimeMs }
-      const prev = previous[file]
-      if (prev && prev.size === current.size && prev.mtimeMs === current.mtimeMs) {
-        skipped++
-        newStats[file] = prev
-        remaining.delete(file)
-        continue
-      }
+    // --- Phase 1: Parallel file preparation (stat, read, hash, chunk) ---
+    const actions = await mapConcurrent(files, FILE_CONCURRENCY, async (file): Promise<FileAction | null> => {
+      try {
+        const fullPath = path.join(Instance.directory, file)
+        const stat = await fs.stat(fullPath).catch(() => null)
+        if (!stat) return null
+        if (stat.size > MAX_FILE_SIZE) return null // Leave in remaining for removal
 
-      const content = await fs.readFile(fullPath, "utf8").catch(() => "")
-      if (!content.trim()) {
-        await VectorStore.deleteByFile(collection, file)
-        remaining.delete(file)
-        removed++
-        continue
-      }
-      const hash = hashContent(content)
-      if (prev && prev.hash && prev.hash === hash) {
-        skipped++
-        // Keep existing collapsible regions when file hasn't changed
-        newStats[file] = { ...current, hash, chunks: prev.chunks, collapsibleRegions: prev.collapsibleRegions }
-        remaining.delete(file)
-        continue
-      }
+        const current: FileStat = { size: stat.size, mtimeMs: stat.mtimeMs }
+        const prev = previous[file]
 
-      // Extract collapsible regions for tree-shaking
-      const collapsibleRegions = await TreeShaker.extractRegions(file, content)
-
-      const documents = await buildDocuments({ filePath: file, content })
-      if (documents.length === 0) {
-        await VectorStore.deleteByFile(collection, file)
-        remaining.delete(file)
-        removed++
-        continue
-      }
-
-      const chunkHashes = documents.map((d) => d.hash)
-      if (prev?.chunks && prev.chunks.length === chunkHashes.length) {
-        const changedIndexes: number[] = []
-        for (let i = 0; i < chunkHashes.length; i++) {
-          if (chunkHashes[i] !== prev.chunks[i]) changedIndexes.push(i)
+        // Fast path: unchanged by size + mtime
+        if (prev && prev.size === current.size && prev.mtimeMs === current.mtimeMs) {
+          return { action: "skip", file, stats: prev }
         }
 
-        if (changedIndexes.length === 0) {
+        const content = await fs.readFile(fullPath, "utf8").catch(() => "")
+        if (!content.trim()) {
+          return { action: "delete", file }
+        }
+
+        const hash = hashContent(content)
+
+        // Unchanged by content hash
+        if (prev && prev.hash && prev.hash === hash) {
+          return { action: "skip", file, stats: { ...current, hash, chunks: prev.chunks, collapsibleRegions: prev.collapsibleRegions } }
+        }
+
+        // File changed - chunk and prepare documents
+        const [collapsibleRegions, documents] = await Promise.all([
+          TreeShaker.extractRegions(file, content),
+          buildDocuments({ filePath: file, content }),
+        ])
+
+        if (documents.length === 0) {
+          return { action: "delete", file }
+        }
+
+        const chunkHashes = documents.map((d) => d.hash)
+
+        // Check for partial update (same chunk count, some changed)
+        if (prev?.chunks && prev.chunks.length === chunkHashes.length) {
+          const changedIndexes: number[] = []
+          for (let j = 0; j < chunkHashes.length; j++) {
+            if (chunkHashes[j] !== prev.chunks[j]) changedIndexes.push(j)
+          }
+
+          if (changedIndexes.length === 0) {
+            return { action: "skip", file, stats: { ...current, hash, chunks: chunkHashes, collapsibleRegions: prev.collapsibleRegions } }
+          }
+
+          const changedDocs = changedIndexes.map((j) => documents[j]).filter(Boolean)
+          return { action: "partial_update", file, stats: { ...current, hash, chunks: chunkHashes, collapsibleRegions }, changedDocs }
+        }
+
+        // Full reindex for this file
+        return { action: "full_reindex", file, stats: { ...current, hash, chunks: chunkHashes, collapsibleRegions }, documents }
+      } catch (err) {
+        log.warn("failed to prepare file for incremental index", { file, error: err instanceof Error ? err.message : String(err) })
+        return null
+      }
+    })
+
+    // --- Phase 2: Process actions sequentially (vector store operations) ---
+    // Collect docs to batch embed
+    const docsToUpdate: { id: string; content: string; contentRaw: string; metadata: Record<string, string | number | boolean | null> }[] = []
+    const filesToDeleteFirst: string[] = []
+    const docsToAdd: { id: string; content: string; contentRaw: string; metadata: Record<string, string | number | boolean | null> }[] = []
+
+    for (const act of actions) {
+      if (!act) continue
+
+      remaining.delete(act.file)
+
+      switch (act.action) {
+        case "skip":
           skipped++
-          // Keep existing collapsible regions when chunks haven't changed
-          newStats[file] = { ...current, hash, chunks: chunkHashes, collapsibleRegions: prev.collapsibleRegions }
-          remaining.delete(file)
-          continue
-        }
+          newStats[act.file] = act.stats
+          break
 
-        const changedDocs = changedIndexes.map((i) => documents[i]).filter(Boolean)
-        await VectorStore.updateDocuments(
-          collection,
-          changedDocs.map(({ id, content: docContent, contentRaw, metadata }) => ({
-            id,
-            content: docContent,
-            contentRaw,
-            metadata,
-          })),
-        )
-        indexed++
-        totalChunks += changedDocs.length
-        newStats[file] = { ...current, hash, chunks: chunkHashes, collapsibleRegions }
-        remaining.delete(file)
-        continue
+        case "delete":
+          await VectorStore.deleteByFile(collection, act.file)
+          removed++
+          break
+
+        case "partial_update":
+          docsToUpdate.push(
+            ...act.changedDocs.map(({ id, content: docContent, contentRaw, metadata }) => ({
+              id, content: docContent, contentRaw, metadata,
+            })),
+          )
+          indexed++
+          totalChunks += act.changedDocs.length
+          newStats[act.file] = act.stats
+          break
+
+        case "full_reindex":
+          filesToDeleteFirst.push(act.file)
+          docsToAdd.push(
+            ...act.documents.map(({ id, content: docContent, contentRaw, metadata }) => ({
+              id, content: docContent, contentRaw, metadata,
+            })),
+          )
+          indexed++
+          totalChunks += act.documents.length
+          newStats[act.file] = act.stats
+          break
       }
-
-      // Fallback: reindex full file
-      await VectorStore.deleteByFile(collection, file)
-      await VectorStore.addDocuments(
-        collection,
-        documents.map(({ id, content: docContent, contentRaw, metadata }) => ({
-          id,
-          content: docContent,
-          contentRaw,
-          metadata,
-        })),
-      )
-      indexed++
-      totalChunks += documents.length
-      newStats[file] = { ...current, hash, chunks: chunkHashes, collapsibleRegions }
-      remaining.delete(file)
     }
 
+    // Batch delete files that need full reindex
+    for (const file of filesToDeleteFirst) {
+      await VectorStore.deleteByFile(collection, file)
+    }
+
+    // Batch update changed chunks
+    if (docsToUpdate.length > 0) {
+      for (let i = 0; i < docsToUpdate.length; i += ADD_BATCH_SIZE) {
+        await VectorStore.updateDocuments(collection, docsToUpdate.slice(i, i + ADD_BATCH_SIZE))
+      }
+    }
+
+    // Batch add new/fully-reindexed documents
+    if (docsToAdd.length > 0) {
+      for (let i = 0; i < docsToAdd.length; i += ADD_BATCH_SIZE) {
+        await VectorStore.addDocuments(collection, docsToAdd.slice(i, i + ADD_BATCH_SIZE))
+      }
+    }
+
+    // Remove files that no longer exist
     if (remaining.size > 0) {
       for (const file of remaining) {
         await VectorStore.deleteByFile(collection, file)
