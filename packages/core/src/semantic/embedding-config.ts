@@ -2,7 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { Global } from "../global/index.js"
 
-type EmbeddingProvider = "local" | "gemini"
+type EmbeddingProvider = "local" | "gemini" | "openai"
 export type DeviceType = "cpu" | "cuda" | "webgpu" | "wasm"
 
 export type EmbeddingConfig = {
@@ -11,6 +11,7 @@ export type EmbeddingConfig = {
   embedDim: number
   rerankModel: string
   device?: DeviceType
+  baseUrl?: string
 }
 
 export type EmbeddingOverrides = Partial<EmbeddingConfig>
@@ -20,6 +21,9 @@ const DEFAULTS = {
   localDim: 384,
   geminiModel: "gemini-embedding-001",
   geminiDim: 768,
+  openaiModel: "fireworks/qwen3-embedding-8b",
+  openaiDim: 768,
+  openaiBaseUrl: "https://api.fireworks.ai/inference/v1",
   rerankModel: "Xenova/ms-marco-MiniLM-L-6-v2",
 } as const
 
@@ -54,8 +58,10 @@ function loadFileConfig(): Partial<EmbeddingConfig> {
 function readProvider(): EmbeddingProvider {
   const envProvider = (process.env.SENSEGREP_PROVIDER || process.env.OPENCODE_SEMANTIC_EMBEDDINGS || "").toLowerCase()
   if (envProvider === "gemini") return "gemini"
+  if (envProvider === "openai") return "openai"
   if (envProvider === "local") return "local"
 
+  if (process.env.SENSEGREP_OPENAI_API_KEY || process.env.FIREWORKS_API_KEY) return "openai"
   if (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) return "gemini"
   return "local"
 }
@@ -84,7 +90,9 @@ export function getEmbeddingConfig(overrides?: EmbeddingOverrides): EmbeddingCon
     (fileConfig.embedModel as string | undefined) ||
     (provider === "gemini"
       ? process.env.OPENCODE_GEMINI_EMBED_MODEL || DEFAULTS.geminiModel
-      : DEFAULTS.localModel)
+      : provider === "openai"
+        ? DEFAULTS.openaiModel
+        : DEFAULTS.localModel)
 
   const embedDim =
     mergedOverrides.embedDim ??
@@ -92,7 +100,9 @@ export function getEmbeddingConfig(overrides?: EmbeddingOverrides): EmbeddingCon
     parseNumber(fileConfig.embedDim) ??
     (provider === "gemini"
       ? parseNumber(process.env.OPENCODE_GEMINI_EMBED_DIM) ?? DEFAULTS.geminiDim
-      : DEFAULTS.localDim)
+      : provider === "openai"
+        ? DEFAULTS.openaiDim
+        : DEFAULTS.localDim)
 
   const rerankModel =
     mergedOverrides.rerankModel ||
@@ -106,12 +116,19 @@ export function getEmbeddingConfig(overrides?: EmbeddingOverrides): EmbeddingCon
     (process.env.OPENCODE_EMBEDDINGS_DEVICE as DeviceType | undefined) ||
     (fileConfig.device as DeviceType | undefined)
 
+  const baseUrl =
+    mergedOverrides.baseUrl ||
+    process.env.SENSEGREP_OPENAI_BASE_URL ||
+    (fileConfig as any).baseUrl ||
+    (provider === "openai" ? DEFAULTS.openaiBaseUrl : undefined)
+
   const merged: EmbeddingConfig = {
     provider,
     embedModel,
     embedDim,
     rerankModel,
     ...(device ? { device } : {}),
+    ...(baseUrl ? { baseUrl } : {}),
   }
 
   return merged

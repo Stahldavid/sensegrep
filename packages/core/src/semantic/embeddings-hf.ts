@@ -33,6 +33,7 @@ interface ClassificationResult {
 const TOKEN_LIMITS = {
   local: 512, // BAAI/bge-small-en-v1.5 max sequence length
   gemini: 2048, // gemini-embedding-001 max tokens
+  openai: 8192, // Conservative default for OpenAI-compatible APIs (qwen3-embedding-8b supports 40K)
 } as const
 
 // Cache for tokenizers
@@ -107,12 +108,16 @@ async function countTokensGemini(text: string, modelName: string): Promise<numbe
  */
 async function validateTextLength(
   text: string,
-  provider: "local" | "gemini",
+  provider: "local" | "gemini" | "openai",
   modelName: string,
 ): Promise<{ text: string; tokenCount: number; truncated: boolean }> {
-  const limit = provider === "local" ? TOKEN_LIMITS.local : TOKEN_LIMITS.gemini
+  const limit = provider === "local" ? TOKEN_LIMITS.local : provider === "gemini" ? TOKEN_LIMITS.gemini : TOKEN_LIMITS.openai
   const tokenCount =
-    provider === "local" ? await countTokensLocal(text, modelName) : await countTokensGemini(text, modelName)
+    provider === "local"
+      ? await countTokensLocal(text, modelName)
+      : provider === "gemini"
+        ? await countTokensGemini(text, modelName)
+        : Math.ceil(text.length / 4) // Character estimate for OpenAI-compatible APIs
 
   if (tokenCount <= limit) {
     return { text, tokenCount, truncated: false }
@@ -342,6 +347,9 @@ export namespace EmbeddingsHF {
     if (embeddingProvider(config) === "gemini") {
       return embedGemini(input, options, config)
     }
+    if (embeddingProvider(config) === "openai") {
+      return embedOpenAI(input, options, config)
+    }
 
     let validatedTexts: string[]
     if (options?.skipValidation) {
@@ -514,6 +522,102 @@ export namespace EmbeddingsHF {
     return allVectors
   }
 
+  async function embedOpenAI(
+    texts: string[],
+    options: (EmbedOptions & { skipValidation?: boolean }) | undefined,
+    config: EmbeddingConfig,
+  ): Promise<number[][]> {
+    const apiKey =
+      process.env.SENSEGREP_OPENAI_API_KEY ||
+      process.env.FIREWORKS_API_KEY ||
+      process.env.OPENAI_API_KEY
+    if (!apiKey) {
+      throw new Error(
+        "OpenAI-compatible embeddings requested but no API key found. " +
+          "Set SENSEGREP_OPENAI_API_KEY, FIREWORKS_API_KEY, or OPENAI_API_KEY.",
+      )
+    }
+
+    const model = config.embedModel
+    const baseUrl = config.baseUrl || "https://api.fireworks.ai/inference/v1"
+    const outputDimensionality = Number(config.embedDim || options?.outputDimensionality || 768)
+
+    let validatedTexts: string[]
+    if (options?.skipValidation) {
+      validatedTexts = texts
+    } else {
+      validatedTexts = []
+      let truncatedCount = 0
+      for (const text of texts) {
+        const validated = await validateTextLength(text, "openai", model)
+        validatedTexts.push(validated.text)
+        if (validated.truncated) truncatedCount++
+      }
+
+      if (truncatedCount > 0) {
+        log.warn(`Truncated ${truncatedCount}/${texts.length} texts to fit token limit`, {
+          model,
+          limit: TOKEN_LIMITS.openai,
+        })
+      }
+    }
+
+    const BATCH_SIZE = 64
+    const allVectors: number[][] = []
+
+    for (let i = 0; i < validatedTexts.length; i += BATCH_SIZE) {
+      const batch = validatedTexts.slice(i, i + BATCH_SIZE)
+
+      const url = `${baseUrl.replace(/\/+$/, "")}/embeddings`
+
+      const body: Record<string, unknown> = {
+        model,
+        input: batch,
+      }
+      if (
+        typeof outputDimensionality === "number" &&
+        Number.isFinite(outputDimensionality) &&
+        outputDimensionality > 0
+      ) {
+        body.dimensions = outputDimensionality
+      }
+
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      })
+
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => "")
+        throw new Error(`OpenAI-compatible embeddings request failed (${resp.status}): ${text || resp.statusText}`)
+      }
+
+      const data = (await resp.json().catch(() => ({}))) as any
+      const embeddings: any[] = Array.isArray(data.data) ? data.data : []
+
+      // Sort by index to ensure correct ordering
+      embeddings.sort((a: any, b: any) => (a.index ?? 0) - (b.index ?? 0))
+
+      const vectors = embeddings.map((e) => {
+        const values = e?.embedding
+        if (!Array.isArray(values)) return []
+        return normalize(values.map((v: any) => Number(v)))
+      })
+
+      allVectors.push(...vectors)
+    }
+
+    if (allVectors.length !== texts.length) {
+      log.warn("OpenAI-compatible embeddings count mismatch", { expected: texts.length, got: allVectors.length })
+    }
+
+    return allVectors
+  }
+
   function normalize(vec: number[]): number[] {
     let sum = 0
     for (const v of vec) sum += v * v
@@ -571,7 +675,7 @@ export namespace EmbeddingsHF {
     log.info("preloading models (HuggingFace transformers v3)")
     await Promise.all([
       embeddingProvider(config) === "local" ? embeddingPipeline(config) : Promise.resolve(),
-      rerankerPipeline(config),
+      embeddingProvider(config) !== "openai" ? rerankerPipeline(config) : Promise.resolve(),
     ])
     log.info("models preloaded")
   }
