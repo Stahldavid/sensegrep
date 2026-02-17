@@ -1,0 +1,6 @@
+# Default owner for all files
+* @Stahldavid
+
+# Docs and workflows
+/docs/ @Stahldavid
+/.github/ @Stahldavid

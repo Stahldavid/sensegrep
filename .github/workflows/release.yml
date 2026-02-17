@@ -25,6 +25,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Typecheck
+        run: npm run check
+
       - name: Test
         run: npm test
 
@@ -42,6 +45,11 @@ jobs:
         run: npm publish --workspace packages/mcp --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish VS Code extension
+        run: npm run publish --workspace packages/vscode
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

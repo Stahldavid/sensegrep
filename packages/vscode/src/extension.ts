@@ -22,13 +22,14 @@ export async function activate(context: vscode.ExtensionContext) {
   }
 
   core = new SensegrepCore(context, workspaceRoot)
+  const coreInstance = core
 
   // Initialize providers
   const resultsProvider = new ResultsTreeProvider()
-  const duplicateDiagnostics = new DuplicateDiagnosticsManager(core)
+  const duplicateDiagnostics = new DuplicateDiagnosticsManager(coreInstance)
   const duplicatesViewProvider = new DuplicatesViewProvider(
     context.extensionUri,
-    core,
+    coreInstance,
     duplicateDiagnostics
   )
   const historyProvider = new HistoryTreeProvider(context)
@@ -50,11 +51,11 @@ export async function activate(context: vscode.ExtensionContext) {
   })
 
   // Register search webview
-  const searchViewProvider = new SearchViewProvider(context.extensionUri, core, resultsProvider, historyProvider)
+  const searchViewProvider = new SearchViewProvider(context.extensionUri, coreInstance, resultsProvider, historyProvider)
   const searchView = vscode.window.registerWebviewViewProvider("sensegrep.search", searchViewProvider)
 
   // Register CodeLens provider
-  const codeLensProvider = new SensegrepCodeLensProvider(core)
+  const codeLensProvider = new SensegrepCodeLensProvider(coreInstance)
   const codeLens = vscode.languages.registerCodeLensProvider(
     [
       { language: "typescript", scheme: "file" },
@@ -68,7 +69,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // Register commands
   const commands = registerCommands(
     context,
-    core,
+    coreInstance,
     resultsProvider,
     searchViewProvider,
     duplicatesViewProvider,
@@ -84,7 +85,7 @@ export async function activate(context: vscode.ExtensionContext) {
   statusBar.updateFoldingState(config.get<boolean>("semanticFolding") ?? true)
   if (config.get("autoIndex")) {
     statusBar.setIndexing()
-    core
+    coreInstance
       .indexProject(false)
       .then((result) => {
         statusBar.setIndexed(result.chunks)
@@ -100,14 +101,14 @@ export async function activate(context: vscode.ExtensionContext) {
 
   const updateWatcher = async (enabled: boolean) => {
     if (!enabled) {
-      await core.stopIndexWatcher()
+      await coreInstance.stopIndexWatcher()
       return
     }
     try {
       const interval =
         vscode.workspace.getConfiguration("sensegrep").get<number>("watchIntervalMs") ||
         60000
-      await core.startIndexWatcher({
+      await coreInstance.startIndexWatcher({
         intervalMs: interval,
         onIndex: (result) => {
           statusBar.setIndexed(result.chunks)
@@ -161,7 +162,7 @@ export async function activate(context: vscode.ExtensionContext) {
       }
 
       if (event.affectsConfiguration("sensegrep.logLevel")) {
-        void core.reloadSettings()
+        void coreInstance.reloadSettings()
       }
 
       if (

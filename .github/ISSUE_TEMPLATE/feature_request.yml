@@ -1,0 +1,30 @@
+name: Feature request
+description: Propose an enhancement for sensegrep.
+title: "[feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What user problem are you trying to solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe your suggested API/behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you considered.
+  - type: textarea
+    id: success
+    attributes:
+      label: Success criteria
+      description: How should we evaluate this feature?

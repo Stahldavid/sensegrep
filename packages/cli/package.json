@@ -6,10 +6,13 @@
     "sensegrep": "dist/main.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
     "prepublishOnly": "node ../../build.js",
     "postbuild": "node -e \"const fs = require('fs'); const p='dist/main.js'; const s='#!/usr/bin/env node\\n'; const c=fs.readFileSync(p,'utf8'); if (c.startsWith('#!')) { fs.writeFileSync(p, s + c.split(/\\r?\\n/).slice(1).join('\\n')); } else { fs.writeFileSync(p, s + c); }\""
   },

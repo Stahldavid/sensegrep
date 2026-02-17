@@ -11,10 +11,13 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json && node -e \"const fs = require('fs'); fs.mkdirSync('dist/tool', { recursive: true }); fs.copyFileSync('src/tool/sensegrep.txt', 'dist/tool/sensegrep.txt');\"",
+    "check": "tsc -p tsconfig.json --noEmit",
     "prepublishOnly": "npm run build"
   },
   "engines": {

@@ -7,7 +7,11 @@
   
   "repository": {
     "type": "git",
-    "url": "https://github.com/sensegrep/sensegrep"
+    "url": "https://github.com/Stahldavid/sensegrep.git"
+  },
+  "homepage": "https://github.com/Stahldavid/sensegrep",
+  "bugs": {
+    "url": "https://github.com/Stahldavid/sensegrep/issues"
   },
   "engines": {
     "vscode": "^1.85.0"
@@ -457,6 +461,7 @@
     "dev": "node build.js --watch",
     "package": "vsce package --no-dependencies",
     "publish": "vsce publish --no-dependencies",
+    "check": "npm run lint",
     "lint": "tsc --noEmit",
     "test": "echo \"No tests yet\""
   },

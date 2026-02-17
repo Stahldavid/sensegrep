@@ -66,7 +66,7 @@ export interface SearchOptions {
   limit?: number
   include?: string
   exclude?: string
-  symbolType?: string
+  symbolType?: "function" | "class" | "method" | "type" | "variable" | "enum" | "module"
   symbol?: string
   minScore?: number
   language?: string
@@ -154,8 +154,9 @@ export interface IndexStats {
   lastIndexed?: string
   embeddings?: {
     provider: string
-    model: string
+    model?: string
     dimension: number
+    device?: string
   }
 }
 
@@ -185,6 +186,15 @@ export interface IndexVerification {
     device?: string
   }
   updatedAt?: number
+}
+
+export interface CollapsibleRegion {
+  type: "method" | "function" | "constructor" | "arrow_function"
+  name: string
+  startLine: number
+  endLine: number
+  signatureEndLine: number
+  indentation: string
 }
 
 export class SensegrepCore {
@@ -511,12 +521,17 @@ export class SensegrepCore {
       fn: () => (full ? Indexer.indexProject() : Indexer.indexProjectIncremental()),
     })
 
+    const deltaFields = result as {
+      skipped?: number
+      removed?: number
+    }
+
     return {
       mode: full ? "full" : "incremental",
       files: result.files ?? 0,
       chunks: result.chunks ?? 0,
-      skipped: result.skipped,
-      removed: result.removed,
+      skipped: deltaFields.skipped,
+      removed: deltaFields.removed,
       duration: result.duration ?? 0,
     }
   }
@@ -583,7 +598,7 @@ export class SensegrepCore {
   async getCollapsibleRegions(
     filePath: string,
     options?: { fallbackToParse?: boolean }
-  ) {
+  ): Promise<CollapsibleRegion[] | null> {
     await this.ensureInitialized()
     const { VectorStore } = await loadCore()
     const rootDir = this.resolveRootDir()

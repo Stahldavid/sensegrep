@@ -35,6 +35,7 @@ export {
   getAvailableDecorators,
   validateVariant,
   validateDecorator,
+  validateSymbolType,
 } from "./capabilities.js"
 
 // Autodetection

@@ -111,55 +111,77 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
     if (!query.trim()) return
 
     try {
+      const parseSymbolType = (
+        symbolType?: string
+      ): SearchOptions["symbolType"] => {
+        switch (symbolType) {
+          case "function":
+          case "class":
+          case "method":
+          case "type":
+          case "variable":
+          case "enum":
+          case "module":
+            return symbolType
+          default:
+            return undefined
+        }
+      }
+
+      const normalizedFilters: SearchOptions = {
+        ...filters,
+        symbolType: parseSymbolType(filters.symbolType),
+      }
+
       const results = await this.core.search(query, {
-        symbolType: filters.symbolType,
-        symbol: filters.symbol,
-        language: filters.language,
-        parentScope: filters.parentScope,
-        imports: filters.imports,
-        include: filters.include,
-        exclude: filters.exclude,
-        pattern: filters.pattern,
-        limit: filters.limit,
-        minScore: filters.minScore,
-        maxPerFile: filters.maxPerFile,
-        maxPerSymbol: filters.maxPerSymbol,
-        isExported: filters.isExported,
-        hasDocumentation: filters.hasDocumentation,
-        minComplexity: filters.minComplexity,
-        maxComplexity: filters.maxComplexity,
-        rerank: filters.rerank,
-        shakeOutput: filters.shakeOutput,
+        symbolType: normalizedFilters.symbolType,
+        symbol: normalizedFilters.symbol,
+        language: normalizedFilters.language,
+        parentScope: normalizedFilters.parentScope,
+        imports: normalizedFilters.imports,
+        include: normalizedFilters.include,
+        exclude: normalizedFilters.exclude,
+        pattern: normalizedFilters.pattern,
+        limit: normalizedFilters.limit,
+        minScore: normalizedFilters.minScore,
+        maxPerFile: normalizedFilters.maxPerFile,
+        maxPerSymbol: normalizedFilters.maxPerSymbol,
+        isExported: normalizedFilters.isExported,
+        hasDocumentation: normalizedFilters.hasDocumentation,
+        minComplexity: normalizedFilters.minComplexity,
+        maxComplexity: normalizedFilters.maxComplexity,
+        rerank: normalizedFilters.rerank,
+        shakeOutput: normalizedFilters.shakeOutput,
         // Multilingual support fields
-        variant: filters.variant,
-        decorator: filters.decorator,
-        isAsync: filters.isAsync,
-        isStatic: filters.isStatic,
-        isAbstract: filters.isAbstract,
+        variant: normalizedFilters.variant,
+        decorator: normalizedFilters.decorator,
+        isAsync: normalizedFilters.isAsync,
+        isStatic: normalizedFilters.isStatic,
+        isAbstract: normalizedFilters.isAbstract,
       })
 
       this.resultsProvider.setResults(results, query)
       this.historyProvider.addSearch(query, {
-        symbolType: filters.symbolType,
-        symbol: filters.symbol,
-        language: filters.language,
-        parentScope: filters.parentScope,
-        imports: filters.imports,
-        include: filters.include,
-        exclude: filters.exclude,
-        pattern: filters.pattern,
-        limit: filters.limit,
-        minScore: filters.minScore,
-        maxPerFile: filters.maxPerFile,
-        maxPerSymbol: filters.maxPerSymbol,
-        isExported: filters.isExported,
-        hasDocumentation: filters.hasDocumentation,
-        minComplexity: filters.minComplexity,
-        maxComplexity: filters.maxComplexity,
-        rerank: filters.rerank,
-        shakeOutput: filters.shakeOutput,
+        symbolType: normalizedFilters.symbolType,
+        symbol: normalizedFilters.symbol,
+        language: normalizedFilters.language,
+        parentScope: normalizedFilters.parentScope,
+        imports: normalizedFilters.imports,
+        include: normalizedFilters.include,
+        exclude: normalizedFilters.exclude,
+        pattern: normalizedFilters.pattern,
+        limit: normalizedFilters.limit,
+        minScore: normalizedFilters.minScore,
+        maxPerFile: normalizedFilters.maxPerFile,
+        maxPerSymbol: normalizedFilters.maxPerSymbol,
+        isExported: normalizedFilters.isExported,
+        hasDocumentation: normalizedFilters.hasDocumentation,
+        minComplexity: normalizedFilters.minComplexity,
+        maxComplexity: normalizedFilters.maxComplexity,
+        rerank: normalizedFilters.rerank,
+        shakeOutput: normalizedFilters.shakeOutput,
       })
-      await this.applyResults(query, filters, results)
+      await this.applyResults(query, normalizedFilters, results)
     } catch (err) {
       if (
         allowRetry &&

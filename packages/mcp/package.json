@@ -8,10 +8,13 @@
   },
   "types": "./dist/server.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
     "prepublishOnly": "node ../../build.js"
   },
   "engines": {
