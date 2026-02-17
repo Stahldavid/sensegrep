@@ -17,9 +17,6 @@ dist/
 # MCP local configuration (contains absolute paths)
 .mcp.json
 
-# npm lockfile
-package-lock.json
-
 # VS Code extension packages
 *.vsix
 
@@ -38,3 +35,4 @@ temp_audio.*
 # Demo generated artifacts
 demo/out/
 demo/node_modules/
+demo/package-lock.json
