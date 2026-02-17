@@ -2,6 +2,8 @@
 
 sensegrep provides an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that exposes semantic search as tools for AI coding assistants.
 
+For practical, end-to-end workflows, see [Recipes](recipes/README.md).
+
 ## Installation
 
 ```bash
@@ -149,3 +151,8 @@ List supported languages or detect project languages.
 - File watching is enabled by default - the server reindexes at most once per minute when changes are detected
 - Embedding configuration is read from the index metadata, so searches always use the same model used for indexing
 - The server loads `@sensegrep/core` lazily on first use
+
+## Next Steps
+
+- [Recipes](recipes/README.md) - Setup + workflow playbooks
+- [Case Studies](case-studies.md) - Reproducible qualitative examples

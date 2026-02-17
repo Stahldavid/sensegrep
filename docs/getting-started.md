@@ -121,10 +121,13 @@ After installing `@sensegrep/mcp`, add it to your AI assistant's configuration:
 
 The MCP server automatically watches for changes and keeps the index up to date.
 
-See [MCP Setup](mcp-setup.md) for detailed configuration per tool.
+See [MCP Setup](mcp-setup.md) for base configuration and [Recipes](recipes/README.md) for practical workflows.
 
 ## Next Steps
 
 - [Architecture](architecture.md) - Understand how sensegrep works internally
 - [CLI Reference](cli-reference.md) - Full list of commands and flags
 - [MCP Setup](mcp-setup.md) - Configure sensegrep with Claude Code, Cursor, and more
+- [Recipes](recipes/README.md) - Copy-paste setup and workflow playbooks
+- [Case Studies](case-studies.md) - Reproducible examples from public repositories
+- [Roadmap](../ROADMAP.md) - Current priorities and upcoming milestones

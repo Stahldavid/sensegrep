@@ -1,0 +1,62 @@
+[
+  {
+    "name": "good first issue",
+    "color": "7057ff",
+    "description": "Great for first-time contributors"
+  },
+  {
+    "name": "help wanted",
+    "color": "0e8a16",
+    "description": "Maintainers are looking for community help"
+  },
+  {
+    "name": "bug",
+    "color": "d73a4a",
+    "description": "Something is not working as expected"
+  },
+  {
+    "name": "enhancement",
+    "color": "a2eeef",
+    "description": "New feature or improvement"
+  },
+  {
+    "name": "documentation",
+    "color": "0075ca",
+    "description": "Docs content and examples"
+  },
+  {
+    "name": "benchmark",
+    "color": "5319e7",
+    "description": "Benchmark plan, data, and methodology"
+  },
+  {
+    "name": "recipes",
+    "color": "1d76db",
+    "description": "Integration guides and practical workflows"
+  },
+  {
+    "name": "adoption",
+    "color": "fbca04",
+    "description": "Open-source growth and onboarding work"
+  },
+  {
+    "name": "mcp",
+    "color": "c2e0c6",
+    "description": "MCP server and tool behavior"
+  },
+  {
+    "name": "vscode",
+    "color": "bfdadc",
+    "description": "VS Code extension work"
+  },
+  {
+    "name": "ci",
+    "color": "f9d0c4",
+    "description": "CI, release, or automation pipeline"
+  },
+  {
+    "name": "performance",
+    "color": "ff9f1c",
+    "description": "Latency, memory, and runtime efficiency"
+  }
+]

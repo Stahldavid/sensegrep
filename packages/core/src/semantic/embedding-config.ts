@@ -12,6 +12,7 @@ export type EmbeddingConfig = {
   rerankModel: string
   device?: DeviceType
   baseUrl?: string
+  apiKey?: string
 }
 
 export type EmbeddingOverrides = Partial<EmbeddingConfig>
@@ -122,6 +123,15 @@ export function getEmbeddingConfig(overrides?: EmbeddingOverrides): EmbeddingCon
     (fileConfig as any).baseUrl ||
     (provider === "openai" ? DEFAULTS.openaiBaseUrl : undefined)
 
+  const apiKey =
+    mergedOverrides.apiKey ||
+    process.env.SENSEGREP_OPENAI_API_KEY ||
+    process.env.FIREWORKS_API_KEY ||
+    process.env.OPENAI_API_KEY ||
+    process.env.GEMINI_API_KEY ||
+    process.env.GOOGLE_API_KEY ||
+    (fileConfig as any).apiKey
+
   const merged: EmbeddingConfig = {
     provider,
     embedModel,
@@ -129,6 +139,7 @@ export function getEmbeddingConfig(overrides?: EmbeddingOverrides): EmbeddingCon
     rerankModel,
     ...(device ? { device } : {}),
     ...(baseUrl ? { baseUrl } : {}),
+    ...(apiKey ? { apiKey } : {}),
   }
 
   return merged

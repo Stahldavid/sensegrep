@@ -35,4 +35,6 @@ bench/
 # Temporary files
 temp_audio.*
 
-demo/
+# Demo generated artifacts
+demo/out/
+demo/node_modules/

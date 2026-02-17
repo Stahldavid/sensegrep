@@ -1,0 +1,99 @@
+{
+  "repo": "https://github.com/toon-format/toon",
+  "commit": "snapshot",
+  "capturedAt": "2026-02-17T19:05:00.504Z",
+  "provider": "gemini",
+  "rootPlaceholder": "<repo-root>",
+  "steps": [
+    {
+      "id": "semantic-base",
+      "command": "sensegrep search \"array of objects tabular encoding decision\" --include \"packages/toon/**/*.ts\" --type function",
+      "stdoutLines": [
+        "Found 8 results across 4 files",
+        "## packages/toon/src/encode/encoders.ts (12 lines hidden in 2 regions)",
+        "Matches: isTabularArray function, extractTabularHeader function, indentedLine function",
+        "export function* encodeJsonValue(value: JsonValue, options: ResolvedEncodeOptions, depth: Depth): Generator<string> {",
+        "export function* encodeObjectLines(",
+        "export function* encodeKeyValuePairLines(",
+        "## packages/toon/src/encode/primitives.ts (32 lines hidden in 4 regions)",
+        "Matches: formatHeader function",
+        "export function formatHeader(",
+        "## packages/toon/src/decode/parser.ts (110 lines hidden in 8 regions)"
+      ],
+      "highlights": [
+        1,
+        2,
+        3
+      ],
+      "note": "Relevant functions surfaced without exact keyword matching."
+    },
+    {
+      "id": "semantic-filtered",
+      "command": "sensegrep search \"array of objects tabular encoding decision\" --include \"packages/toon/**/*.ts\" --type function --exported --async --min-complexity 5 --limit 8",
+      "stdoutLines": [
+        "Found 8 results across 4 files",
+        "## packages/toon/src/encode/encoders.ts (12 lines hidden in 2 regions)",
+        "Matches: isTabularArray function, extractTabularHeader function, indentedLine function",
+        "export function* encodeJsonValue(value: JsonValue, options: ResolvedEncodeOptions, depth: Depth): Generator<string> {",
+        "export function* encodeObjectLines(",
+        "export function* encodeKeyValuePairLines(",
+        "## packages/toon/src/encode/primitives.ts (32 lines hidden in 4 regions)",
+        "Matches: formatHeader function"
+      ],
+      "highlights": [
+        1,
+        2,
+        3
+      ],
+      "note": "Same intent, higher signal with structure-aware filtering."
+    },
+    {
+      "id": "tree-before",
+      "command": "Before tree-shaking (full context)",
+      "stdoutLines": [
+        "export function isTabularArray(",
+        "  rows: readonly JsonObject[],",
+        "  header: readonly string[],",
+        "): boolean {",
+        "  for (const row of rows) {",
+        "    const keys = Object.keys(row)",
+        "    // All objects must have the same keys (but order can differ)",
+        "    if (keys.length !== header.length) {",
+        "      return false",
+        "    }",
+        "    // Check that all header keys exist in the row and all values are primitives",
+        "    for (const key of header) {",
+        "      if (!(key in row)) return false",
+        "      if (!isJsonPrimitive(row[key])) return false",
+        "    }",
+        "  }",
+        "  return true",
+        "}"
+      ],
+      "highlights": [
+        14,
+        15
+      ],
+      "note": "Before: raw symbol context."
+    },
+    {
+      "id": "tree-after",
+      "command": "After tree-shaking (collapsed relevant code)",
+      "stdoutLines": [
+        "export function isTabularArray(rows, header): boolean {",
+        "  for (const row of rows) {",
+        "    if (Object.keys(row).length !== header.length) return false",
+        "    for (const key of header) if (!(key in row) || !isJsonPrimitive(row[key])) return false",
+        "  }",
+        "  return true",
+        "}"
+      ],
+      "highlights": [
+        1,
+        2,
+        3
+      ],
+      "note": "Read less, act faster."
+    }
+  ]
+}

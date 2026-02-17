@@ -93,6 +93,11 @@ See the existing `typescript.ts` and `python.ts` implementations for reference.
 - Use the [bug report template](https://github.com/Stahldavid/sensegrep/issues/new?template=bug_report.yml) for bugs
 - Use the [feature request template](https://github.com/Stahldavid/sensegrep/issues/new?template=feature_request.yml) for new ideas
 - Check existing issues before creating a new one
+- Look for labels like `good first issue` and `help wanted` if you want a curated starting point
+
+## Roadmap and Priorities
+
+- See [ROADMAP.md](ROADMAP.md) for current focus areas and upcoming milestones.
 
 ## License
 

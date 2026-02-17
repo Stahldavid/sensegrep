@@ -8,6 +8,12 @@
 
 sensegrep understands your code semantically. Instead of matching text patterns, it uses AI embeddings and tree-sitter AST parsing to find code by *meaning* - so you can search for "authentication logic" and actually find your auth functions, even if they never contain the word "authentication".
 
+![Sensegrep time-to-value demo](assets/time-to-value.gif)
+
+MP4 fallback: [assets/time-to-value.mp4](assets/time-to-value.mp4)
+
+Watch full product demo (25s): [assets/time-to-value-full.mp4](assets/time-to-value-full.mp4)
+
 ## Why sensegrep?
 
 Traditional search tools (grep, ripgrep, ast-grep) match **text patterns**. sensegrep matches **concepts**:
@@ -67,6 +73,18 @@ The MCP server provides `sensegrep.search`, `sensegrep.index`, `sensegrep.stats`
 Search for **"Sensegrep"** in the VS Code marketplace, or install from [the extension page](https://marketplace.visualstudio.com/items?itemName=sensegrep.sensegrep).
 
 Features: semantic search sidebar, duplicate detection, code lens, semantic folding, auto-indexing with watch mode.
+
+## Recipes
+
+Copy-paste setup and practical workflows:
+
+- [Claude Code recipe](docs/recipes/claude-code.md)
+- [Cursor recipe](docs/recipes/cursor.md)
+- [Windsurf recipe](docs/recipes/windsurf.md)
+- [CI with GitHub Actions](docs/recipes/ci-github-actions.md)
+- [Generic CI recipe](docs/recipes/ci-generic.md)
+
+Full index: [docs/recipes/README.md](docs/recipes/README.md)
 
 ## How It Works
 
@@ -161,6 +179,17 @@ Environment variables: `SENSEGREP_PROVIDER`, `SENSEGREP_EMBED_MODEL`, `SENSEGREP
 | [@sensegrep/cli](packages/cli) | Command-line interface | [![npm](https://img.shields.io/npm/v/@sensegrep/cli)](https://www.npmjs.com/package/@sensegrep/cli) |
 | [@sensegrep/mcp](packages/mcp) | MCP server for AI agents | [![npm](https://img.shields.io/npm/v/@sensegrep/mcp)](https://www.npmjs.com/package/@sensegrep/mcp) |
 | [sensegrep](packages/vscode) | VS Code extension | [Marketplace](https://marketplace.visualstudio.com/items?itemName=sensegrep.sensegrep) |
+
+## Case Studies
+
+Reproducible qualitative examples from public repositories:
+
+- [Case studies](docs/case-studies.md)
+
+## Roadmap
+
+- [ROADMAP.md](ROADMAP.md)
+- Benchmark methodology vs `ripgrep` / `ast-grep` is scheduled for Month 2.
 
 ## Contributing
 

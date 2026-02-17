@@ -11,8 +11,16 @@
     "dev": "echo 'Use packages/cli or packages/mcp when implemented'",
     "test": "vitest run",
     "test:watch": "vitest",
-    "bench:openclaw": "node bench/run-openclaw-benchmark.mjs",
-    "bench:openclaw:index": "node bench/run-openclaw-benchmark.mjs --index"
+    "repo:labels:apply": "node scripts/github/apply-labels.mjs",
+    "demo:capture": "node scripts/media/capture-video-transcript.mjs",
+    "demo:render:short": "node scripts/media/render-time-to-value.mjs short",
+    "demo:render:full": "node scripts/media/render-time-to-value.mjs full",
+    "demo:gif:short": "node scripts/media/make-time-to-value-gif.mjs",
+    "demo:asset:short": "npm run demo:render:short && npm run demo:gif:short",
+    "demo:asset:full": "npm run demo:render:full",
+    "demo:render": "npm run demo:render:short",
+    "demo:gif": "npm run demo:gif:short",
+    "demo:asset": "npm run demo:asset:short"
   },
   "overrides": {
     "onnxruntime-node": "1.23.2"
