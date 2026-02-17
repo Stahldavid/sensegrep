@@ -19,6 +19,8 @@ const benchmarkDir =
 const benchmarkMode = process.env.SENSEGREP_BENCHMARK_MODE || "sensegrep"
 const benchmarkTaskId = process.env.SENSEGREP_BENCHMARK_TASK_ID || ""
 const requiredBenchmarkModes = ["grep", "hybrid", "sensegrep"]
+const benchmarkDisplayName = "Code in the Stack"
+const benchmarkRepo = "toon-format/toon"
 
 const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
 
@@ -388,10 +390,13 @@ function buildBenchmarkSummary(benchmark) {
   const grep = byMode.grep
 
   const out = {
+    name: benchmarkDisplayName,
+    repo: benchmarkRepo,
     runs: toNumber(benchmark.totalTasks || 0),
     tasks: toNumber(sensegrep.total || 0),
     modes: Object.keys(byMode).length,
     sensegrep: {
+      precision: toNumber(sensegrep.rate || 0),
       avgCalls: toNumber(sensegrep.avgToolCalls || 0),
       avgTokens: toNumber(sensegrep.avgTokens || 0),
     },
@@ -399,6 +404,7 @@ function buildBenchmarkSummary(benchmark) {
 
   if (hybrid) {
     out.hybrid = {
+      precision: toNumber(hybrid.rate || 0),
       avgCalls: toNumber(hybrid.avgToolCalls || 0),
       avgTokens: toNumber(hybrid.avgTokens || 0),
     }
@@ -406,6 +412,7 @@ function buildBenchmarkSummary(benchmark) {
 
   if (grep) {
     out.grep = {
+      precision: toNumber(grep.rate || 0),
       avgCalls: toNumber(grep.avgToolCalls || 0),
       avgTokens: toNumber(grep.avgTokens || 0),
     }

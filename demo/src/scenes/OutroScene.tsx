@@ -1,22 +1,13 @@
 import React from "react"
 import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion"
-import type { VideoTranscript } from "../types"
 
 type OutroSceneProps = {
   repo: string
   provider: string
   variant: "short" | "full"
-  benchmark?: VideoTranscript["benchmark"]
 }
 
-function formatTokensCompact(value: number) {
-  if (value >= 1000) {
-    return `${(value / 1000).toFixed(1)}k`
-  }
-  return String(Math.round(value))
-}
-
-export const OutroScene: React.FC<OutroSceneProps> = ({ repo, provider, variant, benchmark }) => {
+export const OutroScene: React.FC<OutroSceneProps> = ({ repo, provider, variant }) => {
   const frame = useCurrentFrame()
   const { fps } = useVideoConfig()
   const isShort = variant === "short"
@@ -74,58 +65,10 @@ export const OutroScene: React.FC<OutroSceneProps> = ({ repo, provider, variant,
         </div>
       </div>
 
-      {variant === "full" && benchmark ? (
-        <div
-          style={{
-            marginTop: 14,
-            padding: "10px 18px",
-            borderRadius: 14,
-            border: "1px solid #818cf844",
-            background: "#0f102088",
-            textAlign: "center",
-          }}
-        >
-          <div
-            style={{
-              fontSize: 15,
-              color: "#a5b4fc",
-              fontWeight: 700,
-              fontFamily: "'Inter', 'Segoe UI', sans-serif",
-            }}
-          >
-            AI SDK benchmark · {benchmark.runs} runs ({benchmark.tasks} tasks x {benchmark.modes} modes)
-          </div>
-          <div
-            style={{
-              marginTop: 6,
-              fontSize: 16,
-              color: "#86efac",
-              fontWeight: 700,
-              fontFamily: "'Inter', 'Segoe UI', sans-serif",
-            }}
-          >
-            sensegrep: {benchmark.sensegrep.avgCalls.toFixed(1)} calls · {formatTokensCompact(benchmark.sensegrep.avgTokens)} tokens
-          </div>
-          {benchmark.hybrid && benchmark.grep ? (
-            <div
-              style={{
-                marginTop: 4,
-                fontSize: 14,
-                color: "#cbd5e1",
-                fontFamily: "'Inter', 'Segoe UI', sans-serif",
-              }}
-            >
-              hybrid: {benchmark.hybrid.avgCalls.toFixed(2)} calls · {formatTokensCompact(benchmark.hybrid.avgTokens)} tokens | grep:{" "}
-              {benchmark.grep.avgCalls.toFixed(2)} calls · {formatTokensCompact(benchmark.grep.avgTokens)} tokens
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
       {variant === "full" ? (
         <div
           style={{
-            marginTop: 14,
+            marginTop: 18,
             textAlign: "center",
           }}
         >

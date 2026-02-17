@@ -5,18 +5,23 @@
   "provider": "gemini",
   "rootPlaceholder": "<repo-root>",
   "benchmark": {
+    "name": "Code in the Stack",
+    "repo": "toon-format/toon",
     "runs": 60,
     "tasks": 20,
     "modes": 3,
     "sensegrep": {
+      "precision": 0.95,
       "avgCalls": 1.2,
       "avgTokens": 6468
     },
     "hybrid": {
+      "precision": 0.95,
       "avgCalls": 1.85,
       "avgTokens": 10900.3
     },
     "grep": {
+      "precision": 0.9,
       "avgCalls": 2.35,
       "avgTokens": 28565.15
     }

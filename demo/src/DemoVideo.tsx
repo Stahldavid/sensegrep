@@ -3,6 +3,7 @@ import { getTranscript, getTranscriptStep } from "./transcript"
 import { IntroScene } from "./scenes/IntroScene"
 import { SolutionScene } from "./scenes/SolutionScene"
 import { FeaturesScene } from "./scenes/FeaturesScene"
+import { BenchmarkScene } from "./scenes/BenchmarkScene"
 import { OutroScene } from "./scenes/OutroScene"
 
 type VideoVariant = "short" | "full"
@@ -12,7 +13,7 @@ type DemoVideoProps = {
 }
 
 type SequenceConfig = {
-  kind: "intro" | "base" | "filtered" | "tree" | "outro"
+  kind: "intro" | "base" | "filtered" | "tree" | "benchmark" | "outro"
   duration: number
 }
 
@@ -26,10 +27,11 @@ const sequenceByVariant: Record<VideoVariant, SequenceConfig[]> = {
   ],
   full: [
     { kind: "intro", duration: 90 },
-    { kind: "base", duration: 180 },
-    { kind: "filtered", duration: 180 },
-    { kind: "tree", duration: 210 },
-    { kind: "outro", duration: 90 },
+    { kind: "base", duration: 165 },
+    { kind: "filtered", duration: 165 },
+    { kind: "tree", duration: 180 },
+    { kind: "benchmark", duration: 90 },
+    { kind: "outro", duration: 60 },
   ],
 }
 
@@ -103,13 +105,20 @@ export const DemoVideo = ({ variant = "short" }: DemoVideoProps) => {
             )
           }
 
+          if (sequence.kind === "benchmark") {
+            return (
+              <Series.Sequence key={index} durationInFrames={sequence.duration}>
+                <BenchmarkScene benchmark={transcript.benchmark} />
+              </Series.Sequence>
+            )
+          }
+
           return (
             <Series.Sequence key={index} durationInFrames={sequence.duration}>
               <OutroScene
                 repo={transcript.repo}
                 provider={transcript.provider}
                 variant={variant}
-                benchmark={transcript.benchmark}
               />
             </Series.Sequence>
           )
