@@ -48,7 +48,7 @@ sensegrep detect-duplicates --threshold 0.85
 ### MCP Server (for Claude Code, Cursor, Windsurf, etc.)
 
 ```bash
-npm i -g @sensegrep/mcp
+npx -y @sensegrep/mcp
 ```
 
 Add to your MCP configuration:
@@ -57,7 +57,8 @@ Add to your MCP configuration:
 {
   "mcpServers": {
     "sensegrep": {
-      "command": "sensegrep-mcp",
+      "command": "npx",
+      "args": ["-y", "@sensegrep/mcp"],
       "env": {
         "SENSEGREP_ROOT": "/path/to/your/project"
       }
