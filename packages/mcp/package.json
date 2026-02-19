@@ -1,6 +1,7 @@
 {
   "name": "@sensegrep/mcp",
-  "version": "0.1.19",
+  "mcpName": "io.github.Stahldavid/sensegrep",
+  "version": "0.1.20",
   "type": "module",
   "main": "./dist/server.js",
   "bin": {
@@ -36,5 +37,12 @@
   "homepage": "https://github.com/Stahldavid/sensegrep",
   "bugs": {
     "url": "https://github.com/Stahldavid/sensegrep/issues"
-  }
+  },
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "semantic-search",
+    "ai-agents",
+    "code-search"
+  ]
 }

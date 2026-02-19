@@ -1,0 +1,45 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Stahldavid/sensegrep",
+  "description": "Semantic + structural code search MCP server for AI-native development.",
+  "title": "Sensegrep",
+  "websiteUrl": "https://github.com/Stahldavid/sensegrep",
+  "repository": {
+    "url": "https://github.com/Stahldavid/sensegrep",
+    "source": "github"
+  },
+  "version": "0.1.20",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@sensegrep/mcp",
+      "version": "0.1.20",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "SENSEGREP_ROOT",
+          "description": "Root directory to index and search. Defaults to current working directory.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "SENSEGREP_PROVIDER",
+          "description": "Embeddings provider: local or gemini.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "GEMINI_API_KEY",
+          "description": "Required only when SENSEGREP_PROVIDER=gemini.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}
