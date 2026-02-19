@@ -16,6 +16,7 @@ dist/
 
 # MCP local configuration (contains absolute paths)
 .mcp.json
+.mcpregistry_*
 
 # VS Code extension packages
 *.vsix
@@ -26,7 +27,7 @@ dist/
 # Local session notes
 session-*.md
 
-# Benchmarks (large external repos)
+# Local external repositories
 bench/
 
 # Temporary files
