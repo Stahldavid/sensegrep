@@ -16,6 +16,18 @@ const WATCH_INTERVAL_MS = 60_000;
 let watchHandle: { stop: () => Promise<void> } | null = null;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+const TOOL_NAMES = {
+  search: "sensegrep_search",
+  languages: "sensegrep_languages",
+  detectDuplicates: "sensegrep_detect_duplicates",
+  index: "sensegrep_index",
+  stats: "sensegrep_stats",
+} as const;
+
+function matchesToolName(name: string, canonical: string, ...legacy: string[]): boolean {
+  return name === canonical || legacy.includes(name);
+}
+
 async function loadCore() {
   if (!corePromise) {
     corePromise = import("@sensegrep/core").catch(async (error) => {
@@ -121,7 +133,7 @@ async function generateTools(): Promise<Tool[]> {
 
   cachedTools = [
     {
-      name: "sensegrep.search",
+      name: TOOL_NAMES.search,
       description: `Semantic + structural code search. Languages: ${caps.languages.join(", ")}`,
       inputSchema: {
         type: "object",
@@ -169,7 +181,7 @@ async function generateTools(): Promise<Tool[]> {
       },
     },
     {
-      name: "sensegrep.languages",
+      name: TOOL_NAMES.languages,
       description: "List supported languages, detect project languages, or show available variants",
       inputSchema: {
         type: "object",
@@ -181,7 +193,7 @@ async function generateTools(): Promise<Tool[]> {
       },
     },
     {
-      name: "sensegrep.detect_duplicates",
+      name: TOOL_NAMES.detectDuplicates,
       description: "Detect logical duplicates using the existing semantic index.",
       inputSchema: {
         type: "object",
@@ -209,7 +221,7 @@ async function generateTools(): Promise<Tool[]> {
       },
     },
     {
-      name: "sensegrep.index",
+      name: TOOL_NAMES.index,
       description: "Create or update a semantic index for the given root directory.",
       inputSchema: {
         type: "object",
@@ -225,7 +237,7 @@ async function generateTools(): Promise<Tool[]> {
       },
     },
     {
-      name: "sensegrep.stats",
+      name: TOOL_NAMES.stats,
       description: "Get index stats for the given root directory.",
       inputSchema: {
         type: "object",
@@ -261,7 +273,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const rootDir = (args as any).rootDir || process.env.SENSEGREP_ROOT || process.cwd();
 
   try {
-    if (name === "sensegrep.search") {
+    if (matchesToolName(name, TOOL_NAMES.search, "sensegrep.search")) {
       const { core, tool } = await loadTool();
       const { rootDir: _root, ...toolArgs } = args as any;
       const { Instance } = core;
@@ -282,7 +294,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       };
     }
 
-    if (name === "sensegrep.languages") {
+    if (matchesToolName(name, TOOL_NAMES.languages, "sensegrep.languages")) {
       const core = await loadCore();
       const {
         getLanguageCapabilities,
@@ -329,7 +341,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return { content: [{ type: "text", text: lines.join("\n") }] };
     }
 
-    if (name === "sensegrep.index") {
+    if (matchesToolName(name, TOOL_NAMES.index, "sensegrep.index")) {
       const { core } = await loadTool();
       const { Indexer, Instance } = core;
       const mode = String((args as any).mode ?? "incremental").toLowerCase();
@@ -352,7 +364,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       };
     }
 
-    if (name === "sensegrep.detect_duplicates" || name === "sensegrep.detect-duplicates") {
+    if (
+      matchesToolName(
+        name,
+        TOOL_NAMES.detectDuplicates,
+        "sensegrep.detect_duplicates",
+        "sensegrep.detect-duplicates",
+      )
+    ) {
       const { core } = await loadTool();
       const { DuplicateDetector, Instance } = core;
       const minThreshold =
@@ -549,7 +568,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return { content: [{ type: "text", text: lines.join("\n") }] };
     }
 
-    if (name === "sensegrep.stats") {
+    if (matchesToolName(name, TOOL_NAMES.stats, "sensegrep.stats")) {
       const { core } = await loadTool();
       const { Indexer, Instance } = core;
       const stats = await Instance.provide({
