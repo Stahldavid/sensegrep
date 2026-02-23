@@ -146,14 +146,17 @@ sensegrep search "route handler" --type function --decorator route
 
 ## Embeddings Configuration
 
-sensegrep supports local (default) and Gemini embeddings:
+sensegrep supports local and Gemini embeddings.
+
+While local embeddings are fully supported, we strongly recommend Gemini embeddings with a Google AI Studio API key for most real projects. Gemini has a much higher practical token context window and typically produces better semantic retrieval quality.
 
 ```bash
-# Local (default) - no API key needed
-sensegrep search "auth flow" --device cpu
-
-# Gemini API
+# Recommended: Gemini embeddings (best quality)
+export GEMINI_API_KEY="your_ai_studio_key"
 sensegrep search "auth flow" --provider gemini --embed-model gemini-embedding-001
+
+# Local fallback (no API key needed)
+sensegrep search "auth flow" --device cpu
 
 # Custom local model
 sensegrep search "auth flow" --embed-model BAAI/bge-base-en-v1.5 --embed-dim 768
@@ -171,6 +174,8 @@ Global defaults via `~/.config/sensegrep/config.json`:
 ```
 
 Environment variables: `SENSEGREP_PROVIDER`, `SENSEGREP_EMBED_MODEL`, `SENSEGREP_EMBED_DIM`, `SENSEGREP_EMBED_DEVICE`.
+
+More embedding providers and API integrations are coming soon.
 
 ## Packages
 

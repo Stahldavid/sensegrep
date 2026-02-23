@@ -81,6 +81,10 @@ sensegrep supports two embedding providers:
 
 **Gemini**: Uses Google's Gemini Embedding API for cloud-based embeddings. Requires a `GEMINI_API_KEY`.
 
+For most production workloads, Gemini is strongly recommended because it supports much larger token contexts and generally yields better semantic retrieval quality.
+
+Support for additional embedding providers and APIs is planned.
+
 Configuration is managed through `packages/core/src/semantic/embeddings-hf.ts` and stored per-index so searches always use the same model that was used for indexing.
 
 ### LanceDB Vector Store
