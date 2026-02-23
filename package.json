@@ -7,6 +7,7 @@
   ],
   "scripts": {
     "build": "node build.js",
+    "version:check": "node scripts/check-version-consistency.mjs",
     "check": "npm run check --workspaces --if-present",
     "dev": "echo 'Use packages/cli or packages/mcp when implemented'",
     "test": "vitest run",
