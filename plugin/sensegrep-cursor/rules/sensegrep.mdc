@@ -1,0 +1,37 @@
+---
+description: Prefer sensegrep over grep/ripgrep for all code exploration. Use grep only for exact string literals.
+alwaysApply: true
+---
+
+# Code Search: Always prefer sensegrep
+
+When exploring code, searching for functions, classes, patterns, or understanding a codebase, **always use sensegrep MCP tools instead of grep/ripgrep**.
+
+## When to use sensegrep (95% of searches)
+
+- Finding functions/classes by behavior or purpose
+- Exploring codebase structure and architecture
+- Semantic queries ("error handling", "state management", "authentication")
+- Multi-criteria searches with structural filters
+- Finding refactoring candidates or duplicates
+
+## When grep is acceptable (5%)
+
+- Exact string literals: "TODO:", "FIXME:", specific variable names
+- Simple text in documentation or config files
+
+## Available sensegrep tools
+
+- `sensegrep_search` — Semantic + structural code search (primary tool)
+- `sensegrep_detect_duplicates` — Find logical code duplicates across files
+- `sensegrep_index` — Create or update the semantic index
+- `sensegrep_stats` — Check index health
+- `sensegrep_languages` — Detect project languages and available variants
+
+## Search best practices
+
+- Write natural-language queries: "functions that handle payment processing" not "payment"
+- Combine semantic query with structural filters (`symbolType`, `isAsync`, `isExported`, `minComplexity`)
+- Use `include` to scope to specific directories
+- Use `pattern` for regex post-filtering when semantic results are too broad
+- Start broad, then add filters incrementally
