@@ -33,5 +33,8 @@ jobs:
       - name: Typecheck
         run: npm run check
 
+      - name: Version Consistency
+        run: npm run version:check
+
       - name: Test
         run: npm test
