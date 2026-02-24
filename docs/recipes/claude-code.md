@@ -1,12 +1,30 @@
 # Recipe: Claude Code
 
-## Prerequisites
+## Option A: Plugin Install (recommended)
+
+The fastest path — installs the MCP server and teaches Claude how to use sensegrep automatically:
+
+```bash
+claude plugin install sensegrep
+```
+
+That's it. Claude now has access to all sensegrep tools and knows when to prefer them over grep. Skip to [Smoke Test](#smoke-test).
+
+> If using a custom marketplace:
+> ```bash
+> claude plugin marketplace add Stahldavid/sensegrep
+> claude plugin install sensegrep
+> ```
+
+## Option B: Manual MCP Setup
+
+### Prerequisites
 
 - Node.js 18+
 - `@sensegrep/mcp` installed globally
 - Claude Code MCP enabled
 
-## Setup (copy-paste)
+### Setup (copy-paste)
 
 Install:
 
@@ -32,7 +50,7 @@ Add to `~/.claude.json` (or project `.claude.json`):
 ## Smoke Test
 
 1. Open the project in Claude Code.
-2. Ask Claude to call `sensegrep.languages` and `sensegrep.stats`.
+2. Ask Claude to call `sensegrep.index` with `action=stats`.
 3. Confirm tools return structured output without errors.
 
 ## Practical Workflows

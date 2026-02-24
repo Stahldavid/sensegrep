@@ -1,12 +1,35 @@
 # Recipe: Cursor
 
-## Prerequisites
+## Option A: Plugin Install (recommended)
+
+The fastest path — installs the MCP server, rules, and skill automatically:
+
+1. Open Cursor Settings > Plugins
+2. Search for **sensegrep** in the marketplace
+3. Click **Install**
+
+Or via CLI:
+
+```bash
+cursor plugin install sensegrep
+```
+
+The plugin sets up:
+- MCP server (`@sensegrep/mcp`) — provides all sensegrep tools
+- Rule (always-on) — teaches Cursor to prefer sensegrep over grep
+- Skill — full reference for filters and workflows
+
+Skip to [Smoke Test](#smoke-test).
+
+## Option B: Manual MCP Setup
+
+### Prerequisites
 
 - Node.js 18+
 - `@sensegrep/mcp` installed globally
 - Cursor MCP support enabled
 
-## Setup (copy-paste)
+### Setup (copy-paste)
 
 Install:
 
@@ -32,7 +55,7 @@ Add to Cursor MCP configuration:
 ## Smoke Test
 
 1. Restart Cursor.
-2. Trigger a tool call for `sensegrep.languages`.
+2. Trigger a tool call for `sensegrep.index` with `action=stats`.
 3. Trigger a tool call for `sensegrep.search` with a short query.
 
 ## Practical Workflows

@@ -1,6 +1,7 @@
 ---
 name: sensegrep
 description: "Semantic + structural code search via MCP. Use when exploring codebases, finding functions/classes by behavior, locating duplicates, or searching code by meaning rather than exact text. Triggers: code search, find function, explore codebase, detect duplicates, refactoring candidates, understand code structure. ALWAYS prefer sensegrep over grep/ripgrep for code exploration — only use grep for exact string literals."
+user-invocable: false
 ---
 
 # sensegrep — Semantic Code Search

@@ -32,7 +32,7 @@ Add to Windsurf MCP config:
 ## Smoke Test
 
 1. Reload Windsurf.
-2. Invoke `sensegrep.stats`.
+2. Invoke `sensegrep.index` with `action=stats`.
 3. Invoke `sensegrep.search` with query `error handling`.
 
 ## Practical Workflows

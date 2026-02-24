@@ -4,7 +4,14 @@
   "description": "Semantic + structural code search with AI-powered duplicate detection",
   "version": "0.1.8",
   "publisher": "sensegrep",
-  
+  "license": "Apache-2.0",
+  "icon": "resources/icon.png",
+  "galleryBanner": {
+    "color": "#0b1320",
+    "theme": "dark"
+  },
+  "markdown": "github",
+  "qna": "https://github.com/Stahldavid/sensegrep/discussions",
   "repository": {
     "type": "git",
     "url": "https://github.com/Stahldavid/sensegrep.git"
@@ -25,13 +32,22 @@
     "code search",
     "duplicate detection",
     "AI",
-    "embeddings"
+    "embeddings",
+    "code navigation",
+    "tree-sitter",
+    "mcp",
+    "ai agents"
   ],
   "activationEvents": [
     "workspaceContains:**/*.ts",
     "workspaceContains:**/*.tsx",
     "workspaceContains:**/*.js",
     "workspaceContains:**/*.jsx"
+  ],
+  "files": [
+    "dist/**",
+    "resources/**",
+    "README.md"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -459,8 +475,8 @@
     "vscode:prepublish": "npm run build",
     "build": "node build.js",
     "dev": "node build.js --watch",
-    "package": "vsce package --no-dependencies",
-    "publish": "vsce publish --no-dependencies",
+    "package": "vsce package --no-dependencies --skip-license",
+    "publish": "vsce publish --no-dependencies --skip-license",
     "check": "npm run lint",
     "lint": "tsc --noEmit",
     "test": "echo \"No tests yet\""
@@ -474,6 +490,6 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@sensegrep/core": "file:../core"
+    "@sensegrep/core": "^0.1.21"
   }
 }

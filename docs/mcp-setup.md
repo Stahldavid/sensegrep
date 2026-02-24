@@ -4,7 +4,29 @@ sensegrep provides an [MCP (Model Context Protocol)](https://modelcontextprotoco
 
 For practical, end-to-end workflows, see [Recipes](recipes/README.md).
 
-## Installation
+## Claude Code Plugin (recommended)
+
+The easiest way to set up sensegrep in Claude Code — zero configuration:
+
+```bash
+claude plugin install sensegrep
+```
+
+The plugin automatically configures the MCP server and includes a skill that teaches Claude when and how to use sensegrep. No manual JSON editing required.
+
+## Cursor Plugin
+
+The easiest way to set up sensegrep in Cursor:
+
+```bash
+cursor plugin install sensegrep
+```
+
+The plugin includes the MCP server, an always-on rule to prefer sensegrep, and a skill with full filter reference.
+
+For manual setup or other editors, continue below.
+
+## Manual Installation
 
 ```bash
 npm install -g @sensegrep/mcp
@@ -12,7 +34,7 @@ npm install -g @sensegrep/mcp
 
 ## Configuration
 
-### Claude Code
+### Claude Code (manual)
 
 Add to `~/.claude.json` or your project's `.claude.json`:
 
@@ -79,15 +101,57 @@ node node_modules/@sensegrep/mcp/dist/server.js
 
 ## Environment Variables
 
+Variables below are supported by the current runtime.
+
+### MCP Runtime
+
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SENSEGREP_ROOT` | cwd | Root directory to index and search |
-| `SENSEGREP_WATCH` | `1` | Enable file watching (`0` to disable) |
-| `SENSEGREP_PROVIDER` | `local` | Embedding provider (`local` or `gemini`) |
-| `SENSEGREP_EMBED_MODEL` | `BAAI/bge-small-en-v1.5` | Embedding model name |
-| `SENSEGREP_EMBED_DIM` | `384` | Embedding dimension |
-| `SENSEGREP_EMBED_DEVICE` | `cpu` | Compute device (`cpu`, `cuda`, `webgpu`, `wasm`) |
-| `GEMINI_API_KEY` | - | Required when using `gemini` provider |
+| `SENSEGREP_ROOT` | `cwd` | Root directory to index and search |
+| `SENSEGREP_WATCH` | `1` | Enable file watching (`0`, `false`, `off`, `no` to disable) |
+
+### Embeddings (Primary)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SENSEGREP_PROVIDER` | `local` | Embedding provider (`local`, `gemini`, `openai`) |
+| `SENSEGREP_EMBED_MODEL` | Provider-dependent | Embedding model name override |
+| `SENSEGREP_EMBED_DIM` | Provider-dependent | Embedding dimension override |
+| `SENSEGREP_EMBED_DEVICE` | auto/`cpu` | Device (`cpu`, `cuda`, `webgpu`, `wasm`) |
+| `SENSEGREP_RERANK_MODEL` | `Xenova/ms-marco-MiniLM-L-6-v2` | Reranker model |
+
+### API Keys and Endpoints
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GEMINI_API_KEY` | - | Gemini API key |
+| `GOOGLE_API_KEY` | - | Gemini API key fallback |
+| `SENSEGREP_OPENAI_API_KEY` | - | OpenAI-compatible API key |
+| `FIREWORKS_API_KEY` | - | OpenAI-compatible key fallback |
+| `OPENAI_API_KEY` | - | OpenAI-compatible key fallback |
+| `SENSEGREP_OPENAI_BASE_URL` | `https://api.fireworks.ai/inference/v1` | OpenAI-compatible base URL |
+
+### Language Selection
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SENSEGREP_LANGUAGES` | auto-detect | Comma-separated language override (for CLI/core config resolution) |
+
+### Compatibility Aliases
+
+| Variable | Description |
+|----------|-------------|
+| `OPENCODE_SEMANTIC_EMBEDDINGS` | Alias for provider selection |
+| `OPENCODE_GEMINI_EMBED_MODEL` | Gemini model fallback |
+| `OPENCODE_GEMINI_EMBED_DIM` | Gemini dimension fallback |
+| `OPENCODE_EMBEDDINGS_DEVICE` | Device fallback |
+
+### Precedence (high -> low)
+
+1. Runtime/CLI overrides
+2. Environment variables
+3. Global config file (`~/.config/sensegrep/config.json`)
+4. Built-in defaults
 
 ## Available Tools
 
@@ -114,18 +178,12 @@ Semantic + structural code search.
 
 ### `sensegrep.index`
 
-Create or update the semantic index.
+Create/update the semantic index or fetch index stats.
 
 **Parameters:**
+- `action` (string): `index` (default) or `stats`
 - `rootDir` (string): Directory to index
-- `mode` (string): `incremental` (default) or `full`
-
-### `sensegrep.stats`
-
-Get index statistics.
-
-**Parameters:**
-- `rootDir` (string): Directory to check
+- `mode` (string): `incremental` (default) or `full` when `action=index`
 
 ### `sensegrep.detect_duplicates`
 
@@ -136,14 +194,6 @@ Find logical code duplicates.
 - `threshold` (number): Similarity threshold 0.0-1.0 (default: 0.85)
 - `scope` (string): `function`, `method`, or `all`
 - `showCode` (boolean): Include code snippets
-
-### `sensegrep.languages`
-
-List supported languages or detect project languages.
-
-**Parameters:**
-- `detect` (boolean): Detect languages in project
-- `variants` (boolean): Show all variants by language
 
 ## Behavior
 
