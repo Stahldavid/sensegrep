@@ -59,9 +59,6 @@ Add to your MCP configuration:
     "sensegrep": {
       "command": "npx",
       "args": ["-y", "@sensegrep/mcp"],
-      "env": {
-        "SENSEGREP_ROOT": "/path/to/your/project"
-      }
     }
   }
 }
@@ -210,3 +207,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, architecture overv
 ## License
 
 [Apache-2.0](LICENSE)
+
