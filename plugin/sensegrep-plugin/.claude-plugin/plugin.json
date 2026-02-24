@@ -20,7 +20,6 @@
     "duplicate-detection"
   ],
   "commands": "./commands/",
-  "agents": "./agents/",
   "skills": "./skills/",
   "mcpServers": "./.mcp.json"
 }
