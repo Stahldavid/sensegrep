@@ -1,0 +1,26 @@
+{
+  "name": "sensegrep",
+  "version": "0.1.19",
+  "description": "Semantic code search for AI agents. Search code by meaning, not text patterns. Replaces grep/ripgrep for 95% of code exploration tasks.",
+  "author": {
+    "name": "sensegrep",
+    "url": "https://github.com/Stahldavid/sensegrep"
+  },
+  "homepage": "https://github.com/Stahldavid/sensegrep",
+  "repository": "https://github.com/Stahldavid/sensegrep",
+  "license": "MIT",
+  "keywords": [
+    "code-search",
+    "semantic-search",
+    "ast",
+    "tree-sitter",
+    "embeddings",
+    "mcp",
+    "refactoring",
+    "duplicate-detection"
+  ],
+  "commands": "./commands/",
+  "agents": "./agents/",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
+}

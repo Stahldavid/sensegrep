@@ -1,0 +1,28 @@
+{
+  "name": "sensegrep-marketplace",
+  "owner": {
+    "name": "sensegrep",
+    "url": "https://github.com/Stahldavid/sensegrep"
+  },
+  "metadata": {
+    "description": "Official sensegrep plugin marketplace for Claude Code",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "sensegrep",
+      "source": ".",
+      "description": "Semantic code search for AI agents. Search code by meaning, not text patterns. Adds sensegrep MCP tools + smart usage instructions to Claude Code.",
+      "version": "0.1.19",
+      "author": {
+        "name": "sensegrep"
+      },
+      "homepage": "https://github.com/Stahldavid/sensegrep",
+      "repository": "https://github.com/Stahldavid/sensegrep",
+      "license": "MIT",
+      "keywords": ["code-search", "semantic-search", "mcp", "ast", "refactoring"],
+      "category": "developer-tools",
+      "tags": ["search", "semantic", "code-intelligence", "mcp"]
+    }
+  ]
+}

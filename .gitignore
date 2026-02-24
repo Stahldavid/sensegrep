@@ -15,8 +15,10 @@ dist/
 .claude/
 
 # MCP local configuration (contains absolute paths)
-.mcp.json
+/.mcp.json
 .mcpregistry_*
+!plugin/sensegrep-plugin/.mcp.json
+!plugin/sensegrep-cursor/.mcp.json
 
 # VS Code extension packages
 *.vsix
@@ -37,3 +39,5 @@ temp_audio.*
 demo/out/
 demo/node_modules/
 demo/package-lock.json
+
+
