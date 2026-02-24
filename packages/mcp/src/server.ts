@@ -249,8 +249,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 });
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
-  const rootDir = (args as any).rootDir || process.env.SENSEGREP_ROOT || process.cwd();
+  const { name } = request.params;
+  const args = ((request.params.arguments ?? {}) as Record<string, unknown>) as any;
+  const rootDirArg = args.rootDir;
+  const rootDir =
+    typeof rootDirArg === "string" && rootDirArg.length > 0
+      ? rootDirArg
+      : process.env.SENSEGREP_ROOT || process.cwd();
 
   try {
     if (matchesToolName(name, TOOL_NAMES.search, "sensegrep.search")) {
@@ -271,6 +276,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       });
       return {
         content: [{ type: "text", text: res.output }],
+        structuredContent: {
+          output: res.output,
+        },
       };
     }
 
@@ -293,6 +301,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         });
         return {
           content: [{ type: "text", text: JSON.stringify(stats, null, 2) }],
+          structuredContent: {
+            action: "stats",
+            rootDir,
+            stats,
+          },
         };
       }
 
@@ -317,6 +330,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         : `Indexed ${files} files (${chunks} chunks) in ${duration}s`;
       return {
         content: [{ type: "text", text: `${text}\n\nStats:\n${JSON.stringify(stats, null, 2)}` }],
+        structuredContent: {
+          action: "index",
+          mode,
+          rootDir,
+          result,
+          stats,
+          summary: text,
+        },
       };
     }
 
@@ -389,7 +410,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       });
 
       if ((args as any)?.json) {
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          structuredContent: result,
+        };
       }
 
       const lines: string[] = [];
@@ -446,11 +470,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       if (result.duplicates.length === 0) {
         lines.push("✅ No significant duplicates found!");
-        return { content: [{ type: "text", text: lines.join("\n") }] };
+        return {
+          content: [{ type: "text", text: lines.join("\n") }],
+          structuredContent: {
+            rootDir,
+            summary: result.summary,
+            duplicates: [],
+          },
+        };
       }
 
       if (quiet) {
-        return { content: [{ type: "text", text: lines.join("\n") }] };
+        return {
+          content: [{ type: "text", text: lines.join("\n") }],
+          structuredContent: {
+            rootDir,
+            summary: result.summary,
+            duplicates: result.duplicates.slice(0, limit),
+          },
+        };
       }
 
       const topDuplicates = result.duplicates.slice(0, limit);
@@ -521,13 +559,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         );
       }
 
-      return { content: [{ type: "text", text: lines.join("\n") }] };
+      return {
+        content: [{ type: "text", text: lines.join("\n") }],
+        structuredContent: {
+          rootDir,
+          summary: result.summary,
+          duplicates: result.duplicates.slice(0, limit),
+        },
+      };
     }
 
     throw new Error(`Unknown tool: ${name}`);
   } catch (error: any) {
+    const message = error?.message || "Internal error";
     return {
-      content: [{ type: "text", text: `Error: ${error?.message || "Internal error"}` }],
+      content: [{ type: "text", text: `Error: ${message}` }],
+      structuredContent: {
+        error: message,
+      },
       isError: true,
     };
   }

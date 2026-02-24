@@ -1,5 +1,6 @@
 {
   "name": "sensegrep",
+  "private": true,
   "displayName": "Sensegrep",
   "description": "Semantic + structural code search with AI-powered duplicate detection",
   "version": "0.1.8",

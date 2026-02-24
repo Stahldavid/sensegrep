@@ -12,7 +12,7 @@ npm install -g @sensegrep/mcp
 
 ```json
 {
-  "servers": {
+  "mcpServers": {
     "sensegrep": {
       "command": "npx",
       "args": ["-y", "@sensegrep/mcp"]
@@ -29,7 +29,7 @@ npm install -g @sensegrep/mcp
 
 ```json
 {
-  "servers": {
+  "mcpServers": {
     "sensegrep": {
       "command": "sensegrep-mcp"
     }
@@ -38,6 +38,14 @@ npm install -g @sensegrep/mcp
 ```
 
 ## Tools
+
+Canonical tool names:
+
+- `sensegrep_search`
+- `sensegrep_index`
+- `sensegrep_detect_duplicates`
+
+Legacy aliases are still accepted for compatibility:
 
 - `sensegrep.search`
 - `sensegrep.index`
