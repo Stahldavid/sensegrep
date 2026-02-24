@@ -2,7 +2,7 @@
   "mcpServers": {
     "sensegrep": {
       "command": "npx",
-      "args": ["-y", "@sensegrep/mcp@0.1.19"]
+      "args": ["-y", "@sensegrep/mcp@0.1.21"]
     }
   }
 }
