@@ -19,6 +19,17 @@ The plugin sets up:
 - Rule (always-on) — teaches Cursor to prefer sensegrep over grep
 - Skill — full reference for filters and workflows
 
+For one-click MCP setup without marketplace flow, use:
+
+[Add sensegrep MCP to Cursor](cursor://anysphere.cursor-deeplink/mcp/install?name=sensegrep&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkBzZW5zZWdyZXAvbWNwQGxhdGVzdCJdfQ%3D%3D)
+
+To generate/update deeplinks automatically from this repo:
+
+```bash
+npm run cursor:install-link
+npm run cursor:install-link -- --workspace-root
+```
+
 Skip to [Smoke Test](#smoke-test).
 
 ## Option B: Manual MCP Setup

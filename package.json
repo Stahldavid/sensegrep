@@ -24,7 +24,8 @@
     "demo:asset:full": "npm run demo:render:full",
     "demo:render": "npm run demo:render:short",
     "demo:gif": "npm run demo:gif:short",
-    "demo:asset": "npm run demo:asset:short"
+    "demo:asset": "npm run demo:asset:short",
+    "cursor:install-link": "node scripts/mcp/generate-cursor-install-link.mjs"
   },
   "overrides": {
     "onnxruntime-node": "1.23.2"
