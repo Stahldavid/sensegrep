@@ -76,20 +76,13 @@ cursor plugin install sensegrep
 ```
 
 Includes the MCP server, an always-on rule to prefer sensegrep over grep, and a skill with full filter reference.
+Cursor plugin status: pending marketplace approval.
 
 One-click MCP install link for Cursor:
 
-[Add sensegrep MCP to Cursor](cursor://anysphere.cursor-deeplink/mcp/install?name=sensegrep&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkBzZW5zZWdyZXAvbWNwQGxhdGVzdCJdfQ%3D%3D)
-
-Generate or customize deeplinks automatically:
-
-```bash
-npm run cursor:install-link
-npm run cursor:install-link -- --workspace-root
-npm run cursor:install-link -- --package @sensegrep/mcp@0.1.21
+```text
+cursor://anysphere.cursor-deeplink/mcp/install?name=sensegrep&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkBzZW5zZWdyZXAvbWNwQGxhdGVzdCJdfQ%3D%3D
 ```
-
-Manual setup via `.cursor/mcp.json` (project) or `~/.cursor/mcp.json` (global) is still fully supported.
 
 ### MCP Server (for Windsurf or manual setup)
 
