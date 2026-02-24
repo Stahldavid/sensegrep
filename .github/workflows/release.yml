@@ -2,18 +2,27 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    branches:
+      - main
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
-  publish:
+  release:
+    name: Release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
@@ -34,27 +43,20 @@ jobs:
       - name: Test
         run: npm test
 
-      - name: Publish @sensegrep/core
-        run: npm publish --workspace packages/core --access public
+      - name: Create Release PR or Publish to npm
+        id: changesets
+        uses: changesets/action@v1
+        with:
+          publish: npm run release
+          version: npm run version
+          title: "chore: version packages"
+          commit: "chore: version packages"
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Publish @sensegrep/cli
-        run: npm publish --workspace packages/cli --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Publish @sensegrep/mcp
-        run: npm publish --workspace packages/mcp --access public
-        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish VS Code extension
+        if: steps.changesets.outputs.published == 'true'
         run: npm run publish --workspace packages/vscode
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          generate_release_notes: true
