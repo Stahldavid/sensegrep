@@ -21,7 +21,13 @@ The plugin sets up:
 
 For one-click MCP setup without marketplace flow, use:
 
-[Add sensegrep MCP to Cursor](cursor://anysphere.cursor-deeplink/mcp/install?name=sensegrep&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkBzZW5zZWdyZXAvbWNwQGxhdGVzdCJdfQ%3D%3D)
+[![Add to Cursor](https://img.shields.io/badge/Add%20to-Cursor-111111?logoColor=white)](https://stahldavid.github.io/sensegrep/cursor-install/)
+
+Fallback deeplink (copy/paste if needed):
+
+```text
+cursor://anysphere.cursor-deeplink/mcp/install?name=sensegrep&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkBzZW5zZWdyZXAvbWNwQGxhdGVzdCJdfQ%3D%3D
+```
 
 To generate/update deeplinks automatically from this repo:
 

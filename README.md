@@ -80,6 +80,10 @@ Cursor plugin status: pending marketplace approval.
 
 One-click MCP install link for Cursor:
 
+[![Add to Cursor](https://img.shields.io/badge/Add%20to-Cursor-111111?logoColor=white)](https://stahldavid.github.io/sensegrep/cursor-install/)
+
+Fallback deeplink (copy/paste if needed):
+
 ```text
 cursor://anysphere.cursor-deeplink/mcp/install?name=sensegrep&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkBzZW5zZWdyZXAvbWNwQGxhdGVzdCJdfQ%3D%3D
 ```
