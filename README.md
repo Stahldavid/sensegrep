@@ -35,15 +35,21 @@ Traditional search tools (grep, ripgrep, ast-grep) match **text patterns**. sens
 The fastest way to get sensegrep into Claude Code — zero configuration:
 
 ```bash
+claude plugin marketplace add Stahldavid/sensegrep
 claude plugin install sensegrep
 ```
 
 This automatically sets up the MCP server and teaches Claude when and how to use sensegrep instead of grep. No manual JSON editing required.
 
-> **Marketplace setup** (one-time, if the plugin is hosted on a custom marketplace):
+> **Marketplace setup** (one-time):
 > ```bash
 > claude plugin marketplace add Stahldavid/sensegrep
 > claude plugin install sensegrep
+> ```
+>
+> Explicit marketplace form also works:
+> ```bash
+> claude plugin install sensegrep@sensegrep
 > ```
 
 ### CLI
@@ -235,7 +241,7 @@ More embedding providers and API integrations are coming soon.
 | [@sensegrep/cli](packages/cli) | Command-line interface | [![npm](https://img.shields.io/npm/v/@sensegrep/cli)](https://www.npmjs.com/package/@sensegrep/cli) |
 | [@sensegrep/mcp](packages/mcp) | MCP server for AI agents | [![npm](https://img.shields.io/npm/v/@sensegrep/mcp)](https://www.npmjs.com/package/@sensegrep/mcp) |
 | [sensegrep](packages/vscode) | VS Code extension | [Marketplace](https://marketplace.visualstudio.com/items?itemName=sensegrep.sensegrep) |
-| [sensegrep-plugin](plugin/sensegrep-plugin) | Claude Code plugin | `claude plugin install sensegrep` |
+| [sensegrep-plugin](plugin/sensegrep-plugin) | Claude Code plugin | `claude plugin marketplace add Stahldavid/sensegrep && claude plugin install sensegrep` |
 | [sensegrep-cursor](plugin/sensegrep-cursor) | Cursor plugin | `cursor plugin install sensegrep` |
 
 ## Case Studies

@@ -5,15 +5,15 @@
 The fastest path — installs the MCP server and teaches Claude how to use sensegrep automatically:
 
 ```bash
+claude plugin marketplace add Stahldavid/sensegrep
 claude plugin install sensegrep
 ```
 
 That's it. Claude now has access to all sensegrep tools and knows when to prefer them over grep. Skip to [Smoke Test](#smoke-test).
 
-> If using a custom marketplace:
+> Explicit marketplace form also works:
 > ```bash
-> claude plugin marketplace add Stahldavid/sensegrep
-> claude plugin install sensegrep
+> claude plugin install sensegrep@sensegrep
 > ```
 
 ## Option B: Manual MCP Setup

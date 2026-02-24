@@ -34,12 +34,12 @@ Semantic code search plugin for Claude Code using `@sensegrep/mcp`.
 ## Install
 
 ```bash
+claude plugin marketplace add Stahldavid/sensegrep
 claude plugin install sensegrep
 ```
 
-If using a custom marketplace:
+If marketplace is already configured, this explicit form also works:
 
 ```bash
-claude plugin marketplace add Stahldavid/sensegrep
-claude plugin install sensegrep
+claude plugin install sensegrep@sensegrep
 ```

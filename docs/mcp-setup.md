@@ -9,10 +9,17 @@ For practical, end-to-end workflows, see [Recipes](recipes/README.md).
 The easiest way to set up sensegrep in Claude Code — zero configuration:
 
 ```bash
+claude plugin marketplace add Stahldavid/sensegrep
 claude plugin install sensegrep
 ```
 
 The plugin automatically configures the MCP server and includes a skill that teaches Claude when and how to use sensegrep. No manual JSON editing required.
+
+If you prefer explicit marketplace syntax:
+
+```bash
+claude plugin install sensegrep@sensegrep
+```
 
 ## Cursor Plugin
 
