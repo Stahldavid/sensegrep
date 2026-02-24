@@ -18,10 +18,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const TOOL_NAMES = {
   search: "sensegrep_search",
-  languages: "sensegrep_languages",
   detectDuplicates: "sensegrep_detect_duplicates",
   index: "sensegrep_index",
-  stats: "sensegrep_stats",
 } as const;
 
 function matchesToolName(name: string, canonical: string, ...legacy: string[]): boolean {
@@ -181,18 +179,6 @@ async function generateTools(): Promise<Tool[]> {
       },
     },
     {
-      name: TOOL_NAMES.languages,
-      description: "List supported languages, detect project languages, or show available variants",
-      inputSchema: {
-        type: "object",
-        properties: {
-          detect: { type: "boolean", description: "Detect languages in project" },
-          variants: { type: "boolean", description: "Show all variants by language" },
-          rootDir: { type: "string", description: "Root directory for detection" },
-        },
-      },
-    },
-    {
       name: TOOL_NAMES.detectDuplicates,
       description: "Detect logical duplicates using the existing semantic index.",
       inputSchema: {
@@ -222,27 +208,21 @@ async function generateTools(): Promise<Tool[]> {
     },
     {
       name: TOOL_NAMES.index,
-      description: "Create or update a semantic index for the given root directory.",
+      description: "Create/update semantic index or fetch index stats for the given root directory.",
       inputSchema: {
         type: "object",
         properties: {
+          action: {
+            type: "string",
+            enum: ["index", "stats"],
+            description: "Operation type: index (default) or stats",
+          },
           rootDir: { type: "string", description: "Root directory to index" },
           mode: {
             type: "string",
             enum: ["incremental", "full"],
-            description: "Index mode (default: incremental)",
+            description: "Index mode when action=index (default: incremental)",
           },
-          languages: { type: "string", description: "Languages to index (comma-separated, or 'auto')" },
-        },
-      },
-    },
-    {
-      name: TOOL_NAMES.stats,
-      description: "Get index stats for the given root directory.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          rootDir: { type: "string", description: "Root directory" },
         },
       },
     },
@@ -294,62 +274,38 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       };
     }
 
-    if (matchesToolName(name, TOOL_NAMES.languages, "sensegrep.languages")) {
-      const core = await loadCore();
-      const {
-        getLanguageCapabilities,
-        getVariantsGroupedByLanguage,
-        detectProjectLanguages,
-        formatDetectedLanguages,
-        getAllLanguages,
-      } = core;
-
-      const lines: string[] = [];
-
-      if ((args as any)?.detect) {
-        const detected = await detectProjectLanguages(rootDir);
-        if (detected.length === 0) {
-          lines.push("No supported languages detected.");
-        } else {
-          lines.push(formatDetectedLanguages(detected));
-          lines.push("");
-          lines.push(`Recommendation: Use --languages ${detected.map((d: any) => d.language).join(",")}`);
-        }
-      } else if ((args as any)?.variants) {
-        const variantsByLang = getVariantsGroupedByLanguage();
-        lines.push("Variants by language:\n");
-        for (const [lang, variants] of variantsByLang) {
-          lines.push(`  ${lang}:`);
-          for (const v of variants as any[]) {
-            lines.push(`    - ${v.name.padEnd(15)} ${v.description}`);
-          }
-          lines.push("");
-        }
-      } else {
-        const all = getAllLanguages();
-        const caps = getLanguageCapabilities();
-        lines.push("Supported languages:\n");
-        for (const lang of all) {
-          lines.push(`  ✅ ${lang.displayName} (${lang.extensions.join(", ")})`);
-        }
-        lines.push("");
-        lines.push(`Symbol types: ${caps.symbolTypes.join(", ")}`);
-        lines.push(`Variants: ${caps.variants.length} total`);
-        lines.push(`Decorators: ${caps.decorators.length} total`);
-      }
-
-      return { content: [{ type: "text", text: lines.join("\n") }] };
-    }
-
-    if (matchesToolName(name, TOOL_NAMES.index, "sensegrep.index")) {
+    const isLegacyStatsTool = matchesToolName(name, "sensegrep_stats", "sensegrep.stats");
+    if (matchesToolName(name, TOOL_NAMES.index, "sensegrep.index") || isLegacyStatsTool) {
       const { core } = await loadTool();
       const { Indexer, Instance } = core;
+      const action = String(
+        (args as any).action ?? (isLegacyStatsTool ? "stats" : "index"),
+      ).toLowerCase();
+
+      if (action !== "index" && action !== "stats") {
+        throw new Error(`Invalid action: ${action}. Expected "index" or "stats".`);
+      }
+
+      if (action === "stats") {
+        const stats = await Instance.provide({
+          directory: rootDir,
+          fn: () => Indexer.getStats(),
+        });
+        return {
+          content: [{ type: "text", text: JSON.stringify(stats, null, 2) }],
+        };
+      }
+
       const mode = String((args as any).mode ?? "incremental").toLowerCase();
       const full = mode === "full";
       const result = (await Instance.provide({
         directory: rootDir,
         fn: () => (full ? Indexer.indexProject() : Indexer.indexProjectIncremental()),
       })) as any;
+      const stats = await Instance.provide({
+        directory: rootDir,
+        fn: () => Indexer.getStats(),
+      });
       const files = result.files ?? 0;
       const chunks = result.chunks ?? 0;
       const skipped = result.skipped ?? 0;
@@ -360,7 +316,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         ? `Indexed ${files} files (${chunks} chunks), skipped ${skipped}, removed ${removed} in ${duration}s`
         : `Indexed ${files} files (${chunks} chunks) in ${duration}s`;
       return {
-        content: [{ type: "text", text }],
+        content: [{ type: "text", text: `${text}\n\nStats:\n${JSON.stringify(stats, null, 2)}` }],
       };
     }
 
@@ -566,18 +522,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       return { content: [{ type: "text", text: lines.join("\n") }] };
-    }
-
-    if (matchesToolName(name, TOOL_NAMES.stats, "sensegrep.stats")) {
-      const { core } = await loadTool();
-      const { Indexer, Instance } = core;
-      const stats = await Instance.provide({
-        directory: rootDir,
-        fn: () => Indexer.getStats(),
-      });
-      return {
-        content: [{ type: "text", text: JSON.stringify(stats, null, 2) }],
-      };
     }
 
     throw new Error(`Unknown tool: ${name}`);

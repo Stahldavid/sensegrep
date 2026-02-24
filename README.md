@@ -30,6 +30,22 @@ Traditional search tools (grep, ripgrep, ast-grep) match **text patterns**. sens
 
 ## Quickstart
 
+### Claude Code Plugin (recommended)
+
+The fastest way to get sensegrep into Claude Code — zero configuration:
+
+```bash
+claude plugin install sensegrep
+```
+
+This automatically sets up the MCP server and teaches Claude when and how to use sensegrep instead of grep. No manual JSON editing required.
+
+> **Marketplace setup** (one-time, if the plugin is hosted on a custom marketplace):
+> ```bash
+> claude plugin marketplace add Stahldavid/sensegrep
+> claude plugin install sensegrep
+> ```
+
 ### CLI
 
 ```bash
@@ -45,7 +61,17 @@ sensegrep search "error handling and retry logic" --type function --exported
 sensegrep detect-duplicates --threshold 0.85
 ```
 
-### MCP Server (for Claude Code, Cursor, Windsurf, etc.)
+### Cursor Plugin
+
+Install from the Cursor marketplace or via CLI:
+
+```bash
+cursor plugin install sensegrep
+```
+
+Includes the MCP server, an always-on rule to prefer sensegrep over grep, and a skill with full filter reference.
+
+### MCP Server (for Windsurf or manual setup)
 
 ```bash
 npx -y @sensegrep/mcp
@@ -55,16 +81,32 @@ Add to your MCP configuration:
 
 ```json
 {
-  "mcpServers": {
+  "servers": {
     "sensegrep": {
       "command": "npx",
-      "args": ["-y", "@sensegrep/mcp"],
+      "args": ["-y", "@sensegrep/mcp"]
     }
   }
 }
 ```
 
-The MCP server provides `sensegrep.search`, `sensegrep.index`, `sensegrep.stats`, `sensegrep.detect_duplicates`, and `sensegrep.languages` tools.
+Or with `npm` global install first:
+
+```bash
+npm install -g @sensegrep/mcp
+```
+
+```json
+{
+  "servers": {
+    "sensegrep": {
+      "command": "sensegrep-mcp"
+    }
+  }
+}
+```
+
+The MCP server provides `sensegrep.search`, `sensegrep.index`, and `sensegrep.detect_duplicates` tools.
 
 ### VS Code Extension
 
@@ -112,7 +154,7 @@ Source Code
 
 1. **Parse**: Tree-sitter extracts AST nodes with full metadata (symbol type, exports, complexity, docs, decorators)
 2. **Chunk**: Code is split into semantic chunks aligned to symbol boundaries
-3. **Embed**: Each chunk is embedded using local models (HuggingFace transformers.js) or Gemini API
+3. **Embed**: Each chunk is embedded using local models (HuggingFace transformers.js) or Gemini API. For production quality, Gemini is strongly recommended.
 4. **Store**: Embeddings + metadata are stored in LanceDB for fast vector search
 5. **Search**: Your query is embedded and matched against the index with optional structural filters
 6. **Tree-shake**: Results are collapsed to show only relevant code, hiding unrelated symbols
@@ -170,7 +212,18 @@ Global defaults via `~/.config/sensegrep/config.json`:
 }
 ```
 
-Environment variables: `SENSEGREP_PROVIDER`, `SENSEGREP_EMBED_MODEL`, `SENSEGREP_EMBED_DIM`, `SENSEGREP_EMBED_DEVICE`.
+Common environment variables:
+
+- `SENSEGREP_PROVIDER` (`local`, `gemini`, `openai`)
+- `SENSEGREP_EMBED_MODEL`
+- `SENSEGREP_EMBED_DIM`
+- `SENSEGREP_EMBED_DEVICE` (`cpu`, `cuda`, `webgpu`, `wasm`)
+- `GEMINI_API_KEY` / `GOOGLE_API_KEY` (Gemini)
+- `SENSEGREP_OPENAI_API_KEY` / `FIREWORKS_API_KEY` / `OPENAI_API_KEY` (OpenAI-compatible)
+- `SENSEGREP_ROOT` (MCP root directory)
+- `SENSEGREP_WATCH` (MCP watcher toggle)
+
+For the complete and official runtime variable list, see `docs/mcp-setup.md`.
 
 More embedding providers and API integrations are coming soon.
 
@@ -182,6 +235,8 @@ More embedding providers and API integrations are coming soon.
 | [@sensegrep/cli](packages/cli) | Command-line interface | [![npm](https://img.shields.io/npm/v/@sensegrep/cli)](https://www.npmjs.com/package/@sensegrep/cli) |
 | [@sensegrep/mcp](packages/mcp) | MCP server for AI agents | [![npm](https://img.shields.io/npm/v/@sensegrep/mcp)](https://www.npmjs.com/package/@sensegrep/mcp) |
 | [sensegrep](packages/vscode) | VS Code extension | [Marketplace](https://marketplace.visualstudio.com/items?itemName=sensegrep.sensegrep) |
+| [sensegrep-plugin](plugin/sensegrep-plugin) | Claude Code plugin | `claude plugin install sensegrep` |
+| [sensegrep-cursor](plugin/sensegrep-cursor) | Cursor plugin | `cursor plugin install sensegrep` |
 
 ## Case Studies
 
@@ -207,4 +262,3 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, architecture overv
 ## License
 
 [Apache-2.0](LICENSE)
-

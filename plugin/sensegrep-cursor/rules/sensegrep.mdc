@@ -24,9 +24,7 @@ When exploring code, searching for functions, classes, patterns, or understandin
 
 - `sensegrep_search` — Semantic + structural code search (primary tool)
 - `sensegrep_detect_duplicates` — Find logical code duplicates across files
-- `sensegrep_index` — Create or update the semantic index
-- `sensegrep_stats` — Check index health
-- `sensegrep_languages` — Detect project languages and available variants
+- `sensegrep_index` — Create/update the semantic index or fetch index stats (`action: "index" | "stats"`)
 
 ## Search best practices
 
