@@ -172,7 +172,10 @@ async function generateTools(): Promise<Tool[]> {
           },
           parentScope: { type: "string", description: "Parent scope/class name" },
           imports: { type: "string", description: "Filter by imported module name" },
-          rerank: { type: "boolean", description: "Enable cross-encoder reranking" },
+          rerank: {
+            type: "boolean",
+            description: "Compatibility flag. Remote-only mode keeps semantic ranking unchanged",
+          },
           rootDir: { type: "string", description: "Root directory (default: cwd)" },
         },
         required: ["query"],

@@ -35,7 +35,7 @@ packages/
 │   └── src/
 │       └── semantic/
 │           ├── chunker.ts       # Code chunking by symbol boundaries
-│           ├── embeddings-hf.ts # HuggingFace local embeddings
+│           ├── embeddings-remote.ts # Remote embeddings providers
 │           ├── indexer.ts       # Index creation and incremental updates
 │           ├── lancedb.ts       # LanceDB vector store
 │           ├── tree-shaker.ts   # Output collapsing/tree-shaking

@@ -59,13 +59,11 @@ Search options:
   --language <lang>         typescript|javascript|python (comma-separated for multiple)
   --parent <name>           Parent scope/class name
   --imports <name>          Filter by imported module name
-  --rerank <true|false>     Enable cross-encoder reranking (default: false)
+  --rerank <true|false>     Compatibility flag; semantic ranking is kept as-is
   --no-rerank               Disable reranking
-  --embed-model <name>      Override embedding model (Hugging Face)
+  --embed-model <name>      Override remote embedding model
   --embed-dim <n>           Override embedding dimension
-  --rerank-model <name>     Override reranker model
-  --device <name>           cpu|cuda|webgpu|wasm
-  --provider <name>         local|gemini
+  --provider <name>         gemini|openai
   --root <dir>              Root directory (default: cwd)
   --watch                   Keep running; reindex at most once per minute on changes
   --json                    Output JSON
@@ -135,14 +133,19 @@ function toBool(value: string | boolean | undefined) {
 
 function applyEmbeddingOverrides(flags: Flags, Embeddings: CoreModule["Embeddings"]) {
   const overrides: Record<string, unknown> = {}
+  const provider = flags.provider ? String(flags.provider).toLowerCase() : undefined
+
+  if (flags.device || flags["rerank-model"] || flags.rerankModel) {
+    throw new Error("Device and reranker overrides were removed. Use remote Gemini or OpenAI embeddings only.")
+  }
+  if (provider && provider !== "gemini" && provider !== "openai") {
+    throw new Error(`Unsupported provider "${provider}". Use --provider gemini or --provider openai.`)
+  }
   if (flags["embed-model"]) overrides.embedModel = String(flags["embed-model"])
   if (flags.embedModel) overrides.embedModel = String(flags.embedModel)
   if (flags["embed-dim"]) overrides.embedDim = Number(flags["embed-dim"])
   if (flags.embedDim) overrides.embedDim = Number(flags.embedDim)
-  if (flags["rerank-model"]) overrides.rerankModel = String(flags["rerank-model"])
-  if (flags.rerankModel) overrides.rerankModel = String(flags.rerankModel)
-  if (flags.device) overrides.device = String(flags.device)
-  if (flags.provider) overrides.provider = String(flags.provider)
+  if (provider) overrides.provider = provider
 
   if (Object.keys(overrides).length > 0) {
     Embeddings.configure(overrides as any)

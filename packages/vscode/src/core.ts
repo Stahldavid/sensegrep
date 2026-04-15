@@ -156,7 +156,6 @@ export interface IndexStats {
     provider: string
     model?: string
     dimension: number
-    device?: string
   }
 }
 
@@ -168,7 +167,6 @@ export interface IndexStatus {
     provider: string
     model?: string
     dimension: number
-    device?: string
   }
   updatedAt?: number
 }
@@ -183,7 +181,6 @@ export interface IndexVerification {
     provider: string
     model?: string
     dimension: number
-    device?: string
   }
   updatedAt?: number
 }
@@ -251,32 +248,33 @@ export class SensegrepCore {
     const explicitProvider = explicitSetting<string>("embeddings.provider")
     const explicitModel = explicitSetting<string>("embeddings.model")
     const explicitDim = explicitSetting<number>("embeddings.dimension")
-    const explicitDevice = explicitSetting<string>("embeddings.device")
     const hasGeminiKey = !!(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY)
     const wantsGemini = explicitProvider === "gemini" || (!explicitProvider && hasGeminiKey)
 
     // Apply provider settings
     if (explicitProvider) {
       process.env.SENSEGREP_PROVIDER = explicitProvider
-    } else if (wantsGemini && process.env.SENSEGREP_PROVIDER === "local") {
+    } else if (
+      process.env.SENSEGREP_PROVIDER &&
+      process.env.SENSEGREP_PROVIDER !== "gemini" &&
+      process.env.SENSEGREP_PROVIDER !== "openai"
+    ) {
       delete process.env.SENSEGREP_PROVIDER
     }
 
     if (explicitModel) {
       process.env.SENSEGREP_EMBED_MODEL = explicitModel
-    } else if (wantsGemini && process.env.SENSEGREP_EMBED_MODEL === "BAAI/bge-small-en-v1.5") {
+    } else if (process.env.SENSEGREP_EMBED_MODEL === "BAAI/bge-small-en-v1.5") {
       delete process.env.SENSEGREP_EMBED_MODEL
     }
 
     if (explicitDim) {
       process.env.SENSEGREP_EMBED_DIM = String(explicitDim)
-    } else if (wantsGemini && process.env.SENSEGREP_EMBED_DIM === "384") {
+    } else if (process.env.SENSEGREP_EMBED_DIM === "384") {
       delete process.env.SENSEGREP_EMBED_DIM
     }
 
-    if (explicitDevice) {
-      process.env.SENSEGREP_EMBED_DEVICE = explicitDevice
-    } else if (wantsGemini && process.env.SENSEGREP_EMBED_DEVICE) {
+    if (process.env.SENSEGREP_EMBED_DEVICE) {
       delete process.env.SENSEGREP_EMBED_DEVICE
     }
 

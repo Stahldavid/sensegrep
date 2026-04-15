@@ -75,17 +75,17 @@ This ensures that search results return complete, meaningful code units rather t
 
 ### Embeddings
 
-sensegrep supports two embedding providers:
-
-**Local (default)**: Uses [transformers.js](https://huggingface.co/docs/transformers.js) with ONNX Runtime to run models locally. Default model: `BAAI/bge-small-en-v1.5` (384 dimensions). Supports CPU, CUDA, WebGPU, and WASM backends.
+sensegrep supports remote embedding providers:
 
 **Gemini**: Uses Google's Gemini Embedding API for cloud-based embeddings. Requires a `GEMINI_API_KEY`.
+
+**OpenAI-compatible**: Uses an OpenAI-style `/embeddings` API such as Fireworks or OpenAI.
 
 For most production workloads, Gemini is strongly recommended because it supports much larger token contexts and generally yields better semantic retrieval quality.
 
 Support for additional embedding providers and APIs is planned.
 
-Configuration is managed through `packages/core/src/semantic/embeddings-hf.ts` and stored per-index so searches always use the same model that was used for indexing.
+Configuration is managed through `packages/core/src/semantic/embeddings-remote.ts` and stored per-index so searches always use the same model that was used for indexing.
 
 ### LanceDB Vector Store
 

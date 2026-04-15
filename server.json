@@ -27,7 +27,7 @@
         },
         {
           "name": "SENSEGREP_PROVIDER",
-          "description": "Embeddings provider: local or gemini.",
+          "description": "Embeddings provider: gemini or openai.",
           "isRequired": false,
           "format": "string",
           "isSecret": false

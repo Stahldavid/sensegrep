@@ -41,5 +41,5 @@ All notable changes to this project will be documented in this file.
 - Hybrid semantic + structural search with optional regex filtering
 - Incremental indexing with hash-based verification
 - Optional cross-encoder reranking
-- Embedding configuration support (local HuggingFace + Gemini)
-- CLI overrides for embedding model, dimension, and device
+- Embedding configuration support for remote providers
+- CLI overrides for embedding model and dimension

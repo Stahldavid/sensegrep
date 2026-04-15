@@ -26,14 +26,12 @@ export interface SensegrepConfig {
    * Embedding configuration
    */
   embeddings?: {
-    /** Model name for local embeddings */
+    /** Remote embedding model name */
     model?: string
     /** Embedding dimensions */
     dimensions?: number
     /** Embedding provider */
-    provider?: "local" | "gemini"
-    /** Device for inference */
-    device?: "cpu" | "cuda" | "webgpu" | "wasm"
+    provider?: "gemini" | "openai"
   }
 
   /**

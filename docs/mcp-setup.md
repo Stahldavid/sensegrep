@@ -121,11 +121,9 @@ Variables below are supported by the current runtime.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SENSEGREP_PROVIDER` | `local` | Embedding provider (`local`, `gemini`, `openai`) |
+| `SENSEGREP_PROVIDER` | `gemini` | Embedding provider (`gemini`, `openai`) |
 | `SENSEGREP_EMBED_MODEL` | Provider-dependent | Embedding model name override |
 | `SENSEGREP_EMBED_DIM` | Provider-dependent | Embedding dimension override |
-| `SENSEGREP_EMBED_DEVICE` | auto/`cpu` | Device (`cpu`, `cuda`, `webgpu`, `wasm`) |
-| `SENSEGREP_RERANK_MODEL` | `Xenova/ms-marco-MiniLM-L-6-v2` | Reranker model |
 
 ### API Keys and Endpoints
 
@@ -151,7 +149,6 @@ Variables below are supported by the current runtime.
 | `OPENCODE_SEMANTIC_EMBEDDINGS` | Alias for provider selection |
 | `OPENCODE_GEMINI_EMBED_MODEL` | Gemini model fallback |
 | `OPENCODE_GEMINI_EMBED_DIM` | Gemini dimension fallback |
-| `OPENCODE_EMBEDDINGS_DEVICE` | Device fallback |
 
 ### Precedence (high -> low)
 

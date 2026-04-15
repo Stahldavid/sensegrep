@@ -47,9 +47,8 @@ Search your codebase by meaning, not just text. Sensegrep uses AI embeddings and
 | `sensegrep.showDiagnostics` | `true` | Show duplicate warnings in Problems panel |
 | `sensegrep.semanticFolding` | `true` | Collapse unrelated code on navigation |
 | `sensegrep.duplicateThreshold` | `0.85` | Similarity threshold for duplicates |
-| `sensegrep.embeddings.provider` | `local` | `local` (transformers.js) or `gemini` (recommended) |
-| `sensegrep.embeddings.model` | `BAAI/bge-small-en-v1.5` | Embedding model |
-| `sensegrep.embeddings.device` | `cpu` | `cpu`, `cuda`, `webgpu`, `wasm` |
+| `sensegrep.embeddings.provider` | `gemini` | `gemini` or `openai` |
+| `sensegrep.embeddings.model` | `gemini-embedding-001` | Embedding model |
 
 ### Using Gemini Embeddings
 
@@ -59,9 +58,7 @@ For cloud-based embeddings (recommended):
 2. Run **Sensegrep: Set Gemini API Key** or set the `GEMINI_API_KEY` env variable
 3. Set `sensegrep.embeddings.provider` to `"gemini"`
 
-Why recommended: Gemini generally gives better semantic search quality and handles much larger token contexts than local embedding models.
-
-Local embeddings remain supported, and support for additional providers/APIs is coming soon.
+Why recommended: Gemini generally gives better semantic search quality and handles much larger token contexts than most remote embedding defaults.
 
 ## Requirements
 

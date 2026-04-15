@@ -75,12 +75,10 @@ sensegrep search <query> [options]
 
 | Flag | Description |
 |------|-------------|
-| `--embed-model <name>` | Override embedding model |
+| `--embed-model <name>` | Override remote embedding model |
 | `--embed-dim <n>` | Override embedding dimension |
-| `--rerank-model <name>` | Override reranker model |
-| `--device <name>` | `cpu`, `cuda`, `webgpu`, `wasm` |
-| `--provider <name>` | `local`, `gemini` |
-| `--rerank` / `--no-rerank` | Enable/disable cross-encoder reranking |
+| `--provider <name>` | `gemini`, `openai` |
+| `--rerank` / `--no-rerank` | Compatibility flag; remote-only mode keeps semantic ranking |
 
 ### `sensegrep detect-duplicates`
 

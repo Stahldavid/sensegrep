@@ -9,9 +9,11 @@ import { Instance } from "../project/instance.js"
 import { Embeddings } from "../semantic/embeddings.js"
 import { Ripgrep } from "../file/ripgrep.js"
 import { TreeShaker } from "../semantic/tree-shaker.js"
+import { Log } from "../util/log.js"
 import path from "path"
 
 const DESCRIPTION = readFileSync(new URL("./sensegrep.txt", import.meta.url), "utf8")
+const log = Log.create({ service: "tool.sensegrep" })
 
 const MAX_LINE_LENGTH = 2000
 
@@ -183,7 +185,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     maxPerSymbol: z.number().optional().describe("Maximum results per symbol (default: 2)"),
 
     include: z.string().optional().describe('File pattern to filter results (e.g. "*.ts", "src/**/*.tsx")'),
-    rerank: z.boolean().default(false).describe("Enable cross-encoder reranking (default: false)"),
+    rerank: z.boolean().default(false).describe("Compatibility flag. Remote-only mode does not perform reranking."),
     minScore: z.number().optional().describe("Minimum relevance score 0-1 (filters low-confidence results)"),
     symbol: z.string().optional().describe('Filter by symbol name (e.g. "VectorStore")'),
     name: z.string().optional().describe('Alias for "symbol"'),
@@ -231,7 +233,6 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       provider: meta.embeddings.provider,
       embedModel: meta.embeddings.model,
       embedDim: meta.embeddings.dimension,
-      ...(meta.embeddings.device ? { device: meta.embeddings.device } : {}),
     }
 
     const run = async () => {
@@ -361,22 +362,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     // Optional rerank (cross-encoder) on top-N candidates
     let rankedResults = workingResults
     if (shouldRerank && workingResults.length > 1) {
-      const candidateCount = Math.min(Math.max(limit, 20), 100, workingResults.length)
-      const candidates = workingResults.slice(0, candidateCount)
-      const rerankScores = await Embeddings.rerank(
-        params.query,
-        candidates.map((c) => c.content),
-      )
-      const scoreByIndex = new Map<number, number>()
-      for (const s of rerankScores) scoreByIndex.set(s.index, s.score)
-      const reranked = candidates
-        .map((c, i) => ({
-          ...c,
-          rerankScore: scoreByIndex.get(i) ?? 0,
-        }))
-        .sort((a, b) => (b.rerankScore ?? 0) - (a.rerankScore ?? 0))
-      const remainder = workingResults.slice(candidateCount)
-      rankedResults = [...reranked, ...remainder]
+      log.warn("rerank requested but reranking is disabled in remote-only mode")
     }
 
     const minScore = typeof params.minScore === "number" ? params.minScore : undefined

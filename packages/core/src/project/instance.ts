@@ -23,7 +23,7 @@ export const Instance = {
   },
   get project() {
     return {
-      id: "local",
+      id: "workspace",
       worktree: currentDirectory,
       time: { created: Date.now(), updated: Date.now() },
     } as any

@@ -348,7 +348,6 @@ export namespace Indexer {
         provider: config.provider,
         model: config.embedModel,
         dimension: config.embedDim,
-        ...(config.device ? { device: config.device } : {}),
       },
       files: fileStats,
       updatedAt: Date.now(),
@@ -563,7 +562,7 @@ export namespace Indexer {
     await VectorStore.writeIndexMeta(Instance.directory, {
       version: 1,
       root: Instance.directory,
-      embeddings: { provider, model, dimension, ...(config.device ? { device: config.device } : {}) },
+      embeddings: { provider, model, dimension },
       files: newStats,
       updatedAt: Date.now(),
     })

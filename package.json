@@ -11,7 +11,7 @@
     "check": "npm run check --workspaces --if-present",
     "changeset": "changeset",
     "version": "changeset version",
-    "release": "npm run build && changeset publish",
+    "release": "npm run build && changeset publish --provenance",
     "dev": "echo 'Use packages/cli or packages/mcp when implemented'",
     "test": "vitest run",
     "test:watch": "vitest",

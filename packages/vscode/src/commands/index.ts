@@ -48,11 +48,11 @@ export function registerCommands(
         inspected?.workspaceValue ??
         inspected?.globalValue
       const provider =
-        explicit === "gemini" || explicit === "local"
+        explicit === "gemini" || explicit === "openai"
           ? explicit
           : process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
             ? "gemini"
-            : "local"
+            : "openai"
 
       const apiKey = await core.getApiKey()
       const nonce = getNonce()
@@ -78,7 +78,7 @@ export function registerCommands(
           await searchViewProvider.refreshApiKeyBanner()
           break
         case "setProvider":
-          if (message.provider === "local" || message.provider === "gemini") {
+          if (message.provider === "gemini" || message.provider === "openai") {
             const cfg = vscode.workspace.getConfiguration("sensegrep")
             await cfg.update(
               "embeddings.provider",

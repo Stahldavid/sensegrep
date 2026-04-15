@@ -448,8 +448,8 @@ export function getSearchViewHtml(
     <div id="apiKeyBanner" class="api-key-banner hidden">
       <span class="api-key-banner-icon">⚠️</span>
       <span class="api-key-banner-text">
-        Gemini API key required for cloud embeddings. 
-        <a href="#" id="setApiKeyLink">Set API Key</a> or switch to local embeddings.
+        Gemini API key required for Gemini embeddings.
+        <a href="#" id="setApiKeyLink">Set API Key</a> or switch providers.
       </span>
     </div>
     
@@ -1918,10 +1918,10 @@ export function getSettingsViewHtml(
     <div class="field">
       <label>Provider</label>
       <select id="provider">
-        <option value="local" ${provider === 'local' ? 'selected' : ''}>Local (transformers.js)</option>
         <option value="gemini" ${provider === 'gemini' ? 'selected' : ''}>Gemini (cloud)</option>
+        <option value="openai" ${provider === 'openai' ? 'selected' : ''}>OpenAI-compatible (cloud)</option>
       </select>
-      <div class="hint">Local is free but slower. Gemini requires API key but provides better results.</div>
+      <div class="hint">Use a remote embeddings API. Gemini has built-in key management here; OpenAI-compatible uses environment variables.</div>
     </div>
   </div>
   

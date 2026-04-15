@@ -8,7 +8,7 @@ Usage:
 - `pattern` (optional): Regex pattern to filter semantic results (case-insensitive)
 - `limit` (optional): Maximum results (default: 20)
 - `include` (optional): File pattern filter (e.g. "*.ts", "src/**/*.tsx")
-- `rerank` (optional): Enable cross-encoder reranking (default: false)
+- `rerank` (optional): Compatibility flag. Remote-only mode keeps semantic ranking as-is
 - `minScore` (optional): Minimum relevance score 0-1 (filters low-confidence results)
 - `symbol` (optional): Filter by symbol name (e.g. "VectorStore")
 - `maxPerFile` (optional): Max results per file (default: 1)
@@ -27,7 +27,7 @@ Semantic Metadata Filters (optional):
 How it works:
 1. Semantic search finds conceptually relevant code chunks using AI embeddings
 2. If `pattern` provided, ripgrep filters to only chunks containing the pattern
-3. If `rerank` enabled, a cross-encoder reranks the top candidates
+3. If `rerank` enabled, the current remote-only build keeps semantic ranking unchanged
 4. Top results returned with full code content
 
 When to use sensegrep vs grep:

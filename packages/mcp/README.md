@@ -57,8 +57,8 @@ Common MCP/runtime variables:
 
 - `SENSEGREP_ROOT` - root directory to index/search
 - `SENSEGREP_WATCH` - watcher toggle (`0`, `false`, `off`, `no` disables)
-- `SENSEGREP_PROVIDER` - `local`, `gemini`, or `openai`
-- `SENSEGREP_EMBED_MODEL`, `SENSEGREP_EMBED_DIM`, `SENSEGREP_EMBED_DEVICE`
+- `SENSEGREP_PROVIDER` - `gemini` or `openai`
+- `SENSEGREP_EMBED_MODEL`, `SENSEGREP_EMBED_DIM`
 - `GEMINI_API_KEY` / `GOOGLE_API_KEY`
 - `SENSEGREP_OPENAI_API_KEY` / `FIREWORKS_API_KEY` / `OPENAI_API_KEY`
 

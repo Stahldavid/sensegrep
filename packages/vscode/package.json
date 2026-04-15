@@ -437,32 +437,21 @@
         "sensegrep.embeddings.provider": {
           "type": "string",
           "enum": [
-            "local",
-            "gemini"
+            "gemini",
+            "openai"
           ],
-          "default": "local",
-          "description": "Embeddings provider (local uses transformers.js)"
+          "default": "gemini",
+          "description": "Remote embeddings provider"
         },
         "sensegrep.embeddings.model": {
           "type": "string",
-          "default": "BAAI/bge-small-en-v1.5",
+          "default": "gemini-embedding-001",
           "description": "Embedding model name"
         },
         "sensegrep.embeddings.dimension": {
           "type": "number",
-          "default": 384,
+          "default": 768,
           "description": "Embedding dimension"
-        },
-        "sensegrep.embeddings.device": {
-          "type": "string",
-          "enum": [
-            "cpu",
-            "cuda",
-            "webgpu",
-            "wasm"
-          ],
-          "default": "cpu",
-          "description": "Compute device for local embeddings"
         },
         "sensegrep.geminiApiKey": {
           "type": "string",

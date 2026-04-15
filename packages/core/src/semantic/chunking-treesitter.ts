@@ -29,52 +29,33 @@ type TreeCursor = {
 
 const log = Log.create({ service: "semantic.chunking-treesitter" })
 
-// Chunk size limits vary by embedding model
-// Local (BAAI/bge-small-en-v1.5): 512 tokens → conservative chunk sizes
-// Gemini (gemini-embedding-001): 2048 tokens → aggressive chunk sizes
-const CHUNK_LIMITS = {
-  local: {
-    max: 1200, // ~300 tokens (safe for 512 token limit)
-    min: 100,
-    overlap: 2,
-    config: {
-      simple: 1200, // ~300 tokens
-      medium: 1000, // ~250 tokens
-      complex: 800, // ~200 tokens
-    },
-  },
-  gemini: {
-    max: 7500, // ~1875 tokens (safe for 2048 token limit with margin)
-    min: 200,
-    overlap: 3,
-    config: {
-      simple: 7500, // ~1875 tokens - full capacity for simple code
-      medium: 5500, // ~1375 tokens - medium complexity
-      complex: 3500, // ~875 tokens - complex/nested code
-    },
+const REMOTE_CHUNK_LIMITS = {
+  max: 7500,
+  min: 200,
+  overlap: 3,
+  config: {
+    simple: 7500,
+    medium: 5500,
+    complex: 3500,
   },
 } as const
 
-// Get chunk limits based on current embedding provider
 function getChunkLimits() {
   try {
     const config = getEmbeddingConfig()
-    const provider = config.provider === "gemini" ? "gemini" : "local"
     log.info("treesitter chunk limits provider detected", {
-      provider,
-      max: CHUNK_LIMITS[provider].max,
-      envProvider: process.env.SENSEGREP_PROVIDER
+      provider: config.provider,
+      max: REMOTE_CHUNK_LIMITS.max,
+      envProvider: process.env.SENSEGREP_PROVIDER,
     })
-    return CHUNK_LIMITS[provider]
+    return REMOTE_CHUNK_LIMITS
   } catch (error) {
-    // Fallback to local limits if can't detect
-    log.warn("treesitter failed to detect provider, using local limits", { error: String(error) })
-    return CHUNK_LIMITS.local
+    log.warn("treesitter failed to detect provider, using remote chunk limits", { error: String(error) })
+    return REMOTE_CHUNK_LIMITS
   }
 }
 
-// Dynamic chunk sizes based on provider (lazy evaluation)
-let cachedLimits: typeof CHUNK_LIMITS.local | typeof CHUNK_LIMITS.gemini | null = null
+let cachedLimits: typeof REMOTE_CHUNK_LIMITS | null = null
 function getLimits() {
   if (!cachedLimits) {
     cachedLimits = getChunkLimits()

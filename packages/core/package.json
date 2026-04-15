@@ -24,12 +24,10 @@
     "node": ">=18"
   },
   "dependencies": {
-    "@huggingface/transformers": "^3.0.0",
     "@lancedb/lancedb": "^0.23.0",
     "apache-arrow": "18.1.0",
     "@parcel/watcher": "^2.4.1",
     "@zip.js/zip.js": "^2.7.0",
-    "onnxruntime-node": "^1.18.0",
     "picomatch": "^4.0.2",
     "tree-sitter-wasms": "^0.1.5",
     "web-tree-sitter": "^0.21.0",

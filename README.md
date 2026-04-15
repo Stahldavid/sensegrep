@@ -151,8 +151,8 @@ Source Code
     ▼
 ┌─────────────┐    ┌──────────────┐    ┌──────────────┐
 │  Tree-Sitter │───▶│   Chunker    │───▶│  Embeddings  │
-│  AST Parser  │    │  (symbols +  │    │  (local or   │
-│              │    │   metadata)  │    │   Gemini)    │
+│  AST Parser  │    │  (symbols +  │    │ (Gemini or   │
+│              │    │   metadata)  │    │ OpenAI-comp) │
 └─────────────┘    └──────────────┘    └──────────────┘
                                               │
                                               ▼
@@ -171,7 +171,7 @@ Source Code
 
 1. **Parse**: Tree-sitter extracts AST nodes with full metadata (symbol type, exports, complexity, docs, decorators)
 2. **Chunk**: Code is split into semantic chunks aligned to symbol boundaries
-3. **Embed**: Each chunk is embedded using local models (HuggingFace transformers.js) or Gemini API. For production quality, Gemini is strongly recommended.
+3. **Embed**: Each chunk is embedded using Gemini or an OpenAI-compatible embeddings API.
 4. **Store**: Embeddings + metadata are stored in LanceDB for fast vector search
 5. **Search**: Your query is embedded and matched against the index with optional structural filters
 6. **Tree-shake**: Results are collapsed to show only relevant code, hiding unrelated symbols
@@ -202,39 +202,33 @@ sensegrep search "route handler" --type function --decorator route
 
 ## Embeddings Configuration
 
-sensegrep supports local and Gemini embeddings.
-
-While local embeddings are fully supported, we strongly recommend Gemini embeddings with a Google AI Studio API key for most real projects. Gemini has a much higher practical token context window and typically produces better semantic retrieval quality.
+sensegrep uses remote embedding providers: Gemini or OpenAI-compatible APIs.
 
 ```bash
 # Recommended: Gemini embeddings (best quality)
 export GEMINI_API_KEY="your_ai_studio_key"
 sensegrep search "auth flow" --provider gemini --embed-model gemini-embedding-001
 
-# Local fallback (no API key needed)
-sensegrep search "auth flow" --device cpu
-
-# Custom local model
-sensegrep search "auth flow" --embed-model BAAI/bge-base-en-v1.5 --embed-dim 768
+# OpenAI-compatible provider
+export SENSEGREP_OPENAI_API_KEY="your_api_key"
+sensegrep search "auth flow" --provider openai --embed-model fireworks/qwen3-embedding-8b
 ```
 
 Global defaults via `~/.config/sensegrep/config.json`:
 
 ```json
 {
-  "provider": "local",
-  "embedModel": "BAAI/bge-small-en-v1.5",
-  "embedDim": 384,
-  "device": "cpu"
+  "provider": "gemini",
+  "embedModel": "gemini-embedding-001",
+  "embedDim": 768
 }
 ```
 
 Common environment variables:
 
-- `SENSEGREP_PROVIDER` (`local`, `gemini`, `openai`)
+- `SENSEGREP_PROVIDER` (`gemini`, `openai`)
 - `SENSEGREP_EMBED_MODEL`
 - `SENSEGREP_EMBED_DIM`
-- `SENSEGREP_EMBED_DEVICE` (`cpu`, `cuda`, `webgpu`, `wasm`)
 - `GEMINI_API_KEY` / `GOOGLE_API_KEY` (Gemini)
 - `SENSEGREP_OPENAI_API_KEY` / `FIREWORKS_API_KEY` / `OPENAI_API_KEY` (OpenAI-compatible)
 - `SENSEGREP_ROOT` (MCP root directory)
@@ -242,7 +236,7 @@ Common environment variables:
 
 For the complete and official runtime variable list, see `docs/mcp-setup.md`.
 
-More embedding providers and API integrations are coming soon.
+More embedding providers and API integrations may be added in the future.
 
 ## Packages
 

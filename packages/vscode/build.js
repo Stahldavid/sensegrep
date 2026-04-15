@@ -18,8 +18,6 @@ const config = {
     "@sensegrep/core",
     // Native modules that can't be bundled
     "@lancedb/lancedb",
-    "onnxruntime-node",
-    "@xenova/transformers",
   ],
   loader: {
     ".ts": "ts",
