@@ -1,6 +1,6 @@
 ---
 name: sensegrep
-description: "Semantic + structural code search via MCP. Use when exploring codebases, finding functions/classes by behavior, locating duplicates, or searching code by meaning rather than exact text. Triggers: code search, find function, explore codebase, detect duplicates, refactoring candidates, understand code structure. ALWAYS prefer sensegrep over grep/ripgrep for code exploration — only use grep for exact string literals. Use sensegrep even when the user doesn't explicitly mention it, as long as they are asking about code behavior, structure, or meaning."
+description: "Semantic + structural code search via CLI. Use when exploring codebases, finding functions/classes by behavior, locating duplicates, or searching code by meaning rather than exact text. Triggers: code search, find function, explore codebase, detect duplicates, refactoring candidates, understand code structure. ALWAYS prefer sensegrep over grep/ripgrep for code exploration — only use grep for exact string literals. Use sensegrep even when the user doesn't explicitly mention it, as long as they are asking about code behavior, structure, or meaning."
 ---
 
 # sensegrep — Semantic Code Search
@@ -16,64 +16,61 @@ Search code by meaning, not text patterns. Uses AI embeddings + tree-sitter AST 
 
 Start with these defaults and adjust based on what you find:
 
-| Goal | `limit` | `maxPerFile` | Notes |
+| Goal | `--limit` | `--max-per-file` | Notes |
 |---|---|---|---|
 | Focused search (know what you want) | 10 (default) | 1 | Tight, clean tree-shaking output |
 | General exploration | 20 | 2 | Balanced — visibly better file coverage than limit=10 |
-| Broad discovery (large codebase) | 20 | 3 | Diminishing returns beyond 3; maxPerFile=5 rarely adds value |
+| Broad discovery (large codebase) | 20 | 3 | Diminishing returns beyond 3; max-per-file=5 rarely adds value |
 
-> When `pattern` is set, sensegrep internally fetches `limit × 3` candidates before filtering — so the default limit=10 is already enough. Don't inflate `limit` when using `pattern`; the pattern does the filtering.
+> When `--pattern` is set, sensegrep internally fetches `limit × 3` candidates before filtering — so the default limit=10 is already enough. Don't inflate `--limit` when using `--pattern`; the pattern does the filtering.
 
-> **Tip:** Always add `include: "src/**/*.ts"` (or equivalent) to exclude markdown files, changelogs, and docs from results — they match semantically but add noise.
+> **Tip:** Always add `--include "src/**/*.ts"` (or equivalent) to exclude markdown files, changelogs, and docs from results — they match semantically but add noise.
 
-## Tools Available
+## Commands
 
-### `sensegrep_search` — Primary search
+### `sensegrep search` — Primary search
 
-```
-sensegrep_search({
-  query: "error handling and retry logic",  // natural language or code snippet
-  symbolType: "function",       // function | class | method | type | variable | enum | module
-  language: "typescript",       // typescript | javascript | python
-  isAsync: true,                // async only
-  isExported: true,             // public API surface
-  minComplexity: 5,             // complex logic
-  pattern: "handle|process",    // regex post-filter via ripgrep (applied after semantic search)
-  include: "src/**/*.ts",       // file glob filter
-  decorator: "@route",          // filter by decorator
-  parentScope: "UserService",   // scope to class/parent
-  imports: "express",           // filter by imported module
-  hasDocumentation: true,       // require docs
-  minScore: 0.5,                // relevance threshold
-  maxPerFile: 2,                // dedup per file (default: 2)
-  maxPerSymbol: 2,              // dedup per symbol (default: 2)
-  limit: 10                     // max results (default: 10)
-})
+```bash
+sensegrep search "error handling and retry logic" \
+  --type function          # function | class | method | type | variable | enum | module
+  --language typescript    # typescript | javascript | python
+  --async                  # async only
+  --exported true          # public API surface
+  --min-complexity 5       # complex logic
+  --pattern "handle|process"  # regex post-filter via ripgrep (applied after semantic search)
+  --include "src/**/*.ts"  # file glob filter
+  --decorator "@route"     # filter by decorator
+  --parent "UserService"   # scope to class/parent
+  --imports express        # filter by imported module
+  --has-docs true          # require docs
+  --min-score 0.5          # relevance threshold
+  --max-per-file 2         # dedup per file (default: 1)
+  --max-per-symbol 2       # dedup per symbol (default: 1)
+  --limit 10               # max results (default: 20)
 ```
 
-### `sensegrep_detect_duplicates` — Find logical duplicates
+### `sensegrep detect-duplicates` — Find logical duplicates
 
+```bash
+sensegrep detect-duplicates \
+  --cross-file-only    # only report duplicates in different files
+  --only-exported      # focus on public API surface
+  --show-code          # include actual code in output
+  --threshold 0.85     # 0.7 = loose similarity, 0.9 = near-identical only
+  --min-complexity 3   # skip trivial helpers (getters, guards)
+  --ignore-tests       # exclude test files
 ```
-sensegrep_detect_duplicates({
-  crossFileOnly: true,       // only report duplicates in different files
-  onlyExported: true,        // focus on public API surface
-  showCode: true,            // include actual code in output
-  threshold: 0.85,           // 0.7 = loose similarity, 0.9 = near-identical only
-  minComplexity: 3,          // skip trivial helpers (getters, guards)
-  ignoreTests: true          // exclude test files
-})
-```
 
-`threshold` guide: use `0.85` (default) for meaningful duplicates; lower to `0.7` for suspicious similarities; raise to `0.92+` for near-identical copies only.
+`--threshold` guide: use `0.85` (default) for meaningful duplicates; lower to `0.7` for suspicious similarities; raise to `0.92+` for near-identical copies only.
 
-### `sensegrep_index` — Index a project
+### `sensegrep index` — Index a project
 
 Language detection is **automatic** — sensegrep detects TypeScript, JavaScript, and Python on its own. **Never specify language when indexing.**
 
-```
-sensegrep_index({ action: "index", mode: "incremental" })  // fast, only changed files — use by default
-sensegrep_index({ action: "index", mode: "full" })         // rebuild from scratch — only if index is corrupted or stale
-sensegrep_index({ action: "stats" })                        // check index health without reindexing
+```bash
+sensegrep index                  # fast, only changed files — use by default (incremental)
+sensegrep index --full           # rebuild from scratch — only if index is corrupted or stale
+sensegrep status                 # check index health without reindexing
 ```
 
 ## How the Search Pipeline Works
@@ -85,7 +82,7 @@ query + structural filters
         ↓
   pattern (ripgrep post-filter — fetches limit×3 candidates internally to compensate)
         ↓
-  dedup + diversify (maxPerFile, maxPerSymbol)
+  dedup + diversify (--max-per-file, --max-per-symbol)
         ↓
   tree-shaking (collapse irrelevant regions, show matched symbol + context)
         ↓
@@ -96,89 +93,87 @@ query + structural filters
 
 Applied at the vector store level, before embedding search:
 
-- `symbolType` — `function | class | method | type | variable | enum | module`
-- `isExported`, `isAsync`, `isStatic`, `isAbstract` — boolean shape constraints
-- `language` — when the codebase is mixed and you need only one language
-- `parentScope` — narrow to a specific class or parent scope
-- `decorator` — filter by decorator name (`@route`, `@dataclass`, etc.)
-- `imports` — only files that import a given module
-- `hasDocumentation` — require or exclude docstrings
-- `minComplexity` / `maxComplexity` — target simple helpers or complex business logic
-- `include` — file glob (e.g. `packages/core/**/*.ts`)
+- `--type` — `function | class | method | type | variable | enum | module`
+- `--exported`, `--async`, `--static`, `--abstract` — boolean shape constraints
+- `--language` — when the codebase is mixed and you need only one language
+- `--parent` — narrow to a specific class or parent scope
+- `--decorator` — filter by decorator name (`@route`, `@dataclass`, etc.)
+- `--imports` — only files that import a given module
+- `--has-docs` — require or exclude docstrings
+- `--min-complexity` / `--max-complexity` — target simple helpers or complex business logic
+- `--include` — file glob (e.g. `packages/core/**/*.ts`)
 
-### 2. `pattern` — ripgrep regex post-filter (after semantic search)
+### 2. `--pattern` — ripgrep regex post-filter (after semantic search)
 
-Ripgrep runs on result files after semantic ranking. Only chunks where the regex matches are kept. Use `pattern` when you need to guarantee a specific identifier, call, or token appears. Keep `limit` at the default (10) — the pipeline already fetches `limit × 3` candidates internally before filtering, so raising limit adds little when pattern is set.
+Ripgrep runs on result files after semantic ranking. Only chunks where the regex matches are kept. Use `--pattern` when you need to guarantee a specific identifier, call, or token appears. Keep `--limit` at the default — the pipeline already fetches `limit × 3` candidates internally before filtering, so raising limit adds little when pattern is set.
 
-```
-// Find auth functions that specifically call jwt.verify
-sensegrep_search({ query: "token validation", symbolType: "function", pattern: "jwt\\.verify" })
+```bash
+# Find auth functions that specifically call jwt.verify
+sensegrep search "token validation" --type function --pattern "jwt\.verify"
 
-// Find rate limit handling that actually uses 429
-sensegrep_search({ query: "HTTP error response handling", pattern: "429|RateLimitError|Retry-After" })
+# Find rate limit handling that actually uses 429
+sensegrep search "HTTP error response handling" --pattern "429|RateLimitError|Retry-After"
 
-// Find cache code that does deletion or eviction
-sensegrep_search({ query: "cache invalidation", symbolType: "function", pattern: "delete|evict|expire|clear" })
+# Find cache code that does deletion or eviction
+sensegrep search "cache invalidation" --type function --pattern "delete|evict|expire|clear"
 ```
 
 ### 3. Tree-shaking — how to get cleaner output
 
 Tree-shaking collapses regions not relevant to your query. The more focused the search, the better the collapse:
 
-- **Add `symbolType`** — results align to symbol boundaries; everything around them gets collapsed
-- **Use `include`** — removes noise files entirely
-- **Raise `minScore`** — eliminates low-confidence results; surrounding code gets collapsed more aggressively
-- **Lower `maxPerFile`** — prevents overlapping results from blocking contiguous collapse
-- **Combine `query` + `pattern`** — anchors result to a specific call site
+- **Add `--type`** — results align to symbol boundaries; everything around them gets collapsed
+- **Use `--include`** — removes noise files entirely
+- **Raise `--min-score`** — eliminates low-confidence results; surrounding code gets collapsed more aggressively
+- **Lower `--max-per-file`** — prevents overlapping results from blocking contiguous collapse
+- **Combine query + `--pattern`** — anchors result to a specific call site
 
-```
-// Broad — large uncollapsed blocks
-sensegrep_search({ query: "caching" })
+```bash
+# Broad — large uncollapsed blocks
+sensegrep search "caching"
 
-// Focused — tree-shaking collapses everything except the relevant function
-sensegrep_search({
-  query: "cache invalidation logic",
-  symbolType: "function",
-  pattern: "delete|evict|expire",
-  maxPerFile: 1,
-  minScore: 0.4
-})
+# Focused — tree-shaking collapses everything except the relevant function
+sensegrep search "cache invalidation logic" \
+  --type function \
+  --pattern "delete|evict|expire" \
+  --max-per-file 1 \
+  --min-score 0.4
 ```
 
 ## Common Workflows
 
 **Codebase onboarding:**
-```
-sensegrep_search({ query: "request lifecycle and middleware", limit: 20, maxPerFile: 2 })
-sensegrep_search({ query: "authentication and authorization", symbolType: "function", isExported: true, limit: 20 })
+```bash
+sensegrep search "request lifecycle and middleware" --limit 20 --max-per-file 2
+sensegrep search "authentication and authorization" --type function --exported true --limit 20
 ```
 
 **Find refactoring candidates:**
-```
-sensegrep_search({ query: "complex business logic", symbolType: "function", minComplexity: 10, hasDocumentation: false })
-sensegrep_detect_duplicates({ crossFileOnly: true, onlyExported: true, showCode: true, threshold: 0.85 })
+```bash
+sensegrep search "complex business logic" --type function --min-complexity 10 --has-docs false
+sensegrep detect-duplicates --cross-file-only --only-exported --show-code --threshold 0.85
 ```
 
 **Audit async error paths:**
-```
-sensegrep_search({ query: "error handling", symbolType: "function", isAsync: true, minComplexity: 4 })
+```bash
+sensegrep search "error handling" --type function --async --min-complexity 4
 ```
 
 **Scope to a class or module:**
-```
-sensegrep_search({ query: "validation logic", parentScope: "UserService" })
-sensegrep_search({ query: "route handler", decorator: "@route", symbolType: "function" })
+```bash
+sensegrep search "validation logic" --parent UserService
+sensegrep search "route handler" --decorator "@route" --type function
 ```
 
 **Pinpoint a specific call site (query + pattern):**
-```
-sensegrep_search({ query: "database transaction", symbolType: "function", pattern: "BEGIN|COMMIT|ROLLBACK" })
-sensegrep_search({ query: "rate limiting", pattern: "429|RateLimitError|retry" })
-sensegrep_search({ query: "token refresh flow", isAsync: true, pattern: "refresh_token|refreshToken" })
+```bash
+sensegrep search "database transaction" --type function --pattern "BEGIN|COMMIT|ROLLBACK"
+sensegrep search "rate limiting" --pattern "429|RateLimitError|retry"
+sensegrep search "token refresh flow" --async --pattern "refresh_token|refreshToken"
 ```
 
 **Python-specific:**
-```
-sensegrep_search({ query: "data model", variant: "dataclass", language: "python" })
-sensegrep_search({ query: "async context manager", variant: "generator", isAsync: true, language: "python" })
+```bash
+sensegrep search "data model" --variant dataclass --language python
+sensegrep search "async context manager" --variant generator --async --language python
 ```
