@@ -10,10 +10,20 @@ Production-ready setup and workflow recipes for common sensegrep usage paths.
 - [CI with GitHub Actions](ci-github-actions.md)
 - [Generic CI](ci-generic.md)
 
+## Install Options at a Glance
+
+| Platform | MCP + skill (one step) | Skill only |
+|---|---|---|
+| Claude Code | `claude plugin install sensegrep` | `npx skills add Stahldavid/sensegrep -g` |
+| Cursor | `cursor plugin install sensegrep` | `npx skills add Stahldavid/sensegrep -g` |
+| Windsurf / Cline / Amp / others | manual MCP setup | `npx skills add Stahldavid/sensegrep -g` |
+
+The skill alone is enough if the MCP server is already wired up — it gives the agent the guidance on when and how to use sensegrep tools.
+
 ## What Every Recipe Includes
 
 - Prerequisites
-- Copy-paste setup
+- Copy-paste setup (MCP server + skill)
 - Smoke test
 - 5-8 practical workflows
 - Troubleshooting notes

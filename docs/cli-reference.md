@@ -23,7 +23,6 @@ sensegrep index [options]
 | `--incremental` | Incremental update (default) |
 | `--verify` | Verify index first, skip if up to date |
 | `--watch` | Keep running, reindex on changes (at most once/minute) |
-| `--languages <list>` | Languages to index (comma-separated) |
 
 ### `sensegrep search`
 

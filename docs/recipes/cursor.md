@@ -38,7 +38,19 @@ npm run cursor:install-link -- --workspace-root
 
 Skip to [Smoke Test](#smoke-test).
 
-## Option B: Manual MCP Setup
+## Option B: Skill Only (no plugin)
+
+If you already have the MCP server configured and only want the skill:
+
+```bash
+npx skills add Stahldavid/sensegrep -g
+```
+
+This installs the skill globally. On Cursor it lands in `~/.cursor/skills/` and is picked up automatically.
+
+> You still need the MCP server running. See [Option C](#option-c-manual-mcp-setup) if you haven't set it up yet.
+
+## Option C: Manual MCP Setup
 
 ### Prerequisites
 

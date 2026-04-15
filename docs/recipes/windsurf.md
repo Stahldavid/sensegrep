@@ -8,10 +8,16 @@
 
 ## Setup (copy-paste)
 
-Install:
+Install the MCP server:
 
 ```bash
 npm install -g @sensegrep/mcp
+```
+
+Install the skill (teaches the agent when and how to use sensegrep):
+
+```bash
+npx skills add Stahldavid/sensegrep -g
 ```
 
 Add to Windsurf MCP config:

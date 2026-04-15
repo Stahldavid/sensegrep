@@ -16,7 +16,19 @@ That's it. Claude now has access to all sensegrep tools and knows when to prefer
 > claude plugin install sensegrep@sensegrep
 > ```
 
-## Option B: Manual MCP Setup
+## Option B: Skill Only (no plugin)
+
+If you already have the MCP server configured and only want the skill (the guidance that tells Claude when and how to use sensegrep):
+
+```bash
+npx skills add Stahldavid/sensegrep -g
+```
+
+This installs the skill globally for Claude Code. The skill teaches Claude to prefer `sensegrep_search` over grep for code exploration, how to combine filters and patterns, and when to use each search strategy.
+
+> You still need the MCP server running. See [Option C](#option-c-manual-mcp-setup) if you haven't set it up yet.
+
+## Option C: Manual MCP Setup
 
 ### Prerequisites
 
