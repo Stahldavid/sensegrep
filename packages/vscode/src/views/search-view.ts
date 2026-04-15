@@ -385,14 +385,9 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
 
   private getEffectiveProvider(): "gemini" | "openai" {
     const config = vscode.workspace.getConfiguration("sensegrep")
-    const inspected = config.inspect<string>("embeddings.provider")
-    const explicit =
-      inspected?.workspaceFolderValue ??
-      inspected?.workspaceValue ??
-      inspected?.globalValue
-    if (explicit === "gemini" || explicit === "openai") return explicit
-    if (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) return "gemini"
-    return "openai"
+    const provider = config.get<string>("embeddings.provider")
+    if (provider === "gemini" || provider === "openai") return provider
+    return "gemini"
   }
 
   private async saveSearch(query: string, options: SearchOptions) {

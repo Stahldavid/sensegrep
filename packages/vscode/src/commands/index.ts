@@ -42,17 +42,11 @@ export function registerCommands(
 
     const render = async () => {
       const config = vscode.workspace.getConfiguration("sensegrep")
-      const inspected = config.inspect<string>("embeddings.provider")
-      const explicit =
-        inspected?.workspaceFolderValue ??
-        inspected?.workspaceValue ??
-        inspected?.globalValue
+      const configuredProvider = config.get<string>("embeddings.provider")
       const provider =
-        explicit === "gemini" || explicit === "openai"
-          ? explicit
-          : process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
-            ? "gemini"
-            : "openai"
+        configuredProvider === "gemini" || configuredProvider === "openai"
+          ? configuredProvider
+          : "gemini"
 
       const apiKey = await core.getApiKey()
       const nonce = getNonce()

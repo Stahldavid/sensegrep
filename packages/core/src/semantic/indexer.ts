@@ -82,6 +82,25 @@ export namespace Indexer {
   // Batch documents to reduce embedding overhead during full indexing
   const ADD_BATCH_SIZE = 256
 
+  function assertEmbeddingsConfigured(): void {
+    const config = Embeddings.getConfig()
+
+    if (config.provider === "gemini" && !config.apiKey) {
+      throw new Error(
+        "Gemini embeddings are configured but no API key was found. " +
+          "Set GEMINI_API_KEY or GOOGLE_API_KEY, configure `sensegrep.geminiApiKey` in VS Code, " +
+          "or switch to `--provider openai`.",
+      )
+    }
+
+    if (config.provider === "openai" && !config.apiKey) {
+      throw new Error(
+        "OpenAI-compatible embeddings are configured but no API key was found. " +
+          "Set SENSEGREP_OPENAI_API_KEY, FIREWORKS_API_KEY, or OPENAI_API_KEY.",
+      )
+    }
+  }
+
   // Events for progress reporting
   export const Event = {
     Progress: BusEvent.define(
@@ -246,129 +265,140 @@ export namespace Indexer {
     duration: number
   }> {
     const start = Date.now()
-    log.info("starting full index", { project: Instance.directory })
+    try {
+      log.info("starting full index", { project: Instance.directory })
+      assertEmbeddingsConfigured()
 
-    // Emit scanning phase
-    Bus.publish(Event.Progress, {
-      phase: "scanning",
-      current: 0,
-      total: 0,
-      message: "Scanning files...",
-    })
-
-    // Get all files
-    const files = await getFiles()
-    log.info("found files to index", { count: files.length })
-
-    // Clear existing data for fresh index (best-effort if first run)
-    await VectorStore.deleteCollection(Instance.directory).catch(() => {})
-    const freshCollection = await VectorStore.getCollection(Instance.directory)
-
-    // --- Pass 1: Parallel file preparation (I/O + parsing + chunking) ---
-    let progressCounter = 0
-    const prepared = await mapConcurrent(files, FILE_CONCURRENCY, async (file) => {
-      const idx = ++progressCounter
+      // Emit scanning phase
       Bus.publish(Event.Progress, {
-        phase: "indexing",
-        current: idx,
-        total: files.length,
-        file,
+        phase: "scanning",
+        current: 0,
+        total: 0,
+        message: "Scanning files...",
       })
 
-      try {
-        const fullPath = path.join(Instance.directory, file)
-        const stat = await fs.stat(fullPath).catch(() => null)
-        if (!stat) return null
-        if (stat.size > MAX_FILE_SIZE) {
-          log.info("skipping large file", { filePath: file, size: stat.size })
+      // Get all files
+      const files = await getFiles()
+      log.info("found files to index", { count: files.length })
+
+      // Validate provider config before touching the on-disk index.
+      await VectorStore.deleteCollection(Instance.directory).catch(() => {})
+      const freshCollection = await VectorStore.getCollection(Instance.directory)
+
+      // --- Pass 1: Parallel file preparation (I/O + parsing + chunking) ---
+      let progressCounter = 0
+      const prepared = await mapConcurrent(files, FILE_CONCURRENCY, async (file) => {
+        const idx = ++progressCounter
+        Bus.publish(Event.Progress, {
+          phase: "indexing",
+          current: idx,
+          total: files.length,
+          file,
+        })
+
+        try {
+          const fullPath = path.join(Instance.directory, file)
+          const stat = await fs.stat(fullPath).catch(() => null)
+          if (!stat) return null
+          if (stat.size > MAX_FILE_SIZE) {
+            log.info("skipping large file", { filePath: file, size: stat.size })
+            return null
+          }
+
+          const content = await fs.readFile(fullPath, "utf8").catch(() => "")
+          if (!content.trim()) return null
+
+          // Run tree-shaker regions and chunking concurrently per file
+          const [collapsibleRegions, documents] = await Promise.all([
+            TreeShaker.extractRegions(file, content),
+            buildDocuments({ filePath: file, content }),
+          ])
+
+          if (documents.length === 0) return null
+
+          return {
+            file,
+            stat: { size: stat.size, mtimeMs: stat.mtimeMs },
+            hash: hashContent(content),
+            collapsibleRegions,
+            documents,
+          } as PreparedFile
+        } catch (err) {
+          log.warn("failed to prepare file", { file, error: err instanceof Error ? err.message : String(err) })
           return null
         }
+      })
 
-        const content = await fs.readFile(fullPath, "utf8").catch(() => "")
-        if (!content.trim()) return null
+      // --- Pass 2: Collect results and batch embed ---
+      let indexed = 0
+      let totalChunks = 0
+      const fileStats: Record<string, FileStat> = {}
+      const allDocs: {
+        id: string
+        content: string
+        contentRaw: string
+        metadata: Record<string, string | number | boolean | null>
+      }[] = []
 
-        // Run tree-shaker regions and chunking concurrently per file
-        const [collapsibleRegions, documents] = await Promise.all([
-          TreeShaker.extractRegions(file, content),
-          buildDocuments({ filePath: file, content }),
-        ])
-
-        if (documents.length === 0) return null
-
-        return {
-          file,
-          stat: { size: stat.size, mtimeMs: stat.mtimeMs },
-          hash: hashContent(content),
-          collapsibleRegions,
-          documents,
-        } as PreparedFile
-      } catch (err) {
-        log.warn("failed to prepare file", { file, error: err instanceof Error ? err.message : String(err) })
-        return null
+      for (const item of prepared) {
+        if (!item) continue
+        indexed++
+        totalChunks += item.documents.length
+        fileStats[item.file] = {
+          size: item.stat.size,
+          mtimeMs: item.stat.mtimeMs,
+          hash: item.hash,
+          chunks: item.documents.map((d) => d.hash),
+          collapsibleRegions: item.collapsibleRegions,
+        }
+        for (const doc of item.documents) {
+          allDocs.push({ id: doc.id, content: doc.content, contentRaw: doc.contentRaw, metadata: doc.metadata })
+        }
       }
-    })
 
-    // --- Pass 2: Collect results and batch embed ---
-    let indexed = 0
-    let totalChunks = 0
-    const fileStats: Record<string, FileStat> = {}
-    const allDocs: {
-      id: string
-      content: string
-      contentRaw: string
-      metadata: Record<string, string | number | boolean | null>
-    }[] = []
+      // Flush in large batches for maximum embedding throughput
+      for (let i = 0; i < allDocs.length; i += ADD_BATCH_SIZE) {
+        await VectorStore.addDocuments(freshCollection, allDocs.slice(i, i + ADD_BATCH_SIZE))
+      }
 
-    for (const item of prepared) {
-      if (!item) continue
-      indexed++
-      totalChunks += item.documents.length
-      fileStats[item.file] = {
-        size: item.stat.size,
-        mtimeMs: item.stat.mtimeMs,
-        hash: item.hash,
-        chunks: item.documents.map((d) => d.hash),
-        collapsibleRegions: item.collapsibleRegions,
-      }
-      for (const doc of item.documents) {
-        allDocs.push({ id: doc.id, content: doc.content, contentRaw: doc.contentRaw, metadata: doc.metadata })
-      }
+      const config = Embeddings.getConfig()
+      await VectorStore.writeIndexMeta(Instance.directory, {
+        version: 1,
+        root: Instance.directory,
+        embeddings: {
+          provider: config.provider,
+          model: config.embedModel,
+          dimension: config.embedDim,
+        },
+        files: fileStats,
+        updatedAt: Date.now(),
+      })
+
+      const duration = Date.now() - start
+
+      Bus.publish(Event.Progress, {
+        phase: "complete",
+        current: indexed,
+        total: files.length,
+        message: `Indexed ${indexed} files (${totalChunks} chunks) in ${(duration / 1000).toFixed(1)}s`,
+      })
+
+      log.info("indexing complete", {
+        files: indexed,
+        chunks: totalChunks,
+        duration,
+      })
+
+      return { files: indexed, chunks: totalChunks, duration }
+    } catch (error) {
+      Bus.publish(Event.Progress, {
+        phase: "error",
+        current: 0,
+        total: 0,
+        message: error instanceof Error ? error.message : String(error),
+      })
+      throw error
     }
-
-    // Flush in large batches for maximum embedding throughput
-    for (let i = 0; i < allDocs.length; i += ADD_BATCH_SIZE) {
-      await VectorStore.addDocuments(freshCollection, allDocs.slice(i, i + ADD_BATCH_SIZE))
-    }
-
-    const config = Embeddings.getConfig()
-    await VectorStore.writeIndexMeta(Instance.directory, {
-      version: 1,
-      root: Instance.directory,
-      embeddings: {
-        provider: config.provider,
-        model: config.embedModel,
-        dimension: config.embedDim,
-      },
-      files: fileStats,
-      updatedAt: Date.now(),
-    })
-
-    const duration = Date.now() - start
-
-    Bus.publish(Event.Progress, {
-      phase: "complete",
-      current: indexed,
-      total: files.length,
-      message: `Indexed ${indexed} files (${totalChunks} chunks) in ${(duration / 1000).toFixed(1)}s`,
-    })
-
-    log.info("indexing complete", {
-      files: indexed,
-      chunks: totalChunks,
-      duration,
-    })
-
-    return { files: indexed, chunks: totalChunks, duration }
   }
 
   /**
@@ -384,191 +414,202 @@ export namespace Indexer {
     mode: "incremental" | "full"
   }> {
     const start = Date.now()
-    log.info("starting incremental index", { project: Instance.directory })
+    try {
+      log.info("starting incremental index", { project: Instance.directory })
+      assertEmbeddingsConfigured()
 
-    const files = await getFiles()
-    log.info("found files to scan", { count: files.length })
+      const files = await getFiles()
+      log.info("found files to scan", { count: files.length })
 
-    const meta = await VectorStore.readIndexMeta(Instance.directory)
-    const config = Embeddings.getConfig()
-    const provider = config.provider
-    const dimension = config.embedDim
-    const model = config.embedModel
+      const meta = await VectorStore.readIndexMeta(Instance.directory)
+      const config = Embeddings.getConfig()
+      const provider = config.provider
+      const dimension = config.embedDim
+      const model = config.embedModel
 
-    if (
-      !meta ||
-      meta.embeddings?.dimension !== dimension ||
-      meta.embeddings?.provider !== provider ||
-      meta.embeddings?.model !== model
-    ) {
-      const full = await indexProject()
-      return { ...full, skipped: 0, removed: 0, mode: "full" }
-    }
+      if (
+        !meta ||
+        meta.embeddings?.dimension !== dimension ||
+        meta.embeddings?.provider !== provider ||
+        meta.embeddings?.model !== model
+      ) {
+        const full = await indexProject()
+        return { ...full, skipped: 0, removed: 0, mode: "full" }
+      }
 
-    const collection = await VectorStore.getCollection(Instance.directory)
+      const collection = await VectorStore.getCollection(Instance.directory)
 
-    let indexed = 0
-    let totalChunks = 0
-    let skipped = 0
-    const newStats: Record<string, FileStat> = {}
-    const previous = meta.files || {}
-    const remaining = new Set(Object.keys(previous))
-    let removed = 0
+      let indexed = 0
+      let totalChunks = 0
+      let skipped = 0
+      const newStats: Record<string, FileStat> = {}
+      const previous = meta.files || {}
+      const remaining = new Set(Object.keys(previous))
+      let removed = 0
 
-    // Actions to batch after parallel preparation
-    type FileAction =
-      | { action: "skip"; file: string; stats: FileStat }
-      | { action: "delete"; file: string }
-      | { action: "partial_update"; file: string; stats: FileStat; changedDocs: Document[] }
-      | { action: "full_reindex"; file: string; stats: FileStat; documents: Document[] }
+      // Actions to batch after parallel preparation
+      type FileAction =
+        | { action: "skip"; file: string; stats: FileStat }
+        | { action: "delete"; file: string }
+        | { action: "partial_update"; file: string; stats: FileStat; changedDocs: Document[] }
+        | { action: "full_reindex"; file: string; stats: FileStat; documents: Document[] }
 
-    // --- Phase 1: Parallel file preparation (stat, read, hash, chunk) ---
-    const actions = await mapConcurrent(files, FILE_CONCURRENCY, async (file): Promise<FileAction | null> => {
-      try {
-        const fullPath = path.join(Instance.directory, file)
-        const stat = await fs.stat(fullPath).catch(() => null)
-        if (!stat) return null
-        if (stat.size > MAX_FILE_SIZE) return null // Leave in remaining for removal
+      // --- Phase 1: Parallel file preparation (stat, read, hash, chunk) ---
+      const actions = await mapConcurrent(files, FILE_CONCURRENCY, async (file): Promise<FileAction | null> => {
+        try {
+          const fullPath = path.join(Instance.directory, file)
+          const stat = await fs.stat(fullPath).catch(() => null)
+          if (!stat) return null
+          if (stat.size > MAX_FILE_SIZE) return null // Leave in remaining for removal
 
-        const current: FileStat = { size: stat.size, mtimeMs: stat.mtimeMs }
-        const prev = previous[file]
+          const current: FileStat = { size: stat.size, mtimeMs: stat.mtimeMs }
+          const prev = previous[file]
 
-        // Fast path: unchanged by size + mtime
-        if (prev && prev.size === current.size && prev.mtimeMs === current.mtimeMs) {
-          return { action: "skip", file, stats: prev }
-        }
-
-        const content = await fs.readFile(fullPath, "utf8").catch(() => "")
-        if (!content.trim()) {
-          return { action: "delete", file }
-        }
-
-        const hash = hashContent(content)
-
-        // Unchanged by content hash
-        if (prev && prev.hash && prev.hash === hash) {
-          return { action: "skip", file, stats: { ...current, hash, chunks: prev.chunks, collapsibleRegions: prev.collapsibleRegions } }
-        }
-
-        // File changed - chunk and prepare documents
-        const [collapsibleRegions, documents] = await Promise.all([
-          TreeShaker.extractRegions(file, content),
-          buildDocuments({ filePath: file, content }),
-        ])
-
-        if (documents.length === 0) {
-          return { action: "delete", file }
-        }
-
-        const chunkHashes = documents.map((d) => d.hash)
-
-        // Check for partial update (same chunk count, some changed)
-        if (prev?.chunks && prev.chunks.length === chunkHashes.length) {
-          const changedIndexes: number[] = []
-          for (let j = 0; j < chunkHashes.length; j++) {
-            if (chunkHashes[j] !== prev.chunks[j]) changedIndexes.push(j)
+          // Fast path: unchanged by size + mtime
+          if (prev && prev.size === current.size && prev.mtimeMs === current.mtimeMs) {
+            return { action: "skip", file, stats: prev }
           }
 
-          if (changedIndexes.length === 0) {
-            return { action: "skip", file, stats: { ...current, hash, chunks: chunkHashes, collapsibleRegions: prev.collapsibleRegions } }
+          const content = await fs.readFile(fullPath, "utf8").catch(() => "")
+          if (!content.trim()) {
+            return { action: "delete", file }
           }
 
-          const changedDocs = changedIndexes.map((j) => documents[j]).filter(Boolean)
-          return { action: "partial_update", file, stats: { ...current, hash, chunks: chunkHashes, collapsibleRegions }, changedDocs }
+          const hash = hashContent(content)
+
+          // Unchanged by content hash
+          if (prev && prev.hash && prev.hash === hash) {
+            return { action: "skip", file, stats: { ...current, hash, chunks: prev.chunks, collapsibleRegions: prev.collapsibleRegions } }
+          }
+
+          // File changed - chunk and prepare documents
+          const [collapsibleRegions, documents] = await Promise.all([
+            TreeShaker.extractRegions(file, content),
+            buildDocuments({ filePath: file, content }),
+          ])
+
+          if (documents.length === 0) {
+            return { action: "delete", file }
+          }
+
+          const chunkHashes = documents.map((d) => d.hash)
+
+          // Check for partial update (same chunk count, some changed)
+          if (prev?.chunks && prev.chunks.length === chunkHashes.length) {
+            const changedIndexes: number[] = []
+            for (let j = 0; j < chunkHashes.length; j++) {
+              if (chunkHashes[j] !== prev.chunks[j]) changedIndexes.push(j)
+            }
+
+            if (changedIndexes.length === 0) {
+              return { action: "skip", file, stats: { ...current, hash, chunks: chunkHashes, collapsibleRegions: prev.collapsibleRegions } }
+            }
+
+            const changedDocs = changedIndexes.map((j) => documents[j]).filter(Boolean)
+            return { action: "partial_update", file, stats: { ...current, hash, chunks: chunkHashes, collapsibleRegions }, changedDocs }
+          }
+
+          // Full reindex for this file
+          return { action: "full_reindex", file, stats: { ...current, hash, chunks: chunkHashes, collapsibleRegions }, documents }
+        } catch (err) {
+          log.warn("failed to prepare file for incremental index", { file, error: err instanceof Error ? err.message : String(err) })
+          return null
         }
+      })
 
-        // Full reindex for this file
-        return { action: "full_reindex", file, stats: { ...current, hash, chunks: chunkHashes, collapsibleRegions }, documents }
-      } catch (err) {
-        log.warn("failed to prepare file for incremental index", { file, error: err instanceof Error ? err.message : String(err) })
-        return null
+      // --- Phase 2: Process actions sequentially (vector store operations) ---
+      // Collect docs to batch embed
+      const docsToUpdate: { id: string; content: string; contentRaw: string; metadata: Record<string, string | number | boolean | null> }[] = []
+      const filesToDeleteFirst: string[] = []
+      const docsToAdd: { id: string; content: string; contentRaw: string; metadata: Record<string, string | number | boolean | null> }[] = []
+
+      for (const act of actions) {
+        if (!act) continue
+
+        remaining.delete(act.file)
+
+        switch (act.action) {
+          case "skip":
+            skipped++
+            newStats[act.file] = act.stats
+            break
+
+          case "delete":
+            await VectorStore.deleteByFile(collection, act.file)
+            removed++
+            break
+
+          case "partial_update":
+            docsToUpdate.push(
+              ...act.changedDocs.map(({ id, content: docContent, contentRaw, metadata }) => ({
+                id, content: docContent, contentRaw, metadata,
+              })),
+            )
+            indexed++
+            totalChunks += act.changedDocs.length
+            newStats[act.file] = act.stats
+            break
+
+          case "full_reindex":
+            filesToDeleteFirst.push(act.file)
+            docsToAdd.push(
+              ...act.documents.map(({ id, content: docContent, contentRaw, metadata }) => ({
+                id, content: docContent, contentRaw, metadata,
+              })),
+            )
+            indexed++
+            totalChunks += act.documents.length
+            newStats[act.file] = act.stats
+            break
+        }
       }
-    })
 
-    // --- Phase 2: Process actions sequentially (vector store operations) ---
-    // Collect docs to batch embed
-    const docsToUpdate: { id: string; content: string; contentRaw: string; metadata: Record<string, string | number | boolean | null> }[] = []
-    const filesToDeleteFirst: string[] = []
-    const docsToAdd: { id: string; content: string; contentRaw: string; metadata: Record<string, string | number | boolean | null> }[] = []
-
-    for (const act of actions) {
-      if (!act) continue
-
-      remaining.delete(act.file)
-
-      switch (act.action) {
-        case "skip":
-          skipped++
-          newStats[act.file] = act.stats
-          break
-
-        case "delete":
-          await VectorStore.deleteByFile(collection, act.file)
-          removed++
-          break
-
-        case "partial_update":
-          docsToUpdate.push(
-            ...act.changedDocs.map(({ id, content: docContent, contentRaw, metadata }) => ({
-              id, content: docContent, contentRaw, metadata,
-            })),
-          )
-          indexed++
-          totalChunks += act.changedDocs.length
-          newStats[act.file] = act.stats
-          break
-
-        case "full_reindex":
-          filesToDeleteFirst.push(act.file)
-          docsToAdd.push(
-            ...act.documents.map(({ id, content: docContent, contentRaw, metadata }) => ({
-              id, content: docContent, contentRaw, metadata,
-            })),
-          )
-          indexed++
-          totalChunks += act.documents.length
-          newStats[act.file] = act.stats
-          break
-      }
-    }
-
-    // Batch delete files that need full reindex
-    for (const file of filesToDeleteFirst) {
-      await VectorStore.deleteByFile(collection, file)
-    }
-
-    // Batch update changed chunks
-    if (docsToUpdate.length > 0) {
-      for (let i = 0; i < docsToUpdate.length; i += ADD_BATCH_SIZE) {
-        await VectorStore.updateDocuments(collection, docsToUpdate.slice(i, i + ADD_BATCH_SIZE))
-      }
-    }
-
-    // Batch add new/fully-reindexed documents
-    if (docsToAdd.length > 0) {
-      for (let i = 0; i < docsToAdd.length; i += ADD_BATCH_SIZE) {
-        await VectorStore.addDocuments(collection, docsToAdd.slice(i, i + ADD_BATCH_SIZE))
-      }
-    }
-
-    // Remove files that no longer exist
-    if (remaining.size > 0) {
-      for (const file of remaining) {
+      // Batch delete files that need full reindex
+      for (const file of filesToDeleteFirst) {
         await VectorStore.deleteByFile(collection, file)
-        removed++
       }
+
+      // Batch update changed chunks
+      if (docsToUpdate.length > 0) {
+        for (let i = 0; i < docsToUpdate.length; i += ADD_BATCH_SIZE) {
+          await VectorStore.updateDocuments(collection, docsToUpdate.slice(i, i + ADD_BATCH_SIZE))
+        }
+      }
+
+      // Batch add new/fully-reindexed documents
+      if (docsToAdd.length > 0) {
+        for (let i = 0; i < docsToAdd.length; i += ADD_BATCH_SIZE) {
+          await VectorStore.addDocuments(collection, docsToAdd.slice(i, i + ADD_BATCH_SIZE))
+        }
+      }
+
+      // Remove files that no longer exist
+      if (remaining.size > 0) {
+        for (const file of remaining) {
+          await VectorStore.deleteByFile(collection, file)
+          removed++
+        }
+      }
+
+      await VectorStore.writeIndexMeta(Instance.directory, {
+        version: 1,
+        root: Instance.directory,
+        embeddings: { provider, model, dimension },
+        files: newStats,
+        updatedAt: Date.now(),
+      })
+
+      const duration = Date.now() - start
+      return { files: indexed, chunks: totalChunks, duration, skipped, removed, mode: "incremental" }
+    } catch (error) {
+      Bus.publish(Event.Progress, {
+        phase: "error",
+        current: 0,
+        total: 0,
+        message: error instanceof Error ? error.message : String(error),
+      })
+      throw error
     }
-
-    await VectorStore.writeIndexMeta(Instance.directory, {
-      version: 1,
-      root: Instance.directory,
-      embeddings: { provider, model, dimension },
-      files: newStats,
-      updatedAt: Date.now(),
-    })
-
-    const duration = Date.now() - start
-    return { files: indexed, chunks: totalChunks, duration, skipped, removed, mode: "incremental" }
   }
 
   /**
@@ -577,6 +618,7 @@ export namespace Indexer {
   export async function updateFile(filePath: string): Promise<void> {
     if (!shouldIndex(filePath)) return
     if (FileIgnore.match(filePath)) return
+    assertEmbeddingsConfigured()
 
     log.info("updating file in index", { file: filePath })
 
