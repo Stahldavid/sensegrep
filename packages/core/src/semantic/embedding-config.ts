@@ -4,12 +4,24 @@ import { Global } from "../global/index.js"
 
 type EmbeddingProvider = "gemini" | "openai"
 
+export type RateLimitConfig = {
+  /** Max requests per minute. Default: 3000 (Gemini free tier). */
+  rpm?: number
+  /** Max tokens per minute. Default: 1_000_000 (Gemini free tier). */
+  tpm?: number
+  /** Max retries on 429. Default: 6. */
+  maxRetries?: number
+  /** Base delay (ms) for exponential backoff. Default: 1000. */
+  retryBaseDelayMs?: number
+}
+
 export type EmbeddingConfig = {
   provider: EmbeddingProvider
   embedModel: string
   embedDim: number
   baseUrl?: string
   apiKey?: string
+  rateLimit?: RateLimitConfig
 }
 
 export type EmbeddingOverrides = Partial<EmbeddingConfig>
@@ -117,12 +129,23 @@ export function getEmbeddingConfig(overrides?: EmbeddingOverrides): EmbeddingCon
     process.env.GOOGLE_API_KEY ||
     (fileConfig as any).apiKey
 
+  const rateLimit: RateLimitConfig = {}
+  const fileRl = (fileConfig as any).rateLimit
+  if (fileRl && typeof fileRl === "object") Object.assign(rateLimit, fileRl)
+  const overrideRl = (mergedOverrides as any).rateLimit
+  if (overrideRl && typeof overrideRl === "object") Object.assign(rateLimit, overrideRl)
+  if (process.env.SENSEGREP_RATE_LIMIT_RPM) rateLimit.rpm = Number(process.env.SENSEGREP_RATE_LIMIT_RPM)
+  if (process.env.SENSEGREP_RATE_LIMIT_TPM) rateLimit.tpm = Number(process.env.SENSEGREP_RATE_LIMIT_TPM)
+  if (process.env.SENSEGREP_MAX_RETRIES) rateLimit.maxRetries = Number(process.env.SENSEGREP_MAX_RETRIES)
+  if (process.env.SENSEGREP_RETRY_BASE_DELAY_MS) rateLimit.retryBaseDelayMs = Number(process.env.SENSEGREP_RETRY_BASE_DELAY_MS)
+
   const merged: EmbeddingConfig = {
     provider,
     embedModel,
     embedDim,
     ...(baseUrl ? { baseUrl } : {}),
     ...(apiKey ? { apiKey } : {}),
+    ...(Object.keys(rateLimit).length > 0 ? { rateLimit } : {}),
   }
 
   return merged
