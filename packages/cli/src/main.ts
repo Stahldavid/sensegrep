@@ -29,7 +29,7 @@ function usage() {
 sensegrep (CLI)
 
 Usage:
-  sensegrep index [--root <dir>] [--full|--incremental] [--verify] [--watch] [--languages <list>]
+  sensegrep index [--root <dir>] [--full|--incremental] [--verify] [--watch]
   sensegrep verify [--root <dir>]
   sensegrep status [--root <dir>]
   sensegrep search <query...> [options]
@@ -204,7 +204,7 @@ async function run() {
     const watch = toBool(flags.watch) === true
     
     // Auto-detect languages if not specified
-    const { detectProjectLanguages, formatDetectedLanguages } = await loadCore()
+    const { detectProjectLanguages } = await loadCore()
     const detected = await detectProjectLanguages(rootDir)
     if (detected.length > 0) {
       const langSummary = detected.map((d: any) => `${d.language} (${d.fileCount})`).join(", ")
