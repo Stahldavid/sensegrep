@@ -13,16 +13,27 @@
       "name": "sensegrep",
       "source": ".",
       "description": "Semantic code search for AI agents. Search code by meaning, not text patterns. Adds sensegrep MCP tools + smart usage instructions to Claude Code.",
-      "version": "0.1.21",
+      "version": "1.1.4",
       "author": {
         "name": "sensegrep"
       },
       "homepage": "https://github.com/Stahldavid/sensegrep",
       "repository": "https://github.com/Stahldavid/sensegrep",
       "license": "MIT",
-      "keywords": ["code-search", "semantic-search", "mcp", "ast", "refactoring"],
+      "keywords": [
+        "code-search",
+        "semantic-search",
+        "mcp",
+        "ast",
+        "refactoring"
+      ],
       "category": "developer-tools",
-      "tags": ["search", "semantic", "code-intelligence", "mcp"]
+      "tags": [
+        "search",
+        "semantic",
+        "code-intelligence",
+        "mcp"
+      ]
     }
   ]
 }

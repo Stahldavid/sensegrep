@@ -13,7 +13,7 @@
       "name": "sensegrep",
       "source": "plugin/sensegrep-cursor",
       "description": "Semantic code search for AI agents. Search code by meaning, not text patterns.",
-      "version": "0.1.19",
+      "version": "1.1.4",
       "author": {
         "name": "sensegrep"
       },

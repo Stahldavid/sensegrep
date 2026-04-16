@@ -4,7 +4,7 @@ Semantic code search plugin for Claude Code using `@sensegrep/mcp`.
 
 ## What it provides
 
-- MCP server wiring to `@sensegrep/mcp@0.1.19`
+- MCP server wiring to `@sensegrep/mcp@1.1.4` (pinned in `.mcp.json`)
 - Skill that teaches when to prefer semantic search over grep
 - Slash commands for common search flows
 - A focused code exploration subagent
