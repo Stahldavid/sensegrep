@@ -32,7 +32,7 @@ jobs:
       - run: npm ci
       - run: npm i -g @sensegrep/cli
       - run: sensegrep index --root .
-      - run: sensegrep search "error handling and retry logic" --limit 10
+      - run: sensegrep search "error handling and retry logic" --limit 10 --exclude "*.md"
       - run: sensegrep detect-duplicates --cross-file-only --limit 5
 ```
 
@@ -60,7 +60,7 @@ jobs:
 ## Troubleshooting
 
 - Job timeout on large monorepo:
-  Start with scoped `--include` and smaller `--limit`.
+  Start with scoped `--include`, add `--exclude "*.md"` for noisy docs, and use a smaller `--limit`.
 - Empty query output:
   Validate that indexing step used repository root.
 - Dependency conflicts:

@@ -4,6 +4,7 @@ import { FileIgnore } from "../file/ignore.js"
 import { Instance } from "../project/instance.js"
 import { Log } from "../util/log.js"
 import { Indexer } from "./indexer.js"
+import { Global } from "../global/index.js"
 
 export namespace IndexWatcher {
   export type Options = {
@@ -23,6 +24,7 @@ export namespace IndexWatcher {
   const DEFAULT_INTERVAL_MS = 60_000
   const MAX_CONSECUTIVE_ERRORS = 3
   const BACKOFF_MULTIPLIER = 2
+  const LOCK_STALE_MS = 120_000 // 2 minutes — if PID check fails AND lock is older than this, consider stale
   let watcherPromise: Promise<typeof import("@parcel/watcher")> | null = null
 
   async function loadWatcher(): Promise<typeof import("@parcel/watcher")> {
@@ -30,6 +32,81 @@ export namespace IndexWatcher {
       watcherPromise = import("@parcel/watcher")
     }
     return watcherPromise
+  }
+
+  // ── Watcher lock (prevents duplicate watchers on the same project) ──
+
+  function getProjectHash(projectPath: string): string {
+    let hash = 0
+    for (let i = 0; i < projectPath.length; i++) {
+      hash = (hash << 5) - hash + projectPath.charCodeAt(i)
+      hash = hash & hash
+    }
+    return Math.abs(hash).toString(16)
+  }
+
+  function lockPath(rootDir: string): string {
+    return path.join(Global.Path.data, ".lancedb", `project_${getProjectHash(rootDir)}`, "watcher.lock")
+  }
+
+  function isPidAlive(pid: number): boolean {
+    try {
+      process.kill(pid, 0)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  async function acquireLock(rootDir: string, entrypoint: string): Promise<boolean> {
+    const lockFile = lockPath(rootDir)
+
+    // Check existing lock
+    try {
+      const raw = await fs.readFile(lockFile, "utf8")
+      const lock = JSON.parse(raw) as { pid: number; startedAt: number; entrypoint: string }
+
+      if (isPidAlive(lock.pid)) {
+        log.info("watcher already running, skipping", {
+          existingPid: lock.pid,
+          entrypoint: lock.entrypoint,
+          rootDir,
+        })
+        return false
+      }
+
+      // PID is dead — check if lock is stale
+      const age = Date.now() - lock.startedAt
+      if (age < LOCK_STALE_MS) {
+        // Lock is fresh but PID is dead — process probably just crashed, take over
+        log.warn("stale lock from crashed process, taking over", { oldPid: lock.pid })
+      }
+    } catch {
+      // No lock file or unreadable — proceed
+    }
+
+    // Write our lock
+    await fs.mkdir(path.dirname(lockFile), { recursive: true })
+    await fs.writeFile(lockFile, JSON.stringify({
+      pid: process.pid,
+      startedAt: Date.now(),
+      entrypoint,
+    }))
+    return true
+  }
+
+  async function releaseLock(rootDir: string): Promise<void> {
+    try {
+      const lockFile = lockPath(rootDir)
+      const raw = await fs.readFile(lockFile, "utf8")
+      const lock = JSON.parse(raw) as { pid: number }
+      // Only remove if it's our lock
+      if (lock.pid === process.pid) {
+        await fs.unlink(lockFile)
+      }
+    } catch {
+      // Lock already gone
+    }
   }
 
   function shouldIgnore(rootDir: string, fullPath: string): boolean {
@@ -105,12 +182,19 @@ export namespace IndexWatcher {
     return cwd
   }
 
-  export async function start(options: Options): Promise<Handle> {
+  export async function start(options: Options & { entrypoint?: string }): Promise<Handle> {
     // Auto-detect or use explicit root directory
     const rootDir = await resolveRootDir(options.rootDir)
 
     // Validate directory before starting watcher
     await validateDirectory(rootDir)
+
+    // Acquire lock — skip if another watcher is already running on this project
+    const entrypoint = options.entrypoint ?? "unknown"
+    const acquired = await acquireLock(rootDir, entrypoint)
+    if (!acquired) {
+      return { stop: async () => {} }
+    }
 
     const intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS
     let dirty = false
@@ -222,6 +306,7 @@ export namespace IndexWatcher {
           clearInterval(intervalHandle)
         }
         await subscription.unsubscribe()
+        await releaseLock(rootDir)
       },
     }
   }

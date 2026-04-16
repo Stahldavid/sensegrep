@@ -1,5 +1,14 @@
 # @sensegrep/mcp
 
+## 1.1.2
+
+### Patch Changes
+
+- Fix file glob filtering by applying include/exclude before semantic limiting, and document the correct Claude Code plugin installation flow.
+
+- Updated dependencies []:
+  - @sensegrep/core@1.1.2
+
 ## 1.1.1
 
 ### Patch Changes

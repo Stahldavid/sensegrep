@@ -17,6 +17,20 @@ const log = Log.create({ service: "tool.sensegrep" })
 
 const MAX_LINE_LENGTH = 2000
 
+function normalizeFilePath(file: string): string {
+  return file.replace(/\\/g, "/")
+}
+
+function createGlobMatcher(pattern: string) {
+  const normalizedPattern = normalizeFilePath(pattern)
+  const hasPathSeparator = normalizedPattern.includes("/")
+  return picomatch(normalizedPattern, {
+    dot: true,
+    // Treat "*.ts" like a repo-wide basename match instead of only matching root files.
+    basename: !hasPathSeparator,
+  })
+}
+
 // Helper: Run ripgrep only on specific files (post-filter approach)
 async function runRipgrepOnFiles(
   pattern: string,
@@ -184,7 +198,8 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     maxPerFile: z.number().optional().describe("Maximum results per file (default: 2)"),
     maxPerSymbol: z.number().optional().describe("Maximum results per symbol (default: 2)"),
 
-    include: z.string().optional().describe('File pattern to filter results (e.g. "*.ts", "src/**/*.tsx")'),
+    include: z.string().optional().describe('File glob include filter (e.g. "*.ts", "src/**/*.tsx")'),
+    exclude: z.string().optional().describe('File glob exclude filter (e.g. "*.md", "docs/**")'),
     rerank: z.boolean().default(false).describe("Compatibility flag. Remote-only mode does not perform reranking."),
     minScore: z.number().optional().describe("Minimum relevance score 0-1 (filters low-confidence results)"),
     symbol: z.string().optional().describe('Filter by symbol name (e.g. "VectorStore")'),
@@ -304,6 +319,34 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       filters.all!.push({ key: "symbolName", operator: "contains", value: symbolQuery })
     }
 
+    let includeMatcher: ReturnType<typeof createGlobMatcher> | undefined
+    let excludeMatcher: ReturnType<typeof createGlobMatcher> | undefined
+    if (params.include) includeMatcher = createGlobMatcher(params.include)
+    if (params.exclude) excludeMatcher = createGlobMatcher(params.exclude)
+
+    if (includeMatcher || excludeMatcher) {
+      const indexedFiles = Object.keys(meta.files ?? {})
+      const candidateFiles = indexedFiles.filter((file) => {
+        const normalized = normalizeFilePath(file)
+        if (includeMatcher && !includeMatcher(normalized)) return false
+        if (excludeMatcher && excludeMatcher(normalized)) return false
+        return true
+      })
+
+      if (candidateFiles.length === 0) {
+        const filterLabel = [params.include ? `include="${params.include}"` : null, params.exclude ? `exclude="${params.exclude}"` : null]
+          .filter(Boolean)
+          .join(", ")
+        return {
+          title: params.query,
+          metadata: { matches: 0, indexed: true },
+          output: `No indexed files matched the file filters${filterLabel ? ` (${filterLabel})` : ""}.`,
+        }
+      }
+
+      filters.all!.push({ key: "file", operator: "in", value: candidateFiles })
+    }
+
     // Only pass filters if we have any
     const searchOptions: { limit: number; filters?: VectorStore.SearchFilters } = {
       limit: params.pattern ? limit * 3 : limit * 2, // Get more if we need to post-filter
@@ -315,10 +358,12 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     // Step 1: Semantic search with metadata filters
     let semanticResults = await VectorStore.search(collection, params.query, searchOptions)
 
-    // Apply include filter if specified (file glob pattern)
-    if (params.include) {
-      const matcher = picomatch(params.include, { dot: true })
-      semanticResults = semanticResults.filter((r) => matcher(r.metadata.file as string))
+    // Apply file globs again as a safety net after semantic search.
+    if (includeMatcher) {
+      semanticResults = semanticResults.filter((r) => includeMatcher!(normalizeFilePath(r.metadata.file as string)))
+    }
+    if (excludeMatcher) {
+      semanticResults = semanticResults.filter((r) => !excludeMatcher!(normalizeFilePath(r.metadata.file as string)))
     }
 
     // Step 2: Post-filter with ripgrep if pattern provided

@@ -41,16 +41,18 @@ claude plugin install sensegrep
 
 This automatically sets up the MCP server and teaches Claude when and how to use sensegrep instead of grep. No manual JSON editing required.
 
-> **Marketplace setup** (one-time):
+> **Marketplace setup** (required on first install):
 > ```bash
 > claude plugin marketplace add Stahldavid/sensegrep
 > claude plugin install sensegrep
 > ```
 >
-> Explicit marketplace form also works:
+> After the marketplace has been added once, the explicit marketplace form also works:
 > ```bash
 > claude plugin install sensegrep@sensegrep
 > ```
+>
+> Running `claude plugin install sensegrep@sensegrep` on a fresh machine before `claude plugin marketplace add Stahldavid/sensegrep` will fail because Claude Code does not know the `sensegrep` marketplace yet.
 
 ### CLI
 
@@ -61,7 +63,7 @@ npm i -g @sensegrep/cli
 sensegrep index --root .
 
 # Search by meaning
-sensegrep search "error handling and retry logic" --type function --exported
+sensegrep search "error handling and retry logic" --type function --exported --exclude "*.md"
 
 # Find duplicates
 sensegrep detect-duplicates --threshold 0.85
@@ -198,6 +200,9 @@ sensegrep search "business logic" --min-complexity 10 --has-docs false
 
 # Filter by decorator
 sensegrep search "route handler" --type function --decorator route
+
+# Keep docs and markdown out of results
+sensegrep search "authentication flow" --include "src/**/*.ts" --exclude "*.md"
 ```
 
 ## Embeddings Configuration

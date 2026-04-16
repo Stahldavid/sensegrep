@@ -12,9 +12,9 @@ Production-ready setup and workflow recipes for common sensegrep usage paths.
 
 ## Install Options at a Glance
 
-| Platform | MCP + skill (one step) | Skill only |
+| Platform | Plugin setup | Skill only |
 |---|---|---|
-| Claude Code | `claude plugin install sensegrep` | `npx skills add Stahldavid/sensegrep -g` |
+| Claude Code | `claude plugin marketplace add Stahldavid/sensegrep && claude plugin install sensegrep` | `npx skills add Stahldavid/sensegrep -g` |
 | Cursor | `cursor plugin install sensegrep` | `npx skills add Stahldavid/sensegrep -g` |
 | Windsurf / Cline / Amp / others | manual MCP setup | `npx skills add Stahldavid/sensegrep -g` |
 

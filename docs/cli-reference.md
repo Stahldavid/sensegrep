@@ -39,7 +39,8 @@ sensegrep search <query> [options]
 | `--query <text>` | Query text (alternative to positional) |
 | `--pattern <regex>` | Regex post-filter on results |
 | `--limit <n>` | Max results (default: 20) |
-| `--include <glob>` | File glob filter (e.g. `src/**/*.ts`) |
+| `--include <glob>` | File glob include filter (e.g. `src/**/*.ts`) |
+| `--exclude <glob>` | File glob exclude filter (e.g. `*.md`, `docs/**`) |
 | `--json` | Output as JSON |
 
 **Symbol filters:**

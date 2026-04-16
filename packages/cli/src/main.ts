@@ -29,7 +29,7 @@ function usage() {
 sensegrep (CLI)
 
 Usage:
-  sensegrep index [--root <dir>] [--full|--incremental] [--verify] [--watch]
+  sensegrep index [--root <dir>] [--full|--incremental] [--verify] [--no-watch]
   sensegrep verify [--root <dir>]
   sensegrep status [--root <dir>]
   sensegrep search <query...> [options]
@@ -40,7 +40,8 @@ Search options:
   --query <text>            Query text (if not provided as positional)
   --pattern <regex>         Regex filter (post-filter)
   --limit <n>               Max results (default: 20)
-  --include <glob>          File glob filter (e.g. "src/**/*.ts")
+  --include <glob>          File glob include filter (e.g. "src/**/*.ts")
+  --exclude <glob>          File glob exclude filter (e.g. "*.md" or "docs/**")
   --type <symbolType>       function|class|method|type|variable|enum|module
   --variant <name>          Language-specific variant (interface, dataclass, protocol, etc.)
   --decorator <name>        Filter by decorator (@property, @dataclass, etc.)
@@ -65,7 +66,8 @@ Search options:
   --embed-dim <n>           Override embedding dimension
   --provider <name>         gemini|openai
   --root <dir>              Root directory (default: cwd)
-  --watch                   Keep running; reindex at most once per minute on changes
+  --watch                   Keep running; reindex on changes (default: on)
+  --no-watch                Exit after indexing (for CI/scripts)
   --json                    Output JSON
 
 Duplicate detection options:
@@ -201,7 +203,8 @@ async function run() {
 
   if (command === "index") {
     const full = flags.full === true
-    const watch = toBool(flags.watch) === true
+    const noWatch = flags["no-watch"] === true
+    const watch = noWatch ? false : (toBool(flags.watch) ?? true)
     
     // Auto-detect languages if not specified
     const { detectProjectLanguages } = await loadCore()
@@ -247,9 +250,10 @@ async function run() {
       `Index summary: indexed=${stats.indexed} files=${stats.files} chunks=${stats.chunks} provider=${stats.embeddings?.provider ?? "n/a"}`,
     )
     if (watch) {
-      console.log("Watching for changes (reindex at most once per minute)...")
+      console.log("Watching for changes (reindex at most once per minute)... Use --no-watch to disable.")
       const handle = await IndexWatcher.start({
         rootDir,
+        entrypoint: "cli",
         intervalMs: 60_000,
         onIndex: (result) => {
           console.log(formatIndexResult(result))
@@ -314,6 +318,7 @@ if (command === "verify") {
 if (flags.pattern) params.pattern = String(flags.pattern)
     if (flags.limit) params.limit = Number(flags.limit)
     if (flags.include) params.include = String(flags.include)
+    if (flags.exclude) params.exclude = String(flags.exclude)
     if (flags.type) params.symbolType = String(flags.type) as any
     if (flags.symbolType) params.symbolType = String(flags.symbolType) as any
     if (flags.variant) params.variant = String(flags.variant)

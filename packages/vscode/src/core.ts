@@ -427,6 +427,7 @@ export class SensegrepCore {
               limit: options?.limit ?? 20,
               pattern: options?.pattern,
               include: options?.include,
+              exclude: options?.exclude,
               symbolType: options?.symbolType,
               symbol: options?.symbol,
               minScore: options?.minScore,

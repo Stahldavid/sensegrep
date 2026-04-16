@@ -11,10 +11,12 @@ claude plugin install sensegrep
 
 That's it. Claude now has access to all sensegrep tools and knows when to prefer them over grep. Skip to [Smoke Test](#smoke-test).
 
-> Explicit marketplace form also works:
+> After you add the marketplace once, the explicit marketplace form also works:
 > ```bash
 > claude plugin install sensegrep@sensegrep
 > ```
+>
+> On a fresh setup, `claude plugin install sensegrep@sensegrep` fails until `claude plugin marketplace add Stahldavid/sensegrep` has been run.
 
 ## Option B: Skill Only (no plugin)
 

@@ -38,8 +38,10 @@ claude plugin marketplace add Stahldavid/sensegrep
 claude plugin install sensegrep
 ```
 
-If marketplace is already configured, this explicit form also works:
+If the marketplace is already configured, this explicit form also works:
 
 ```bash
 claude plugin install sensegrep@sensegrep
 ```
+
+On a fresh setup, run `claude plugin marketplace add Stahldavid/sensegrep` first or Claude Code will not know the `sensegrep` marketplace yet.

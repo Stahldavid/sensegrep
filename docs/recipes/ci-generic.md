@@ -19,7 +19,7 @@ npm ci
 npm i -g @sensegrep/cli
 
 sensegrep index --root .
-sensegrep search "authentication and authorization logic" --limit 15
+sensegrep search "authentication and authorization logic" --limit 15 --exclude "*.md"
 sensegrep detect-duplicates --cross-file-only --limit 10
 ```
 
@@ -36,7 +36,7 @@ sensegrep detect-duplicates --cross-file-only --limit 10
 2. Weekly deep scan:
    Increase limits and persist JSON output.
 3. Component-level checks:
-   Use `--include` per service/package.
+   Use `--include` per service/package, or `--exclude "*.md"` / `--exclude "docs/**"` to keep non-code files out.
 4. Release readiness:
    Run semantic checks before tagging releases.
 5. Duplicate triage feed:
@@ -45,7 +45,7 @@ sensegrep detect-duplicates --cross-file-only --limit 10
 ## Troubleshooting
 
 - OOM in small runners:
-  Scope with `--include` and reduce concurrent CI workload.
+  Scope with `--include`, add `--exclude` for noisy file types, and reduce concurrent CI workload.
 - Non-deterministic logs:
   Use fixed query files and explicit flags.
 - Slow startup:

@@ -24,7 +24,7 @@ Start with these defaults and adjust based on what you find:
 
 > When `pattern` is set, sensegrep internally fetches `limit × 3` candidates before filtering — so the default limit=10 is already enough. Don't inflate `limit` when using `pattern`; the pattern does the filtering.
 
-> **Tip:** Always add `include: "src/**/*.ts"` (or equivalent) to exclude markdown files, changelogs, and docs from results — they match semantically but add noise.
+> **Tip:** Use `include: "src/**/*.ts"` to focus on source folders, or add `exclude: "*.md"` / `exclude: "docs/**"` when you want to keep markdown, docs, and changelogs out of results.
 
 ## Tools Available
 
@@ -39,7 +39,8 @@ sensegrep_search({
   isExported: true,             // public API surface
   minComplexity: 5,             // complex logic
   pattern: "handle|process",    // regex post-filter via ripgrep (applied after semantic search)
-  include: "src/**/*.ts",       // file glob filter
+  include: "src/**/*.ts",       // file glob include filter
+  exclude: "*.md",              // file glob exclude filter
   decorator: "@route",          // filter by decorator
   parentScope: "UserService",   // scope to class/parent
   imports: "express",           // filter by imported module
@@ -104,7 +105,8 @@ Applied at the vector store level, before embedding search:
 - `imports` — only files that import a given module
 - `hasDocumentation` — require or exclude docstrings
 - `minComplexity` / `maxComplexity` — target simple helpers or complex business logic
-- `include` — file glob (e.g. `packages/core/**/*.ts`)
+- `include` — file glob include filter (e.g. `packages/core/**/*.ts`)
+- `exclude` — file glob exclude filter (e.g. `*.md`, `docs/**`)
 
 ### 2. `pattern` — ripgrep regex post-filter (after semantic search)
 
@@ -126,7 +128,7 @@ sensegrep_search({ query: "cache invalidation", symbolType: "function", pattern:
 Tree-shaking collapses regions not relevant to your query. The more focused the search, the better the collapse:
 
 - **Add `symbolType`** — results align to symbol boundaries; everything around them gets collapsed
-- **Use `include`** — removes noise files entirely
+- **Use `include` or `exclude`** — removes noise files entirely
 - **Raise `minScore`** — eliminates low-confidence results; surrounding code gets collapsed more aggressively
 - **Lower `maxPerFile`** — prevents overlapping results from blocking contiguous collapse
 - **Combine `query` + `pattern`** — anchors result to a specific call site
@@ -139,6 +141,7 @@ sensegrep_search({ query: "caching" })
 sensegrep_search({
   query: "cache invalidation logic",
   symbolType: "function",
+  exclude: "*.md",
   pattern: "delete|evict|expire",
   maxPerFile: 1,
   minScore: 0.4

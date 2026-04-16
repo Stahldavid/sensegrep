@@ -15,10 +15,16 @@ claude plugin install sensegrep
 
 The plugin automatically configures the MCP server and includes a skill that teaches Claude when and how to use sensegrep. No manual JSON editing required.
 
-If you prefer explicit marketplace syntax:
+If you prefer explicit marketplace syntax after the marketplace has already been added:
 
 ```bash
 claude plugin install sensegrep@sensegrep
+```
+
+On a fresh setup, this explicit form fails until you first run:
+
+```bash
+claude plugin marketplace add Stahldavid/sensegrep
 ```
 
 ## Cursor Plugin

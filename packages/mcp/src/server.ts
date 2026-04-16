@@ -92,6 +92,7 @@ async function startWatch() {
   try {
     watchHandle = await IndexWatcher.start({
       rootDir: rootDir!, // Will auto-detect if undefined
+      entrypoint: "mcp",
       intervalMs: WATCH_INTERVAL_MS,
       onIndex: (result: IndexResult) => {
         const message = formatIndexResult(result);
@@ -139,7 +140,8 @@ async function generateTools(): Promise<Tool[]> {
           query: { type: "string", description: "Semantic search query: pass a natural-language sentence/text or a code snippet, not isolated keywords" },
           pattern: { type: "string", description: "Regex pattern filter" },
           limit: { type: "number", description: "Max results (default: 20)" },
-          include: { type: "string", description: "File glob filter (e.g., 'src/**/*.ts')" },
+          include: { type: "string", description: "File glob include filter (e.g., 'src/**/*.ts')" },
+          exclude: { type: "string", description: "File glob exclude filter (e.g., '*.md' or 'docs/**')" },
           symbol: { type: "string", description: "Filter by symbol name" },
           name: { type: "string", description: "Alias for symbol name" },
           symbolType: {
@@ -237,7 +239,7 @@ async function generateTools(): Promise<Tool[]> {
 const server = new Server(
   {
     name: "sensegrep",
-    version: "1.1.1",
+    version: "1.1.2",
   },
   {
     capabilities: {
