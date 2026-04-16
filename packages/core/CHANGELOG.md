@@ -1,5 +1,11 @@
 # @sensegrep/core
 
+## 1.1.4
+
+### Patch Changes
+
+- Canonicalize watcher project paths before locking so CLI, MCP, and VS Code share the same watcher lock for the same repository.
+
 ## 1.1.3
 
 ### Patch Changes

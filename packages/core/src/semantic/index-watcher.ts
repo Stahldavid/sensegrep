@@ -49,6 +49,15 @@ export namespace IndexWatcher {
     return path.join(Global.Path.data, ".lancedb", `project_${getProjectHash(rootDir)}`, "watcher.lock")
   }
 
+  async function canonicalizeRootDir(rootDir: string): Promise<string> {
+    const resolved = path.resolve(rootDir)
+    try {
+      return await fs.realpath(resolved)
+    } catch {
+      return path.normalize(resolved)
+    }
+  }
+
   function isPidAlive(pid: number): boolean {
     try {
       process.kill(pid, 0)
@@ -184,7 +193,8 @@ export namespace IndexWatcher {
 
   export async function start(options: Options & { entrypoint?: string }): Promise<Handle> {
     // Auto-detect or use explicit root directory
-    const rootDir = await resolveRootDir(options.rootDir)
+    const resolvedRootDir = await resolveRootDir(options.rootDir)
+    const rootDir = await canonicalizeRootDir(resolvedRootDir)
 
     // Validate directory before starting watcher
     await validateDirectory(rootDir)
