@@ -1,5 +1,14 @@
 # @sensegrep/mcp
 
+## 1.1.3
+
+### Patch Changes
+
+- Remove the extra Gemini countTokens request before embeddings so searches use fewer API calls and are less likely to hit rate limits.
+
+- Updated dependencies []:
+  - @sensegrep/core@1.1.3
+
 ## 1.1.2
 
 ### Patch Changes

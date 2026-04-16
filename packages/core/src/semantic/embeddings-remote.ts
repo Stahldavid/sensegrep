@@ -106,46 +106,13 @@ const TOKEN_LIMITS = {
   openai: 8192,
 } as const
 
-async function countTokensGemini(text: string, modelName: string): Promise<number> {
-  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
-  if (!apiKey) {
-    log.warn("No Gemini API key, using character estimate for token count")
-    return Math.ceil(text.length / 4)
-  }
-
-  try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:countTokens`
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": apiKey,
-      },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text }] }],
-      }),
-    })
-
-    if (!response.ok) {
-      throw new Error(`Gemini countTokens failed: ${response.statusText}`)
-    }
-
-    const data = (await response.json()) as { totalTokens?: number }
-    return data.totalTokens || 0
-  } catch (error) {
-    log.warn("Failed to count tokens with Gemini API, using character estimate", { error })
-    return Math.ceil(text.length / 4)
-  }
-}
-
 async function validateTextLength(
   text: string,
   provider: "gemini" | "openai",
-  modelName: string,
+  _modelName: string,
 ): Promise<{ text: string; tokenCount: number; truncated: boolean }> {
   const limit = provider === "gemini" ? TOKEN_LIMITS.gemini : TOKEN_LIMITS.openai
-  const tokenCount =
-    provider === "gemini" ? await countTokensGemini(text, modelName) : Math.ceil(text.length / 4)
+  const tokenCount = Math.ceil(text.length / 4)
 
   if (tokenCount <= limit) {
     return { text, tokenCount, truncated: false }
