@@ -1,5 +1,11 @@
 # @sensegrep/core
 
+## 1.2.1
+
+### Patch Changes
+
+- [`4f893b2`](https://github.com/Stahldavid/sensegrep/commit/4f893b27672de16b7f1c694c9cebf8c85149b943) Thanks [@Stahldavid](https://github.com/Stahldavid)! - Fix Amazon Bedrock authentication to prefer the configured API key token from sensegrep config files instead of falling back to expired AWS credentials.
+
 ## 1.2.0
 
 ### Minor Changes
