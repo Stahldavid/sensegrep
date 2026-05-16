@@ -1,6 +1,6 @@
 {
   "name": "sensegrep",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Semantic code search for AI agents. Search code by meaning, not text patterns. Replaces grep/ripgrep for 95% of code exploration tasks.",
   "author": {
     "name": "sensegrep",
