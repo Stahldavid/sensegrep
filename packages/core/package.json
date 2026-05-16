@@ -24,6 +24,7 @@
     "node": ">=18"
   },
   "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.1048.0",
     "@lancedb/lancedb": "^0.23.0",
     "apache-arrow": "18.1.0",
     "@parcel/watcher": "^2.4.1",

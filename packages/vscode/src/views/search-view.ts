@@ -383,10 +383,10 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private getEffectiveProvider(): "gemini" | "openai" {
+  private getEffectiveProvider(): "gemini" | "openai" | "bedrock" {
     const config = vscode.workspace.getConfiguration("sensegrep")
     const provider = config.get<string>("embeddings.provider")
-    if (provider === "gemini" || provider === "openai") return provider
+    if (provider === "gemini" || provider === "openai" || provider === "bedrock") return provider
     return "gemini"
   }
 

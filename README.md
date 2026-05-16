@@ -207,7 +207,7 @@ sensegrep search "authentication flow" --include "src/**/*.ts" --exclude "*.md"
 
 ## Embeddings Configuration
 
-sensegrep uses remote embedding providers: Gemini or OpenAI-compatible APIs.
+ sensegrep uses remote embedding providers: Gemini, OpenAI-compatible APIs, or Amazon Bedrock.
 
 ```bash
 # Recommended: Gemini embeddings (best quality)
@@ -217,6 +217,10 @@ sensegrep search "auth flow" --provider gemini --embed-model gemini-embedding-00
 # OpenAI-compatible provider
 export SENSEGREP_OPENAI_API_KEY="your_api_key"
 sensegrep search "auth flow" --provider openai --embed-model fireworks/qwen3-embedding-8b
+
+# Amazon Bedrock + Cohere Embed v4
+export AWS_REGION="us-east-1"
+sensegrep search "auth flow" --provider bedrock --embed-model cohere.embed-v4:0 --embed-dim 1536
 ```
 
 Global defaults via `~/.config/sensegrep/config.json`:
@@ -231,11 +235,12 @@ Global defaults via `~/.config/sensegrep/config.json`:
 
 Common environment variables:
 
-- `SENSEGREP_PROVIDER` (`gemini`, `openai`)
+- `SENSEGREP_PROVIDER` (`gemini`, `openai`, `bedrock`)
 - `SENSEGREP_EMBED_MODEL`
 - `SENSEGREP_EMBED_DIM`
 - `GEMINI_API_KEY` / `GOOGLE_API_KEY` (Gemini)
 - `SENSEGREP_OPENAI_API_KEY` / `FIREWORKS_API_KEY` / `OPENAI_API_KEY` (OpenAI-compatible)
+- `SENSEGREP_BEDROCK_REGION` / `AWS_REGION` / `AWS_DEFAULT_REGION` (Amazon Bedrock)
 - `SENSEGREP_ROOT` (MCP root directory)
 - `SENSEGREP_WATCH` (MCP watcher toggle)
 

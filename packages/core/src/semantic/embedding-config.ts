@@ -2,7 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { Global } from "../global/index.js"
 
-type EmbeddingProvider = "gemini" | "openai"
+export type EmbeddingProvider = "gemini" | "openai" | "bedrock"
 
 export type RateLimitConfig = {
   /** Max requests per minute. Default: 3000 (Gemini free tier). */
@@ -20,6 +20,7 @@ export type EmbeddingConfig = {
   embedModel: string
   embedDim: number
   baseUrl?: string
+  region?: string
   apiKey?: string
   rateLimit?: RateLimitConfig
 }
@@ -32,6 +33,8 @@ const DEFAULTS = {
   openaiModel: "fireworks/qwen3-embedding-8b",
   openaiDim: 768,
   openaiBaseUrl: "https://api.fireworks.ai/inference/v1",
+  bedrockModel: "cohere.embed-v4:0",
+  bedrockDim: 1536,
 } as const
 
 const CONFIG_FILENAME = "config.json"
@@ -65,8 +68,10 @@ function loadFileConfig(): Partial<EmbeddingConfig> {
 function readConfiguredProvider(value: unknown, source: string): EmbeddingProvider | undefined {
   if (typeof value !== "string" || value.length === 0) return undefined
   const normalized = value.toLowerCase()
-  if (normalized === "gemini" || normalized === "openai") return normalized
-  throw new Error(`Unsupported embeddings provider in ${source}: "${value}". Use "gemini" or "openai".`)
+  if (normalized === "gemini" || normalized === "openai" || normalized === "bedrock") return normalized
+  throw new Error(
+    `Unsupported embeddings provider in ${source}: "${value}". Use "gemini", "openai", or "bedrock".`,
+  )
 }
 
 function readProvider(): EmbeddingProvider {
@@ -104,7 +109,9 @@ export function getEmbeddingConfig(overrides?: EmbeddingOverrides): EmbeddingCon
     (fileConfig.embedModel as string | undefined) ||
     (provider === "gemini"
       ? process.env.OPENCODE_GEMINI_EMBED_MODEL || DEFAULTS.geminiModel
-      : DEFAULTS.openaiModel)
+      : provider === "openai"
+        ? DEFAULTS.openaiModel
+        : DEFAULTS.bedrockModel)
 
   const embedDim =
     mergedOverrides.embedDim ??
@@ -112,13 +119,21 @@ export function getEmbeddingConfig(overrides?: EmbeddingOverrides): EmbeddingCon
     parseNumber(fileConfig.embedDim) ??
     (provider === "gemini"
       ? parseNumber(process.env.OPENCODE_GEMINI_EMBED_DIM) ?? DEFAULTS.geminiDim
-      : DEFAULTS.openaiDim)
+      : provider === "openai"
+        ? DEFAULTS.openaiDim
+        : DEFAULTS.bedrockDim)
 
   const baseUrl =
     mergedOverrides.baseUrl ||
     process.env.SENSEGREP_OPENAI_BASE_URL ||
     (fileConfig as any).baseUrl ||
     (provider === "openai" ? DEFAULTS.openaiBaseUrl : undefined)
+
+  const region =
+    mergedOverrides.region ||
+    process.env.SENSEGREP_BEDROCK_REGION ||
+    (fileConfig as any).region ||
+    (provider === "bedrock" ? process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION : undefined)
 
   const apiKey =
     mergedOverrides.apiKey ||
@@ -143,7 +158,8 @@ export function getEmbeddingConfig(overrides?: EmbeddingOverrides): EmbeddingCon
     provider,
     embedModel,
     embedDim,
-    ...(baseUrl ? { baseUrl } : {}),
+    ...(provider === "openai" && baseUrl ? { baseUrl } : {}),
+    ...(provider === "bedrock" && region ? { region } : {}),
     ...(apiKey ? { apiKey } : {}),
     ...(Object.keys(rateLimit).length > 0 ? { rateLimit } : {}),
   }

@@ -77,7 +77,7 @@ sensegrep search <query> [options]
 |------|-------------|
 | `--embed-model <name>` | Override remote embedding model |
 | `--embed-dim <n>` | Override embedding dimension |
-| `--provider <name>` | `gemini`, `openai` |
+| `--provider <name>` | `gemini`, `openai`, `bedrock` |
 | `--rerank` / `--no-rerank` | Compatibility flag; remote-only mode keeps semantic ranking |
 
 ### `sensegrep detect-duplicates`

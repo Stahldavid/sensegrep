@@ -1,7 +1,7 @@
 /**
  * Embeddings module.
  *
- * The runtime is remote-only and supports Gemini or OpenAI-compatible embedding APIs.
+ * The runtime is remote-only and supports Gemini, OpenAI-compatible, and Amazon Bedrock embedding APIs.
  */
 
 import { EmbeddingsRemote } from "./embeddings-remote.js"

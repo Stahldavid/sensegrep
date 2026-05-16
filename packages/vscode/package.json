@@ -438,7 +438,8 @@
           "type": "string",
           "enum": [
             "gemini",
-            "openai"
+            "openai",
+            "bedrock"
           ],
           "default": "gemini",
           "description": "Remote embeddings provider"

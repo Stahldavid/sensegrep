@@ -1920,8 +1920,9 @@ export function getSettingsViewHtml(
       <select id="provider">
         <option value="gemini" ${provider === 'gemini' ? 'selected' : ''}>Gemini (cloud)</option>
         <option value="openai" ${provider === 'openai' ? 'selected' : ''}>OpenAI-compatible (cloud)</option>
+        <option value="bedrock" ${provider === 'bedrock' ? 'selected' : ''}>Amazon Bedrock (AWS)</option>
       </select>
-      <div class="hint">Use a remote embeddings API. Gemini has built-in key management here; OpenAI-compatible uses environment variables.</div>
+      <div class="hint">Use a remote embeddings API. Gemini has built-in key management here; OpenAI-compatible uses environment variables; Bedrock uses your AWS credentials and region configuration.</div>
     </div>
   </div>
   

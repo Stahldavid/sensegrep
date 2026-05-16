@@ -127,9 +127,10 @@ Variables below are supported by the current runtime.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SENSEGREP_PROVIDER` | `gemini` | Embedding provider (`gemini`, `openai`) |
+| `SENSEGREP_PROVIDER` | `gemini` | Embedding provider (`gemini`, `openai`, `bedrock`) |
 | `SENSEGREP_EMBED_MODEL` | Provider-dependent | Embedding model name override |
 | `SENSEGREP_EMBED_DIM` | Provider-dependent | Embedding dimension override |
+| `SENSEGREP_BEDROCK_REGION` | - | Amazon Bedrock region override |
 
 ### API Keys and Endpoints
 
@@ -141,6 +142,8 @@ Variables below are supported by the current runtime.
 | `FIREWORKS_API_KEY` | - | OpenAI-compatible key fallback |
 | `OPENAI_API_KEY` | - | OpenAI-compatible key fallback |
 | `SENSEGREP_OPENAI_BASE_URL` | `https://api.fireworks.ai/inference/v1` | OpenAI-compatible base URL |
+| `AWS_REGION` | - | AWS SDK region for Amazon Bedrock |
+| `AWS_DEFAULT_REGION` | - | AWS SDK fallback region for Amazon Bedrock |
 
 ### Language Selection
 

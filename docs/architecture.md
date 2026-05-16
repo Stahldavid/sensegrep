@@ -81,6 +81,8 @@ sensegrep supports remote embedding providers:
 
 **OpenAI-compatible**: Uses an OpenAI-style `/embeddings` API such as Fireworks or OpenAI.
 
+**Amazon Bedrock**: Uses the AWS Bedrock Runtime API for models such as Cohere Embed v4, authenticated with standard AWS credentials and region configuration.
+
 For most production workloads, Gemini is strongly recommended because it supports much larger token contexts and generally yields better semantic retrieval quality.
 
 Support for additional embedding providers and APIs is planned.

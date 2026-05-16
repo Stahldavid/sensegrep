@@ -8,6 +8,7 @@
   "scripts": {
     "build": "node build.js",
     "version:check": "node scripts/check-version-consistency.mjs",
+    "precheck": "npm run build",
     "check": "npm run check --workspaces --if-present",
     "changeset": "changeset",
     "version": "changeset version && node scripts/sync-versions.mjs",

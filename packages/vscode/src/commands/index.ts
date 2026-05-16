@@ -44,7 +44,7 @@ export function registerCommands(
       const config = vscode.workspace.getConfiguration("sensegrep")
       const configuredProvider = config.get<string>("embeddings.provider")
       const provider =
-        configuredProvider === "gemini" || configuredProvider === "openai"
+        configuredProvider === "gemini" || configuredProvider === "openai" || configuredProvider === "bedrock"
           ? configuredProvider
           : "gemini"
 
@@ -72,7 +72,7 @@ export function registerCommands(
           await searchViewProvider.refreshApiKeyBanner()
           break
         case "setProvider":
-          if (message.provider === "gemini" || message.provider === "openai") {
+          if (message.provider === "gemini" || message.provider === "openai" || message.provider === "bedrock") {
             const cfg = vscode.workspace.getConfiguration("sensegrep")
             await cfg.update(
               "embeddings.provider",

@@ -89,7 +89,7 @@ export namespace Indexer {
       throw new Error(
         "Gemini embeddings are configured but no API key was found. " +
           "Set GEMINI_API_KEY or GOOGLE_API_KEY, configure `sensegrep.geminiApiKey` in VS Code, " +
-          "or switch to `--provider openai`.",
+          "or switch to `--provider openai` or `--provider bedrock`.",
       )
     }
 

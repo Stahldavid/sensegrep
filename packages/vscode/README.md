@@ -47,7 +47,7 @@ Search your codebase by meaning, not just text. Sensegrep uses AI embeddings and
 | `sensegrep.showDiagnostics` | `true` | Show duplicate warnings in Problems panel |
 | `sensegrep.semanticFolding` | `true` | Collapse unrelated code on navigation |
 | `sensegrep.duplicateThreshold` | `0.85` | Similarity threshold for duplicates |
-| `sensegrep.embeddings.provider` | `gemini` | `gemini` or `openai` |
+| `sensegrep.embeddings.provider` | `gemini` | `gemini`, `openai`, or `bedrock` |
 | `sensegrep.embeddings.model` | `gemini-embedding-001` | Embedding model |
 
 ### Using Gemini Embeddings
@@ -59,6 +59,8 @@ For cloud-based embeddings (recommended):
 3. Set `sensegrep.embeddings.provider` to `"gemini"`
 
 Why recommended: Gemini generally gives better semantic search quality and handles much larger token contexts than most remote embedding defaults.
+
+For Amazon Bedrock, set `sensegrep.embeddings.provider` to `"bedrock"` and configure your AWS credentials plus region through the standard AWS SDK environment/profile flow.
 
 ## Requirements
 

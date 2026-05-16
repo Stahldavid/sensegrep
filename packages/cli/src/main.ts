@@ -64,7 +64,7 @@ Search options:
   --no-rerank               Disable reranking
   --embed-model <name>      Override remote embedding model
   --embed-dim <n>           Override embedding dimension
-  --provider <name>         gemini|openai
+  --provider <name>         gemini|openai|bedrock
   --root <dir>              Root directory (default: cwd)
   --watch                   Keep running; reindex on changes (default: on)
   --no-watch                Exit after indexing (for CI/scripts)
@@ -138,10 +138,10 @@ function applyEmbeddingOverrides(flags: Flags, Embeddings: CoreModule["Embedding
   const provider = flags.provider ? String(flags.provider).toLowerCase() : undefined
 
   if (flags.device || flags["rerank-model"] || flags.rerankModel) {
-    throw new Error("Device and reranker overrides were removed. Use remote Gemini or OpenAI embeddings only.")
+    throw new Error("Device and reranker overrides were removed. Use remote Gemini, OpenAI-compatible, or Bedrock embeddings only.")
   }
-  if (provider && provider !== "gemini" && provider !== "openai") {
-    throw new Error(`Unsupported provider "${provider}". Use --provider gemini or --provider openai.`)
+  if (provider && provider !== "gemini" && provider !== "openai" && provider !== "bedrock") {
+    throw new Error(`Unsupported provider "${provider}". Use --provider gemini, --provider openai, or --provider bedrock.`)
   }
   if (flags["embed-model"]) overrides.embedModel = String(flags["embed-model"])
   if (flags.embedModel) overrides.embedModel = String(flags.embedModel)

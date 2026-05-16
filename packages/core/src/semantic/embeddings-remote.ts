@@ -1,3 +1,4 @@
+import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime"
 import { Log } from "../util/log.js"
 import {
   getEmbeddingConfig,
@@ -87,7 +88,13 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries: number, baseDelayM
     try {
       return await fn()
     } catch (err: any) {
-      const is429 = typeof err?.message === "string" && err.message.includes("429")
+      const message = typeof err?.message === "string" ? err.message : ""
+      const is429 =
+        err?.$metadata?.httpStatusCode === 429 ||
+        err?.name === "ThrottlingException" ||
+        err?.name === "TooManyRequestsException" ||
+        message.includes("429") ||
+        message.includes("ThrottlingException")
       if (!is429 || attempt >= maxRetries) throw err
       const jitter = 0.5 + Math.random() * 0.5
       const delay = Math.min(baseDelayMs * Math.pow(2, attempt) * jitter, 60_000)
@@ -104,14 +111,22 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries: number, baseDelayM
 const TOKEN_LIMITS = {
   gemini: 2048,
   openai: 8192,
+  bedrock: 128_000,
 } as const
+
+const BEDROCK_DIMENSIONS = new Set([256, 512, 1024, 1536])
 
 async function validateTextLength(
   text: string,
-  provider: "gemini" | "openai",
+  provider: "gemini" | "openai" | "bedrock",
   _modelName: string,
 ): Promise<{ text: string; tokenCount: number; truncated: boolean }> {
-  const limit = provider === "gemini" ? TOKEN_LIMITS.gemini : TOKEN_LIMITS.openai
+  const limit =
+    provider === "gemini"
+      ? TOKEN_LIMITS.gemini
+      : provider === "openai"
+        ? TOKEN_LIMITS.openai
+        : TOKEN_LIMITS.bedrock
   const tokenCount = Math.ceil(text.length / 4)
 
   if (tokenCount <= limit) {
@@ -138,6 +153,8 @@ function normalize(vec: number[]): number[] {
 }
 
 export namespace EmbeddingsRemote {
+  const bedrockClients = new Map<string, BedrockRuntimeClient>()
+
   type TaskType =
     | "DEFAULT"
     | "RETRIEVAL_QUERY"
@@ -166,7 +183,128 @@ export namespace EmbeddingsRemote {
     if (config.provider === "gemini") {
       return embedGemini(input, options, config)
     }
+    if (config.provider === "bedrock") {
+      return embedBedrock(input, options, config)
+    }
     return embedOpenAI(input, options, config)
+  }
+
+  function getBedrockClient(config: EmbeddingConfig): BedrockRuntimeClient {
+    const key = config.region || "__default__"
+    const existing = bedrockClients.get(key)
+    if (existing) return existing
+
+    const client = new BedrockRuntimeClient(config.region ? { region: config.region } : {})
+    bedrockClients.set(key, client)
+    return client
+  }
+
+  function getBedrockInputType(taskType?: TaskType): "search_document" | "search_query" | "classification" | "clustering" {
+    switch (taskType) {
+      case "RETRIEVAL_QUERY":
+      case "CODE_RETRIEVAL_QUERY":
+        return "search_query"
+      case "CLASSIFICATION":
+        return "classification"
+      case "CLUSTERING":
+        return "clustering"
+      default:
+        return "search_document"
+    }
+  }
+
+  function parseBedrockFloatEmbeddings(data: any): any[] {
+    if (Array.isArray(data?.embeddings)) return data.embeddings
+    if (Array.isArray(data?.embeddings?.float)) return data.embeddings.float
+    return []
+  }
+
+  async function embedBedrock(
+    texts: string[],
+    options: (EmbedOptions & { skipValidation?: boolean }) | undefined,
+    config: EmbeddingConfig,
+  ): Promise<number[][]> {
+    const model = config.embedModel
+    const outputDimensionality = Number(config.embedDim || options?.outputDimensionality || 1536)
+    if (!BEDROCK_DIMENSIONS.has(outputDimensionality)) {
+      throw new Error(
+        `Amazon Bedrock Cohere Embed v4 requires --embed-dim to be one of 256, 512, 1024, or 1536. Received: ${outputDimensionality}.`,
+      )
+    }
+
+    let validatedTexts: string[]
+    if (options?.skipValidation) {
+      validatedTexts = texts
+    } else {
+      validatedTexts = []
+      let truncatedCount = 0
+      for (const text of texts) {
+        const validated = await validateTextLength(text, "bedrock", model)
+        validatedTexts.push(validated.text)
+        if (validated.truncated) truncatedCount++
+      }
+
+      if (truncatedCount > 0) {
+        log.warn(`Truncated ${truncatedCount}/${texts.length} texts to fit token limit`, {
+          model,
+          limit: TOKEN_LIMITS.bedrock,
+        })
+      }
+    }
+
+    const batchSize = 96
+    const allVectors: number[][] = []
+    const limiter = getLimiter(config)
+    const maxRetries = config.rateLimit?.maxRetries ?? 6
+    const retryBaseDelayMs = config.rateLimit?.retryBaseDelayMs ?? 1_000
+    const client = getBedrockClient(config)
+    const inputType = getBedrockInputType(options?.taskType)
+
+    for (let i = 0; i < validatedTexts.length; i += batchSize) {
+      const batch = validatedTexts.slice(i, i + batchSize)
+      const estimatedTokens = batch.reduce((s, t) => s + Math.ceil(t.length / 4), 0)
+      await limiter.acquire(estimatedTokens)
+
+      const data = await withRetry(
+        async () => {
+          const response = await client.send(
+            new InvokeModelCommand({
+              modelId: model,
+              accept: "application/json",
+              contentType: "application/json",
+              body: JSON.stringify({
+                texts: batch,
+                input_type: inputType,
+                embedding_types: ["float"],
+                output_dimension: outputDimensionality,
+                truncate: "RIGHT",
+                max_tokens: TOKEN_LIMITS.bedrock,
+              }),
+            }),
+          )
+
+          const decoded = new TextDecoder().decode(response.body)
+          return JSON.parse(decoded) as any
+        },
+        maxRetries,
+        retryBaseDelayMs,
+        "Bedrock",
+      )
+
+      const embeddings = parseBedrockFloatEmbeddings(data)
+      const vectors = embeddings.map((embedding) => {
+        if (!Array.isArray(embedding)) return []
+        return normalize(embedding.map((value: any) => Number(value)))
+      })
+
+      allVectors.push(...vectors)
+    }
+
+    if (allVectors.length !== texts.length) {
+      log.warn("bedrock embeddings count mismatch", { expected: texts.length, got: allVectors.length })
+    }
+
+    return allVectors
   }
 
   async function embedGemini(

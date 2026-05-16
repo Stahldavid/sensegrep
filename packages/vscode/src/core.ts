@@ -257,7 +257,8 @@ export class SensegrepCore {
     } else if (
       process.env.SENSEGREP_PROVIDER &&
       process.env.SENSEGREP_PROVIDER !== "gemini" &&
-      process.env.SENSEGREP_PROVIDER !== "openai"
+      process.env.SENSEGREP_PROVIDER !== "openai" &&
+      process.env.SENSEGREP_PROVIDER !== "bedrock"
     ) {
       delete process.env.SENSEGREP_PROVIDER
     }
