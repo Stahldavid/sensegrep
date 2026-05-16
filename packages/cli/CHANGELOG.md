@@ -1,5 +1,16 @@
 # @sensegrep/cli
 
+## 1.2.0
+
+### Minor Changes
+
+- [`97ab4f3`](https://github.com/Stahldavid/sensegrep/commit/97ab4f3e8fd3f7b718ee5fe46b8854c299820e0d) Thanks [@Stahldavid](https://github.com/Stahldavid)! - Add native Amazon Bedrock embeddings support centered on Cohere Embed v4, including CLI, MCP, and editor configuration updates.
+
+### Patch Changes
+
+- Updated dependencies [[`97ab4f3`](https://github.com/Stahldavid/sensegrep/commit/97ab4f3e8fd3f7b718ee5fe46b8854c299820e0d)]:
+  - @sensegrep/core@1.2.0
+
 ## 1.1.4
 
 ### Patch Changes
