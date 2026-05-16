@@ -15,13 +15,27 @@ function clearEnv() {
   }
 }
 
+function mockMissingGlobalConfig() {
+  vi.doMock("node:fs", async () => {
+    const actual = await vi.importActual<typeof import("node:fs")>("node:fs")
+    return {
+      ...actual,
+      readFileSync: vi.fn(() => {
+        throw new Error("ENOENT")
+      }),
+    }
+  })
+}
+
 describe("embedding config", () => {
   afterEach(() => {
     clearEnv()
     vi.resetModules()
+    vi.doUnmock("node:fs")
   })
 
   it("resolves Bedrock defaults from environment", async () => {
+    mockMissingGlobalConfig()
     process.env.SENSEGREP_PROVIDER = "bedrock"
     process.env.SENSEGREP_BEDROCK_REGION = "us-east-1"
 
@@ -35,10 +49,11 @@ describe("embedding config", () => {
   })
 
   it("allows Bedrock overrides for model, dimension, and AWS region", async () => {
+    mockMissingGlobalConfig()
     process.env.SENSEGREP_PROVIDER = "bedrock"
     process.env.SENSEGREP_EMBED_MODEL = "global.cohere.embed-v4:0"
     process.env.SENSEGREP_EMBED_DIM = "1024"
-    process.env.AWS_REGION = "eu-west-1"
+    process.env.SENSEGREP_BEDROCK_REGION = "eu-west-1"
 
     const { getEmbeddingConfig } = await import("./embedding-config.js")
     const config = getEmbeddingConfig()

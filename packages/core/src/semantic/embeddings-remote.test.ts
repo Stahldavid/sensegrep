@@ -22,14 +22,28 @@ vi.mock("@aws-sdk/client-bedrock-runtime", () => ({
   },
 }))
 
+function mockMissingGlobalConfig() {
+  vi.doMock("node:fs", async () => {
+    const actual = await vi.importActual<typeof import("node:fs")>("node:fs")
+    return {
+      ...actual,
+      readFileSync: vi.fn(() => {
+        throw new Error("ENOENT")
+      }),
+    }
+  })
+}
+
 describe("EmbeddingsRemote Bedrock", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.resetModules()
+    mockMissingGlobalConfig()
   })
 
   afterEach(() => {
     vi.clearAllMocks()
+    vi.doUnmock("node:fs")
   })
 
   it("invokes Bedrock with search_query and normalizes float embeddings", async () => {
@@ -48,13 +62,18 @@ describe("EmbeddingsRemote Bedrock", () => {
       embedModel: "cohere.embed-v4:0",
       embedDim: 1024,
       region: "us-east-1",
+      apiKey: "bedrock-token",
     })
 
     const [vector] = await EmbeddingsRemote.embed("find auth flow", { taskType: "RETRIEVAL_QUERY" })
     const command = sendMock.mock.calls[0][0]
     const body = JSON.parse(command.input.body)
 
-    expect(clientCtor).toHaveBeenCalledWith({ region: "us-east-1" })
+    expect(clientCtor).toHaveBeenCalledWith({
+      authSchemePreference: ["httpBearerAuth"],
+      region: "us-east-1",
+      token: { token: "bedrock-token" },
+    })
     expect(body.input_type).toBe("search_query")
     expect(body.output_dimension).toBe(1024)
     expect(body.embedding_types).toEqual(["float"])

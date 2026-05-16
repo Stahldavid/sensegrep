@@ -190,11 +190,18 @@ export namespace EmbeddingsRemote {
   }
 
   function getBedrockClient(config: EmbeddingConfig): BedrockRuntimeClient {
-    const key = config.region || "__default__"
+    const key = `${config.region || "__default__"}:${config.apiKey || "__no_token__"}`
     const existing = bedrockClients.get(key)
     if (existing) return existing
 
-    const client = new BedrockRuntimeClient(config.region ? { region: config.region } : {})
+    const clientConfig: ConstructorParameters<typeof BedrockRuntimeClient>[0] = {}
+    if (config.region) clientConfig.region = config.region
+    if (config.apiKey) {
+      clientConfig.token = { token: config.apiKey }
+      clientConfig.authSchemePreference = ["httpBearerAuth"]
+    }
+
+    const client = new BedrockRuntimeClient(clientConfig)
     bedrockClients.set(key, client)
     return client
   }
