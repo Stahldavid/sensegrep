@@ -49,6 +49,7 @@ export {
 export { TypeScriptLanguage, JavaScriptLanguage, tsParser, tsxParser } from "./typescript.js"
 export { PythonLanguage, pythonParser, chunk as chunkPython } from "./python.js"
 export { JavaLanguage, javaParser, chunk as chunkJava } from "./java.js"
+export { VueLanguage, vueParser, chunk as chunkVue, extractVueScriptBlocks } from "./vue.js"
 
 // ============================================================================
 // Auto-register languages on module load
@@ -57,9 +58,11 @@ import { registerLanguage } from "./registry.js"
 import { TypeScriptLanguage, JavaScriptLanguage } from "./typescript.js"
 import { PythonLanguage } from "./python.js"
 import { JavaLanguage } from "./java.js"
+import { VueLanguage } from "./vue.js"
 
 // Register all built-in languages
 registerLanguage(TypeScriptLanguage)
 registerLanguage(JavaScriptLanguage)
 registerLanguage(PythonLanguage)
 registerLanguage(JavaLanguage)
+registerLanguage(VueLanguage)

@@ -14,6 +14,7 @@ import type { Tree } from "web-tree-sitter"
 import { createRequire } from "module"
 import { readFile } from "node:fs/promises"
 import path from "path"
+import { extractVueScriptBlocks, type VueScriptBlock } from "./language/vue.js"
 
 const log = Log.create({ service: "semantic.tree-shaker" })
 
@@ -129,7 +130,7 @@ const javaParser = lazy(async () => {
   return p
 })
 
-type TreeShakerLanguage = "default" | "python" | "java"
+type TreeShakerLanguage = "default" | "python" | "java" | "vue"
 
 export namespace TreeShaker {
   export interface Range {
@@ -187,7 +188,8 @@ export namespace TreeShaker {
       filePath.endsWith(".js") ||
       filePath.endsWith(".jsx") ||
       filePath.endsWith(".py") ||
-      filePath.endsWith(".java")
+      filePath.endsWith(".java") ||
+      filePath.endsWith(".vue")
     )
   }
 
@@ -272,7 +274,38 @@ export namespace TreeShaker {
   function detectLanguage(filePath: string): TreeShakerLanguage {
     if (filePath.endsWith(".py")) return "python"
     if (filePath.endsWith(".java")) return "java"
+    if (filePath.endsWith(".vue")) return "vue"
     return "default"
+  }
+
+  async function getParserForVueBlock(block: VueScriptBlock) {
+    if (block.lang === "tsx") return tsxParser()
+    return tsParser()
+  }
+
+  async function extractVueRegions(content: string): Promise<CollapsibleRegion[]> {
+    const blocks = await extractVueScriptBlocks(content)
+    const allRegions: CollapsibleRegion[] = []
+
+    for (const block of blocks) {
+      const parser = await getParserForVueBlock(block)
+      const tree = parser.parse(block.content)
+      if (!tree) continue
+
+      const innerLines = block.content.split("\n")
+      const innerRegions = findCollapsibleRegions(tree, innerLines, "default")
+      for (const region of innerRegions) {
+        allRegions.push({
+          ...region,
+          startLine: block.rawTextStartRow + region.startLine,
+          endLine: block.rawTextStartRow + region.endLine,
+          signatureEndLine: block.rawTextStartRow + region.signatureEndLine,
+        })
+      }
+    }
+
+    allRegions.sort((a, b) => a.startLine - b.startLine)
+    return allRegions
   }
 
   /**
@@ -282,6 +315,10 @@ export namespace TreeShaker {
   export async function extractRegions(filePath: string, content: string): Promise<CollapsibleRegion[]> {
     if (!isSupported(filePath)) {
       return []
+    }
+
+    if (filePath.endsWith(".vue")) {
+      return extractVueRegions(content)
     }
 
     const lines = content.split("\n")
@@ -610,6 +647,11 @@ export namespace TreeShaker {
         regions: regions.length,
       })
     } else {
+      if (filePath.endsWith(".vue")) {
+        regions = await extractVueRegions(content)
+        return renderWithCollapsing(lines, regions, relevantRanges, collapseMode)
+      }
+
       // Parse the file to extract regions
       const parser = await getParserForFile(filePath)
       const tree = parser.parse(content)

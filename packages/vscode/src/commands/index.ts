@@ -763,7 +763,7 @@ async function promptAdvancedSearch(): Promise<{
   if (!query) return null
 
   const language = await vscode.window.showQuickPick(
-    ["", "typescript", "javascript", "python", "java"],
+    ["", "typescript", "javascript", "python", "java", "vue"],
     { placeHolder: "Language (optional)" }
   )
   if (language === undefined) return null

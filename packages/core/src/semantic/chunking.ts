@@ -1,7 +1,7 @@
 import { Log } from "../util/log.js"
 import { TreeSitterChunking } from "./chunking-treesitter.js"
 import { getEmbeddingConfig } from "./embedding-config.js"
-import { getLanguageForFile, chunkPython, chunkJava } from "./language/index.js"
+import { getLanguageForFile, chunkPython, chunkJava, chunkVue } from "./language/index.js"
 
 const log = Log.create({ service: "semantic.chunking" })
 
@@ -128,6 +128,22 @@ export namespace Chunking {
         log.warn("Java chunking returned 0 chunks, falling back to regex", { filePath })
       } catch (error) {
         log.warn("Java chunking failed, falling back to regex", {
+          filePath,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+
+    if (language?.id === "vue") {
+      try {
+        const chunks = await chunkVue(content, filePath)
+        if (chunks.length > 0) {
+          log.info("used tree-sitter chunking (Vue)", { filePath, chunks: chunks.length })
+          return chunks
+        }
+        log.warn("Vue chunking returned 0 chunks, falling back to regex", { filePath })
+      } catch (error) {
+        log.warn("Vue chunking failed, falling back to regex", {
           filePath,
           error: error instanceof Error ? error.message : String(error),
         })

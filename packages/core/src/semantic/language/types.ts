@@ -111,7 +111,7 @@ export interface ChunkMetadata {
  * Supported programming languages.
  * Add new languages here as they are implemented.
  */
-export type SupportedLanguage = "typescript" | "javascript" | "python" | "java"
+export type SupportedLanguage = "typescript" | "javascript" | "python" | "java" | "vue"
 
 /**
  * Variant definition with metadata for discovery and help text.

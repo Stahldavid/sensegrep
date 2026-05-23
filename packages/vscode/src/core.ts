@@ -323,6 +323,7 @@ export class SensegrepCore {
             { id: "javascript", name: "JavaScript" },
             { id: "python", name: "Python" },
             { id: "java", name: "Java" },
+            { id: "vue", name: "Vue" },
           ],
           variants: [],
           decorators: []
@@ -402,6 +403,7 @@ export class SensegrepCore {
           { id: "javascript", name: "JavaScript" },
           { id: "python", name: "Python" },
           { id: "java", name: "Java" },
+          { id: "vue", name: "Vue" },
         ],
         variants: [],
         decorators: []

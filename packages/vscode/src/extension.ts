@@ -63,6 +63,7 @@ export async function activate(context: vscode.ExtensionContext) {
       { language: "javascript", scheme: "file" },
       { language: "javascriptreact", scheme: "file" },
       { language: "java", scheme: "file" },
+      { language: "vue", scheme: "file" },
     ],
     codeLensProvider
   )

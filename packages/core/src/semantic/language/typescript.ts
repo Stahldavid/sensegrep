@@ -209,6 +209,17 @@ function getAccessorType(node: SyntaxNode): "get" | "set" | undefined {
   return undefined
 }
 
+function sameNode(a: SyntaxNode | null, b: SyntaxNode | null): boolean {
+  if (!a || !b) return false
+  return (
+    a.type === b.type &&
+    a.startPosition.row === b.startPosition.row &&
+    a.startPosition.column === b.startPosition.column &&
+    a.endPosition.row === b.endPosition.row &&
+    a.endPosition.column === b.endPosition.column
+  )
+}
+
 /**
  * Check if node has JSDoc or leading comments
  */
@@ -312,7 +323,11 @@ export const TypeScriptLanguage: LanguageSupport = {
     // Try to find identifier child
     for (let i = 0; i < node.childCount; i++) {
       const child = node.child(i)
-      if (child?.type === "identifier" || child?.type === "type_identifier") {
+      if (
+        child?.type === "identifier" ||
+        child?.type === "type_identifier" ||
+        child?.type === "property_identifier"
+      ) {
         return child.text
       }
       // For export statements, look inside the exported declaration
@@ -382,15 +397,16 @@ export const TypeScriptLanguage: LanguageSupport = {
     const decorators: string[] = []
 
     // Look for decorator nodes before the declaration
-    let sibling = node.parent?.child(0)
-    while (sibling && sibling !== node) {
+    const parent = node.parent
+    if (!parent) return decorators
+
+    for (let i = 0; i < parent.childCount; i++) {
+      const sibling = parent.child(i)
+      if (!sibling) continue
+      if (sameNode(sibling, node)) break
       if (sibling.type === "decorator") {
         decorators.push(sibling.text)
       }
-      // Move to next sibling
-      const idx = Array.from({ length: node.parent?.childCount || 0 })
-        .findIndex((_, i) => node.parent?.child(i) === sibling)
-      sibling = node.parent?.child(idx + 1) || null
     }
 
     return decorators

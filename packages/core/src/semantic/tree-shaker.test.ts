@@ -106,6 +106,32 @@ public class AuthService {
 }
 `
 
+const SAMPLE_VUE = `<template>
+  <button @click="onClick">{{ label }}</button>
+</template>
+
+<script setup lang="ts">
+import { computed } from 'vue'
+
+const label = computed(() => 'hello')
+
+function greet(name: string) {
+  if (!name) return ''
+  return label.value + name
+}
+</script>
+
+<script>
+export default {
+  methods: {
+    onClick() {
+      return this.$emit('click')
+    }
+  }
+}
+</script>
+`
+
 describe("TreeShaker", () => {
   // Setup test directory
   const setupTestFiles = async () => {
@@ -113,6 +139,7 @@ describe("TreeShaker", () => {
     await writeFile(path.join(TEST_DIR, "auth-service.ts"), SAMPLE_CLASS)
     await writeFile(path.join(TEST_DIR, "functions.ts"), SAMPLE_FUNCTIONS)
     await writeFile(path.join(TEST_DIR, "auth-service.java"), SAMPLE_JAVA)
+    await writeFile(path.join(TEST_DIR, "greeting-card.vue"), SAMPLE_VUE)
   }
 
   const cleanupTestFiles = async () => {
@@ -142,6 +169,10 @@ describe("TreeShaker", () => {
 
     it("should support Java files", () => {
       expect(TreeShaker.isSupported("file.java")).toBe(true)
+    })
+
+    it("should support Vue files", () => {
+      expect(TreeShaker.isSupported("file.vue")).toBe(true)
     })
   })
 
@@ -272,6 +303,27 @@ describe("TreeShaker", () => {
         expect(result.content).toContain("import java.util.Locale;")
         expect(result.content).toContain("public String login(String token)")
         expect(result.content).toContain("return format(token);")
+        expect(result.content).toContain("hidden")
+        expect(result.stats.collapsedRegions).toBeGreaterThan(0)
+      } finally {
+        await cleanupTestFiles()
+      }
+    })
+  })
+
+  describe("shake - Vue script blocks", () => {
+    it("should collapse irrelevant vue methods while preserving the SFC shell", async () => {
+      await setupTestFiles()
+      try {
+        const result = await TreeShaker.shake({
+          filePath: path.join(TEST_DIR, "greeting-card.vue"),
+          fileContent: SAMPLE_VUE,
+          relevantRanges: [{ startLine: 9, endLine: 12 }],
+        })
+
+        expect(result.content).toContain("<template>")
+        expect(result.content).toContain("function greet(name: string)")
+        expect(result.content).toContain("return label.value + name")
         expect(result.content).toContain("hidden")
         expect(result.stats.collapsedRegions).toBeGreaterThan(0)
       } finally {

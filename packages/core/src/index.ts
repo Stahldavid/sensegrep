@@ -43,4 +43,5 @@ export {
   TypeScriptLanguage,
   PythonLanguage,
   JavaLanguage,
+  VueLanguage,
 } from "./semantic/language/index.js"
