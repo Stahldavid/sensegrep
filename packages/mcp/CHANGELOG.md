@@ -1,5 +1,18 @@
 # @sensegrep/mcp
 
+## 1.4.1
+
+### Patch Changes
+
+- [`03da2d1`](https://github.com/Stahldavid/sensegrep/commit/03da2d13c07f8f239727278fd3afd5baba1045c6) Thanks [@Stahldavid](https://github.com/Stahldavid)! - Fix Bedrock indexing failures and improve Vue chunking reliability.
+
+  Re-enable embedding input validation for LanceDB indexing, truncate oversized
+  Bedrock payloads, batch requests by payload size, split minified JS chunks
+  even inside nested blocks, and index template-only Vue SFCs as component chunks.
+
+- Updated dependencies [[`03da2d1`](https://github.com/Stahldavid/sensegrep/commit/03da2d13c07f8f239727278fd3afd5baba1045c6)]:
+  - @sensegrep/core@1.4.1
+
 ## 1.4.0
 
 ### Minor Changes
