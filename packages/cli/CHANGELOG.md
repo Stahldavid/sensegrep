@@ -1,5 +1,22 @@
 # @sensegrep/cli
 
+## 1.4.0
+
+### Minor Changes
+
+- [`a1a9be6`](https://github.com/Stahldavid/sensegrep/commit/a1a9be6124082ee19c73de2f4ecd5f11774f2e11) Thanks [@Stahldavid](https://github.com/Stahldavid)! - Add first-class Vue SFC semantic support across indexing and search.
+
+  Vue single-file components now use tree-sitter-vue to locate script blocks and
+  tree-sitter TypeScript/JavaScript for semantic chunking of `<script>` and
+  `<script setup>`. Metadata covers Composition API and Options API symbols,
+  tree-shaking preserves relevant SFC sections, and the CLI/VS Code surfaces expose
+  Vue as a selectable language.
+
+### Patch Changes
+
+- Updated dependencies [[`a1a9be6`](https://github.com/Stahldavid/sensegrep/commit/a1a9be6124082ee19c73de2f4ecd5f11774f2e11)]:
+  - @sensegrep/core@1.4.0
+
 ## 1.3.0
 
 ### Minor Changes
