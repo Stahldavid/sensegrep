@@ -182,7 +182,8 @@ Source Code
 
 - **TypeScript** / **JavaScript** (TSX/JSX included)
 - **Python** (dataclasses, protocols, decorators, async generators, TypedDict, and more)
-- More coming: C#, Java, HTML (see [feature branches](https://github.com/Stahldavid/sensegrep/branches))
+- **Java** (classes, interfaces, records, annotations, methods, and tree-shaken results)
+- More coming: C#, HTML (see [feature branches](https://github.com/Stahldavid/sensegrep/branches))
 
 ## Search Filters
 

@@ -42,4 +42,5 @@ export {
   // Language implementations
   TypeScriptLanguage,
   PythonLanguage,
+  JavaLanguage,
 } from "./semantic/language/index.js"

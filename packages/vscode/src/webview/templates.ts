@@ -508,8 +508,8 @@ export function getSearchViewHtml(
             <option value="">All</option>
             <option value="typescript">TypeScript</option>
             <option value="javascript">JavaScript</option>
-            <option value="tsx">TSX</option>
-            <option value="jsx">JSX</option>
+            <option value="python">Python</option>
+            <option value="java">Java</option>
           </select>
         </div>
 

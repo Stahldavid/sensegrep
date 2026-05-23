@@ -321,7 +321,8 @@ export class SensegrepCore {
           languages: [
             { id: "typescript", name: "TypeScript" },
             { id: "javascript", name: "JavaScript" },
-            { id: "python", name: "Python" }
+            { id: "python", name: "Python" },
+            { id: "java", name: "Java" },
           ],
           variants: [],
           decorators: []
@@ -399,7 +400,8 @@ export class SensegrepCore {
         languages: [
           { id: "typescript", name: "TypeScript" },
           { id: "javascript", name: "JavaScript" },
-          { id: "python", name: "Python" }
+          { id: "python", name: "Python" },
+          { id: "java", name: "Java" },
         ],
         variants: [],
         decorators: []

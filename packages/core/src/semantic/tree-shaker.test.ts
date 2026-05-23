@@ -84,12 +84,35 @@ function internalHelper(): void {
 }
 `
 
+const SAMPLE_JAVA = `import java.util.Locale;
+
+public class AuthService {
+  private final String prefix;
+
+  public AuthService(String prefix) {
+    this.prefix = prefix;
+  }
+
+  public String login(String token) {
+    if (token == null || token.isBlank()) {
+      return "denied";
+    }
+    return format(token);
+  }
+
+  private String format(String token) {
+    return prefix + token.toLowerCase(Locale.ROOT);
+  }
+}
+`
+
 describe("TreeShaker", () => {
   // Setup test directory
   const setupTestFiles = async () => {
     await mkdir(TEST_DIR, { recursive: true })
     await writeFile(path.join(TEST_DIR, "auth-service.ts"), SAMPLE_CLASS)
     await writeFile(path.join(TEST_DIR, "functions.ts"), SAMPLE_FUNCTIONS)
+    await writeFile(path.join(TEST_DIR, "auth-service.java"), SAMPLE_JAVA)
   }
 
   const cleanupTestFiles = async () => {
@@ -115,6 +138,10 @@ describe("TreeShaker", () => {
 
     it("should support Python files", () => {
       expect(TreeShaker.isSupported("file.py")).toBe(true)
+    })
+
+    it("should support Java files", () => {
+      expect(TreeShaker.isSupported("file.java")).toBe(true)
     })
   })
 
@@ -225,6 +252,28 @@ describe("TreeShaker", () => {
         expect(result.content).toContain("private db: Database")
         expect(result.content).toContain("private cache: Map<string, User>")
         expect(result.content).toContain("private logger: Logger")
+      } finally {
+        await cleanupTestFiles()
+      }
+    })
+  })
+
+  describe("shake - Java methods", () => {
+    it("should collapse irrelevant Java methods and preserve class structure", async () => {
+      await setupTestFiles()
+      try {
+        const result = await TreeShaker.shake({
+          filePath: path.join(TEST_DIR, "auth-service.java"),
+          fileContent: SAMPLE_JAVA,
+          relevantRanges: [{ startLine: 9, endLine: 14 }],
+        })
+
+        expect(result.content).toContain("public class AuthService")
+        expect(result.content).toContain("import java.util.Locale;")
+        expect(result.content).toContain("public String login(String token)")
+        expect(result.content).toContain("return format(token);")
+        expect(result.content).toContain("hidden")
+        expect(result.stats.collapsedRegions).toBeGreaterThan(0)
       } finally {
         await cleanupTestFiles()
       }

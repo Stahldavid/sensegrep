@@ -11,7 +11,7 @@ describe("language capabilities", () => {
     const capabilities = getLanguageCapabilities()
 
     expect(capabilities.languages).toEqual(
-      expect.arrayContaining(["typescript", "javascript", "python"])
+      expect.arrayContaining(["typescript", "javascript", "python", "java"])
     )
     expect(capabilities.symbolTypes).toContain("function")
     expect(capabilities.symbolTypes).toContain("class")
@@ -23,6 +23,8 @@ describe("language capabilities", () => {
     const invalid = validateVariant("interfase", "typescript")
     expect(invalid.valid).toBe(false)
     expect(invalid.suggestion).toBe("interface")
+
+    expect(validateVariant("record", "java")).toEqual({ valid: true })
   })
 
   it("validates decorators by language", () => {

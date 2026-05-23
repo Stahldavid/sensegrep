@@ -19,6 +19,7 @@ Search your codebase by meaning, not just text. Sensegrep uses AI embeddings and
 
 - TypeScript / JavaScript (TSX/JSX)
 - Python (dataclasses, protocols, decorators, async generators, TypedDict)
+- Java (classes, interfaces, records, annotations, methods)
 
 ## Commands
 

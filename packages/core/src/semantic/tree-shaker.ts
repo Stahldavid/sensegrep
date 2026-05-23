@@ -14,7 +14,6 @@ import type { Tree } from "web-tree-sitter"
 import { createRequire } from "module"
 import { readFile } from "node:fs/promises"
 import path from "path"
-import { getLanguageForFile } from "./language/index.js"
 
 const log = Log.create({ service: "semantic.tree-shaker" })
 
@@ -108,6 +107,30 @@ const pythonParser = lazy(async () => {
   return p
 })
 
+// Lazy-loaded Java parser
+const javaParser = lazy(async () => {
+  const wasm = await import("web-tree-sitter")
+  const Parser = (wasm as any).default ?? (wasm as any)
+  const treePath = resolveWasmPath("web-tree-sitter/tree-sitter.wasm")
+  await Parser.init({
+    locateFile() {
+      return treePath
+    },
+  })
+
+  const javaPath = resolveWasmPath("tree-sitter-wasms/out/tree-sitter-java.wasm")
+  const Language = (Parser as any).Language ?? (wasm as any).Language
+  if (!Language?.load) {
+    throw new Error("tree-sitter Language.load not available")
+  }
+  const javaLanguage = await Language.load(javaPath)
+  const p = new Parser()
+  p.setLanguage(javaLanguage)
+  return p
+})
+
+type TreeShakerLanguage = "default" | "python" | "java"
+
 export namespace TreeShaker {
   export interface Range {
     startLine: number
@@ -163,7 +186,8 @@ export namespace TreeShaker {
       filePath.endsWith(".tsx") ||
       filePath.endsWith(".js") ||
       filePath.endsWith(".jsx") ||
-      filePath.endsWith(".py")
+      filePath.endsWith(".py") ||
+      filePath.endsWith(".java")
     )
   }
 
@@ -209,7 +233,7 @@ export namespace TreeShaker {
     // Look for the opening brace of the body
     for (let i = 0; i < node.childCount; i++) {
       const child = node.child(i)
-      if (child?.type === "statement_block") {
+      if (child?.type === "statement_block" || child?.type === "block" || child?.type === "constructor_body") {
         // The signature ends at the line before the block, or the same line if inline
         const blockStart = child.startPosition.row + 1 // 1-indexed
         // Check if the opening brace is on its own line
@@ -237,10 +261,18 @@ export namespace TreeShaker {
   async function getParserForFile(filePath: string) {
     if (filePath.endsWith(".py")) {
       return pythonParser()
+    } else if (filePath.endsWith(".java")) {
+      return javaParser()
     } else if (filePath.endsWith(".tsx") || filePath.endsWith(".jsx")) {
       return tsxParser()
     }
     return tsParser()
+  }
+
+  function detectLanguage(filePath: string): TreeShakerLanguage {
+    if (filePath.endsWith(".py")) return "python"
+    if (filePath.endsWith(".java")) return "java"
+    return "default"
   }
 
   /**
@@ -260,20 +292,24 @@ export namespace TreeShaker {
       return []
     }
 
-    const isPython = filePath.endsWith(".py")
-    return findCollapsibleRegions(tree, lines, isPython)
+    const language = detectLanguage(filePath)
+    return findCollapsibleRegions(tree, lines, language)
   }
 
   /**
    * Find all collapsible regions in the AST
    * Exported for pre-computation during indexing
    */
-  export function findCollapsibleRegions(tree: Tree, lines: string[], isPython = false): CollapsibleRegion[] {
+  export function findCollapsibleRegions(
+    tree: Tree,
+    lines: string[],
+    language: TreeShakerLanguage = "default"
+  ): CollapsibleRegion[] {
     const regions: CollapsibleRegion[] = []
     const rootNode = tree.rootNode as unknown as SyntaxNode
 
     function visit(node: SyntaxNode) {
-      if (isPython) {
+      if (language === "python") {
         // Python: function_definition, decorated_definition
         if (node.type === "function_definition") {
           const name = extractNodeName(node)
@@ -300,6 +336,40 @@ export namespace TreeShaker {
         if (node.type === "decorated_definition") {
           // The actual function/class is a child, we'll visit it separately
           // Just need to adjust the start line to include decorators
+        }
+      } else if (language === "java") {
+        if (node.type === "constructor_declaration") {
+          const name = extractNodeName(node)
+          const startLine = node.startPosition.row + 1
+          const endLine = node.endPosition.row + 1
+          const signatureEndLine = findSignatureEndLine(node, lines)
+          const indentation = getIndentation(lines[node.startPosition.row] || "")
+
+          regions.push({
+            type: "constructor",
+            name,
+            startLine,
+            endLine,
+            signatureEndLine,
+            indentation,
+          })
+        }
+
+        if (node.type === "method_declaration") {
+          const name = extractNodeName(node)
+          const startLine = node.startPosition.row + 1
+          const endLine = node.endPosition.row + 1
+          const signatureEndLine = findSignatureEndLine(node, lines)
+          const indentation = getIndentation(lines[node.startPosition.row] || "")
+
+          regions.push({
+            type: "method",
+            name,
+            startLine,
+            endLine,
+            signatureEndLine,
+            indentation,
+          })
         }
       } else {
         // TypeScript/JavaScript handling (existing logic)
@@ -541,7 +611,6 @@ export namespace TreeShaker {
       })
     } else {
       // Parse the file to extract regions
-      const isPython = filePath.endsWith(".py")
       const parser = await getParserForFile(filePath)
       const tree = parser.parse(content)
 
@@ -559,7 +628,7 @@ export namespace TreeShaker {
       }
 
       // Find collapsible regions
-      regions = findCollapsibleRegions(tree, lines, isPython)
+      regions = findCollapsibleRegions(tree, lines, detectLanguage(filePath))
 
       log.info("tree-shaker: parsed and found collapsible regions", {
         filePath: path.basename(filePath),

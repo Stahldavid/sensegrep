@@ -1,5 +1,5 @@
 import { Log } from "../util/log.js"
-import { TreeSitterChunking } from "./chunking-treesitter.js"
+import { Chunking } from "./chunking.js"
 import { getLanguageForFile, isSupported as isLanguageSupported } from "./language/index.js"
 import { VectorStore } from "./lancedb.js"
 import * as fs from "fs/promises"
@@ -243,10 +243,74 @@ export namespace DuplicateDetector {
     "$ID",
   ])
 
+  const RESERVED_WORDS_JAVA = new Set([
+    "abstract",
+    "assert",
+    "boolean",
+    "break",
+    "byte",
+    "case",
+    "catch",
+    "char",
+    "class",
+    "const",
+    "continue",
+    "default",
+    "do",
+    "double",
+    "else",
+    "enum",
+    "extends",
+    "false",
+    "final",
+    "finally",
+    "float",
+    "for",
+    "goto",
+    "if",
+    "implements",
+    "import",
+    "instanceof",
+    "int",
+    "interface",
+    "long",
+    "native",
+    "new",
+    "null",
+    "package",
+    "private",
+    "protected",
+    "public",
+    "record",
+    "return",
+    "short",
+    "static",
+    "strictfp",
+    "super",
+    "switch",
+    "synchronized",
+    "this",
+    "throw",
+    "throws",
+    "transient",
+    "true",
+    "try",
+    "var",
+    "void",
+    "volatile",
+    "while",
+    "$NUM",
+    "$STR",
+    "$ID",
+  ])
+
   function getReservedWordsForFile(filePath: string): Set<string> {
     const lang = getLanguageForFile(filePath)
     if (lang?.id === "python") {
       return RESERVED_WORDS_PYTHON
+    }
+    if (lang?.id === "java") {
+      return RESERVED_WORDS_JAVA
     }
     return RESERVED_WORDS_JS
   }
@@ -300,7 +364,7 @@ export namespace DuplicateDetector {
     for (const file of files) {
       try {
         const content = await fs.readFile(file, "utf-8")
-        const chunks = await TreeSitterChunking.chunk(content, file)
+        const chunks = await Chunking.chunkAsync(content, file)
 
         for (const chunk of chunks) {
           // Filtrar apenas definições (não chamadas)

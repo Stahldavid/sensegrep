@@ -224,7 +224,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     maxComplexity: z.number().optional().describe("Maximum cyclomatic complexity"),
     hasDocumentation: z.boolean().optional().describe("Filter for code with/without documentation"),
     language: z
-      .enum(["typescript", "javascript", "python"])
+      .enum(["typescript", "javascript", "python", "java"])
       .optional()
       .describe('Filter by programming language'),
     parentScope: z.string().optional().describe('Filter by parent scope/class (e.g. "VectorStore")'),

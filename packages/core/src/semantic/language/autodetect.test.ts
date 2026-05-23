@@ -12,16 +12,18 @@ describe("language autodetection", () => {
     await writeFile(path.join(TEST_DIR, "a.ts"), "export const a = 1\n")
     await writeFile(path.join(TEST_DIR, "b.py"), "def run():\n    pass\n")
     await writeFile(path.join(TEST_DIR, "c.js"), "export const c = 3\n")
+    await writeFile(path.join(TEST_DIR, "d.java"), "class Demo {}\n")
     await writeFile(path.join(TEST_DIR, "README.txt"), "not a code file\n")
 
     try {
       const detected = await detectProjectLanguages(TEST_DIR)
       const ids = detected.map((d) => d.language)
 
-      expect(ids).toEqual(expect.arrayContaining(["typescript", "python", "javascript"]))
+      expect(ids).toEqual(expect.arrayContaining(["typescript", "python", "javascript", "java"]))
       expect(detected.find((d) => d.language === "typescript")?.fileCount).toBe(1)
       expect(detected.find((d) => d.language === "python")?.fileCount).toBe(1)
       expect(detected.find((d) => d.language === "javascript")?.fileCount).toBe(1)
+      expect(detected.find((d) => d.language === "java")?.fileCount).toBe(1)
     } finally {
       await rm(TEST_DIR, { recursive: true, force: true })
     }
