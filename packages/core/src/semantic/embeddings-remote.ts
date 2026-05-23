@@ -111,8 +111,11 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries: number, baseDelayM
 const TOKEN_LIMITS = {
   gemini: 2048,
   openai: 8192,
-  bedrock: 128_000,
+  bedrock: 8192,
 } as const
+
+/** Bedrock Cohere rejects inputs above ~8k chars before server-side truncate applies. */
+const BEDROCK_MAX_CHARS = 8192
 
 const BEDROCK_DIMENSIONS = new Set([256, 512, 1024, 1536])
 
@@ -121,12 +124,27 @@ async function validateTextLength(
   provider: "gemini" | "openai" | "bedrock",
   _modelName: string,
 ): Promise<{ text: string; tokenCount: number; truncated: boolean }> {
+  if (provider === "bedrock") {
+    const tokenCount = Math.ceil(text.length / 4)
+    if (text.length <= BEDROCK_MAX_CHARS) {
+      return { text, tokenCount, truncated: false }
+    }
+
+    log.warn("Text exceeds Bedrock char limit, truncating", {
+      textLength: text.length,
+      limit: BEDROCK_MAX_CHARS,
+    })
+    return {
+      text: text.substring(0, BEDROCK_MAX_CHARS),
+      tokenCount: Math.ceil(BEDROCK_MAX_CHARS / 4),
+      truncated: true,
+    }
+  }
+
   const limit =
     provider === "gemini"
       ? TOKEN_LIMITS.gemini
-      : provider === "openai"
-        ? TOKEN_LIMITS.openai
-        : TOKEN_LIMITS.bedrock
+      : TOKEN_LIMITS.openai
   const tokenCount = Math.ceil(text.length / 4)
 
   if (tokenCount <= limit) {
@@ -150,6 +168,33 @@ function normalize(vec: number[]): number[] {
   const norm = Math.sqrt(sum)
   if (!Number.isFinite(norm) || norm <= 0) return vec
   return vec.map((v) => v / norm)
+}
+
+function batchTextsForBedrock(texts: string[]): string[][] {
+  const maxItems = 96
+  const maxBytes = 18 * 1024 * 1024
+  const batches: string[][] = []
+  let current: string[] = []
+  let currentBytes = 512
+
+  for (const text of texts) {
+    const textBytes = Buffer.byteLength(text, "utf8") + 32
+    const wouldOverflow =
+      current.length > 0 &&
+      (current.length >= maxItems || currentBytes + textBytes > maxBytes)
+
+    if (wouldOverflow) {
+      batches.push(current)
+      current = []
+      currentBytes = 512
+    }
+
+    current.push(text)
+    currentBytes += textBytes
+  }
+
+  if (current.length > 0) batches.push(current)
+  return batches.length > 0 ? batches : [[]]
 }
 
 export namespace EmbeddingsRemote {
@@ -259,7 +304,7 @@ export namespace EmbeddingsRemote {
       }
     }
 
-    const batchSize = 96
+    const batches = batchTextsForBedrock(validatedTexts)
     const allVectors: number[][] = []
     const limiter = getLimiter(config)
     const maxRetries = config.rateLimit?.maxRetries ?? 6
@@ -267,8 +312,8 @@ export namespace EmbeddingsRemote {
     const client = getBedrockClient(config)
     const inputType = getBedrockInputType(options?.taskType)
 
-    for (let i = 0; i < validatedTexts.length; i += batchSize) {
-      const batch = validatedTexts.slice(i, i + batchSize)
+    for (const batch of batches) {
+      if (batch.length === 0) continue
       const estimatedTokens = batch.reduce((s, t) => s + Math.ceil(t.length / 4), 0)
       await limiter.acquire(estimatedTokens)
 

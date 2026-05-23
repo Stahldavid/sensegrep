@@ -69,4 +69,22 @@ describe("Vue language support", () => {
       language: "vue",
     })
   })
+
+  it("chunks template-only vue components", async () => {
+    const templateOnly = `<template>
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
+    <path d="M.057 24l1.687-6.163c-1.041-1.804" />
+  </svg>
+</template>
+`
+
+    const chunks = await chunk(templateOnly, "src/components/Whatsapp.vue")
+    expect(chunks).toHaveLength(1)
+    expect(chunks[0]).toMatchObject({
+      symbolName: "Whatsapp",
+      symbolType: "module",
+      variant: "component",
+      language: "vue",
+    })
+  })
 })

@@ -109,4 +109,29 @@ describe("EmbeddingsRemote Bedrock", () => {
     expect(vector[1]).toBeCloseTo(2 / 3)
     expect(vector[2]).toBeCloseTo(2 / 3)
   })
+
+  it("truncates Bedrock inputs longer than the API char limit", async () => {
+    sendMock.mockResolvedValue({
+      body: new TextEncoder().encode(
+        JSON.stringify({
+          response_type: "embeddings_floats",
+          embeddings: [[1, 0]],
+        }),
+      ),
+    })
+
+    const { EmbeddingsRemote } = await import("./embeddings-remote.js")
+    EmbeddingsRemote.configure({
+      provider: "bedrock",
+      embedModel: "cohere.embed-v4:0",
+      embedDim: 1536,
+    })
+
+    const longText = "x".repeat(10_000)
+    await EmbeddingsRemote.embed(longText, { taskType: "RETRIEVAL_DOCUMENT" })
+
+    const command = sendMock.mock.calls[0][0]
+    const body = JSON.parse(command.input.body)
+    expect(body.texts[0].length).toBeLessThanOrEqual(8192)
+  })
 })

@@ -8,6 +8,16 @@ src/
 tsconfig.json
 webview-ui/src/
 .gitignore
+build.js
 **/*.ts
 !dist/**
 !dist/core/node_modules/**
+dist/core/node_modules/@lancedb/lancedb-linux-*
+dist/core/node_modules/@lancedb/lancedb-darwin-*
+dist/core/node_modules/@lancedb/lancedb-win32-arm64-*
+dist/core/node_modules/@parcel/watcher-linux-*
+dist/core/node_modules/@parcel/watcher-darwin-*
+dist/core/node_modules/@parcel/watcher-freebsd-*
+dist/core/node_modules/@parcel/watcher-android-*
+dist/core/node_modules/@parcel/watcher-win32-ia32
+dist/core/node_modules/@parcel/watcher-win32-arm64

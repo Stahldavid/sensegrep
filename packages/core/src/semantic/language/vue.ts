@@ -409,5 +409,7 @@ export async function chunk(content: string, filePath: string): Promise<Chunking
     return chunks
   }
 
-  return scriptBlocks.length > 0 ? [buildComponentChunk(filePath, content, componentImports)] : []
+  return scriptBlocks.length > 0 || content.trim().length >= MIN_VUE_CHUNK_SIZE
+    ? [buildComponentChunk(filePath, content, componentImports)]
+    : []
 }

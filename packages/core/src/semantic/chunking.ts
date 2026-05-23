@@ -229,9 +229,9 @@ export namespace Chunking {
       currentChunk.push(line)
       inBlock = braceDepth > 0
 
-      // Force split if chunk gets too large
+      // Force split if chunk gets too large (including minified/vendor files)
       const currentContent = currentChunk.join("\n")
-      if (currentContent.length > MAX_CHUNK_SIZE && braceDepth === 0) {
+      if (currentContent.length > MAX_CHUNK_SIZE) {
         chunks.push({
           content: currentContent,
           startLine: chunkStartLine + 1,
@@ -240,6 +240,7 @@ export namespace Chunking {
         })
         currentChunk = []
         chunkStartLine = i + 1
+        inBlock = braceDepth > 0
       }
     }
 

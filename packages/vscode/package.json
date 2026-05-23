@@ -3,7 +3,7 @@
   "private": true,
   "displayName": "Sensegrep",
   "description": "Semantic + structural code search with AI-powered duplicate detection",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "publisher": "sensegrep",
   "license": "Apache-2.0",
   "icon": "resources/icon.png",
@@ -43,12 +43,10 @@
     "workspaceContains:**/*.ts",
     "workspaceContains:**/*.tsx",
     "workspaceContains:**/*.js",
-    "workspaceContains:**/*.jsx"
-  ],
-  "files": [
-    "dist/**",
-    "resources/**",
-    "README.md"
+    "workspaceContains:**/*.jsx",
+    "workspaceContains:**/*.py",
+    "workspaceContains:**/*.java",
+    "workspaceContains:**/*.vue"
   ],
   "main": "./dist/extension.js",
   "contributes": {

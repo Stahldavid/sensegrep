@@ -512,7 +512,6 @@ export namespace VectorStore {
     const embeddings = await Embeddings.embed(contents, {
       taskType: "RETRIEVAL_DOCUMENT",
       title: documents.map((d) => String(d.metadata.file ?? "")),
-      skipValidation: true,
     })
 
     const rows = documents.map((d, i) => {
