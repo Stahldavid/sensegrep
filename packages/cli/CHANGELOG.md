@@ -1,5 +1,21 @@
 # @sensegrep/cli
 
+## 1.3.0
+
+### Minor Changes
+
+- [`a4a07ca`](https://github.com/Stahldavid/sensegrep/commit/a4a07cad92b5e6755e58f9238ef8e2a7fc11bba7) Thanks [@Stahldavid](https://github.com/Stahldavid)! - Add first-class Java semantic support across indexing and search.
+
+  Java files now use tree-sitter-based semantic chunking with metadata for classes,
+  interfaces, records, annotation types, methods, constructors, fields, modifiers,
+  Javadoc, imports, and parent scope. Tree-shaking and language discovery also
+  support Java, and the CLI/VS Code surfaces expose Java as a selectable language.
+
+### Patch Changes
+
+- Updated dependencies [[`a4a07ca`](https://github.com/Stahldavid/sensegrep/commit/a4a07cad92b5e6755e58f9238ef8e2a7fc11bba7)]:
+  - @sensegrep/core@1.3.0
+
 ## 1.2.1
 
 ### Patch Changes
