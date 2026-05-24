@@ -1,5 +1,14 @@
 # @sensegrep/mcp
 
+## 1.4.3
+
+### Patch Changes
+
+- [`5dcf54c`](https://github.com/Stahldavid/sensegrep/commit/5dcf54c8378f0e4a1b41caa8fcc7c68939adf9ac) Thanks [@Stahldavid](https://github.com/Stahldavid)! - Improve exact identifier searches by adding an automatic literal fallback on top of semantic search and document the updated behavior in the sensegrep skills.
+
+- Updated dependencies [[`5dcf54c`](https://github.com/Stahldavid/sensegrep/commit/5dcf54c8378f0e4a1b41caa8fcc7c68939adf9ac)]:
+  - @sensegrep/core@1.4.3
+
 ## 1.4.2
 
 ### Patch Changes
