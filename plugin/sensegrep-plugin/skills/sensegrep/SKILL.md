@@ -25,7 +25,7 @@ Start with these defaults and adjust based on what you find:
 
 > When `pattern` is set, sensegrep internally fetches `limit × 3` candidates before filtering — so the default limit=10 is already enough. Don't inflate `limit` when using `pattern`; the pattern does the filtering.
 
-> **Tip:** Use `include: "src/**/*.ts"` to focus on source folders, or add `exclude: "*.md"` / `exclude: "docs/**"` when you want to keep markdown, docs, and changelogs out of results.
+> **Tip:** Use `include: "src/**/*.ts"` to focus on source folders, or add `exclude: "*.md"` / `exclude: "docs/**"` when you want to keep markdown, docs, and changelogs out of results. On Windows, prefer forward slashes in globs (`src/**/*.ts`), though backslash-based indexed paths are now normalized automatically.
 
 ## Tools Available
 
@@ -35,7 +35,7 @@ Start with these defaults and adjust based on what you find:
 sensegrep_search({
   query: "error handling and retry logic",  // natural language or code snippet
   symbolType: "function",       // function | class | method | type | variable | enum | module
-  language: "typescript",       // typescript | javascript | python
+  language: "typescript",       // typescript | javascript | python | java | vue
   isAsync: true,                // async only
   isExported: true,             // public API surface
   minComplexity: 5,             // complex logic
@@ -70,7 +70,7 @@ sensegrep_detect_duplicates({
 
 ### `sensegrep_index` — Index a project
 
-Language detection is **automatic** — sensegrep detects TypeScript, JavaScript, and Python on its own. **Never specify language when indexing.**
+Language detection is **automatic** — sensegrep detects TypeScript, JavaScript, Python, Java, and Vue on its own. **Never specify language when indexing.**
 
 ```
 sensegrep_index({ action: "index", mode: "incremental" })  // fast, only changed files — use by default
@@ -106,7 +106,7 @@ Applied at the vector store level, before embedding search:
 - `imports` — only files that import a given module
 - `hasDocumentation` — require or exclude docstrings
 - `minComplexity` / `maxComplexity` — target simple helpers or complex business logic
-- `include` — file glob include filter (e.g. `packages/core/**/*.ts`)
+- `include` — file glob include filter (e.g. `packages/core/**/*.ts`). Prefer forward slashes in patterns, especially on Windows.
 - `exclude` — file glob exclude filter (e.g. `*.md`, `docs/**`)
 
 ### 2. `pattern` — ripgrep regex post-filter (after semantic search)
@@ -185,4 +185,10 @@ sensegrep_search({ query: "token refresh flow", isAsync: true, pattern: "refresh
 ```
 sensegrep_search({ query: "data model", variant: "dataclass", language: "python" })
 sensegrep_search({ query: "async context manager", variant: "generator", isAsync: true, language: "python" })
+```
+
+**Java / Vue-specific:**
+```
+sensegrep_search({ query: "order service orchestration", language: "java", symbolType: "class" })
+sensegrep_search({ query: "checkout page state and composables", language: "vue", include: "frontend-store/**/*.vue" })
 ```

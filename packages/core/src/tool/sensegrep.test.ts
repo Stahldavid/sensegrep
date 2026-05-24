@@ -54,11 +54,11 @@ describe("SenseGrepTool file glob filters", () => {
     search.mockImplementation(async (_collection, _query, options) => {
       const fileFilter = options.filters?.all?.find((filter: any) => filter.key === "file")
 
-      expect(fileFilter).toEqual({
-        key: "file",
-        operator: "in",
-        value: ["src/feature.ts"],
-      })
+      expect(fileFilter?.key).toBe("file")
+      expect(fileFilter?.operator).toBe("in")
+      expect(fileFilter?.value).toEqual(
+        expect.arrayContaining(["src/feature.ts"]),
+      )
 
       return [
         {
@@ -101,7 +101,7 @@ describe("SenseGrepTool file glob filters", () => {
   it("supports basename-style globs like *.ts", async () => {
     search.mockImplementation(async (_collection, _query, options) => {
       const fileFilter = options.filters?.all?.find((filter: any) => filter.key === "file")
-      expect(fileFilter?.value).toEqual(["src/feature.ts"])
+      expect(fileFilter?.value).toEqual(expect.arrayContaining(["src/feature.ts"]))
 
       return [
         {
@@ -138,10 +138,66 @@ describe("SenseGrepTool file glob filters", () => {
     expect(result.output).toContain("src/feature.ts")
   })
 
+  it("matches Windows-style indexed paths for nested include globs", async () => {
+    readIndexMeta.mockResolvedValue({
+      embeddings: {
+        provider: "gemini",
+        model: "test-model",
+        dimension: 3,
+      },
+      files: {
+        "frontend-store\\pages\\checkout\\index.vue": {},
+      },
+    })
+
+    search.mockImplementation(async (_collection, _query, options) => {
+      const fileFilter = options.filters?.all?.find((filter: any) => filter.key === "file")
+      expect(fileFilter?.value).toEqual(
+        expect.arrayContaining([
+          "frontend-store\\pages\\checkout\\index.vue",
+          "frontend-store/pages/checkout/index.vue",
+        ]),
+      )
+
+      return [
+        {
+          id: "frontend-store/pages/checkout/index.vue:0",
+          content: "<script setup lang=\"ts\">const checkout = true</script>",
+          metadata: {
+            file: "frontend-store/pages/checkout/index.vue",
+            startLine: 1,
+            endLine: 1,
+          },
+          distance: 0.1,
+        },
+      ]
+    })
+
+    const { SenseGrepTool } = await import("./sensegrep.js")
+    const tool = await SenseGrepTool.init()
+    const result = await tool.execute(
+      {
+        query: "checkout payment",
+        include: "frontend-store/**/*.vue",
+        limit: 1,
+        shake: false,
+      },
+      {
+        sessionID: "test",
+        messageID: "test",
+        agent: "vitest",
+        abort: new AbortController().signal,
+        metadata() {},
+      },
+    )
+
+    expect(result.output).toContain("frontend-store/pages/checkout/index.vue")
+  })
+
   it("applies exclude before semantic limiting", async () => {
     search.mockImplementation(async (_collection, _query, options) => {
       const fileFilter = options.filters?.all?.find((filter: any) => filter.key === "file")
-      expect(fileFilter?.value).toEqual(["src/feature.ts", "src/feature.js"])
+      expect(fileFilter?.value).toEqual(expect.arrayContaining(["src/feature.ts", "src/feature.js"]))
 
       return [
         {

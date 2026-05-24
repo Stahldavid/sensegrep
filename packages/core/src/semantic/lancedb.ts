@@ -303,6 +303,24 @@ export namespace VectorStore {
     return value.replaceAll("'", "''")
   }
 
+  function expandFilePathVariants(filePath: string): string[] {
+    const normalized = filePath.replace(/\\/g, "/").replace(/^\.\//, "")
+    const variants = new Set<string>([
+      filePath,
+      filePath.replace(/\\/g, "/"),
+      filePath.replace(/\//g, "\\"),
+      normalized,
+      normalized.replace(/\//g, "\\"),
+    ])
+
+    if (normalized && !normalized.startsWith("./")) {
+      variants.add(`./${normalized}`)
+      variants.add(`.\\${normalized.replace(/\//g, "\\")}`)
+    }
+
+    return [...variants].filter(Boolean)
+  }
+
   function buildWhere(where?: Record<string, string>): string | undefined {
     if (!where) return undefined
     const parts: string[] = []
@@ -580,14 +598,18 @@ export namespace VectorStore {
   }
 
   export async function deleteByFile(collection: LanceTable, filePath: string): Promise<void> {
-    await (collection as any).delete(`file = '${escapeSqlString(filePath)}'`)
+    const variants = expandFilePathVariants(filePath)
+    const predicate = variants.map((value) => `file = '${escapeSqlString(value)}'`).join(" OR ")
+    await (collection as any).delete(predicate)
   }
 
   export async function countByFile(collection: LanceTable, filePath: string): Promise<number> {
     // Best-effort: query ids and count. (Used rarely.)
+    const variants = expandFilePathVariants(filePath)
+    const predicate = variants.map((value) => `file = '${escapeSqlString(value)}'`).join(" OR ")
     const rows = await (collection as any)
       .query()
-      .where(`file = '${escapeSqlString(filePath)}'`)
+      .where(predicate)
       .select(["id"])
       .toArray()
     return Array.isArray(rows) ? rows.length : 0

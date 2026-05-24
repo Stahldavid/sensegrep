@@ -24,7 +24,7 @@ Start with these defaults and adjust based on what you find:
 
 > When `--pattern` is set, sensegrep internally fetches `limit × 3` candidates before filtering — so the default limit=10 is already enough. Don't inflate `--limit` when using `--pattern`; the pattern does the filtering.
 
-> **Tip:** Use `--include "src/**/*.ts"` to focus on source folders, or add `--exclude "*.md"` / `--exclude "docs/**"` when you want to keep markdown, docs, and changelogs out of results.
+> **Tip:** Use `--include "src/**/*.ts"` to focus on source folders, or add `--exclude "*.md"` / `--exclude "docs/**"` when you want to keep markdown, docs, and changelogs out of results. On Windows, prefer forward slashes in globs (`src/**/*.ts`), though backslash-based indexed paths are now normalized automatically.
 
 ## Commands
 
@@ -33,7 +33,7 @@ Start with these defaults and adjust based on what you find:
 ```bash
 sensegrep search "error handling and retry logic" \
   --type function          # function | class | method | type | variable | enum | module
-  --language typescript    # typescript | javascript | python
+  --language typescript    # typescript | javascript | python | java | vue
   --async                  # async only
   --exported true          # public API surface
   --min-complexity 5       # complex logic
@@ -66,7 +66,7 @@ sensegrep detect-duplicates \
 
 ### `sensegrep index` — Index a project
 
-Language detection is **automatic** — sensegrep detects TypeScript, JavaScript, and Python on its own. **Never specify language when indexing.**
+Language detection is **automatic** — sensegrep detects TypeScript, JavaScript, Python, Java, and Vue on its own. **Never specify language when indexing.**
 
 ```bash
 sensegrep index                  # fast, only changed files — use by default (incremental)
@@ -102,7 +102,7 @@ Applied at the vector store level, before embedding search:
 - `--imports` — only files that import a given module
 - `--has-docs` — require or exclude docstrings
 - `--min-complexity` / `--max-complexity` — target simple helpers or complex business logic
-- `--include` — file glob include filter (e.g. `packages/core/**/*.ts`)
+- `--include` — file glob include filter (e.g. `packages/core/**/*.ts`). Prefer forward slashes in patterns, especially on Windows.
 - `--exclude` — file glob exclude filter (e.g. `*.md`, `docs/**`)
 
 ### 2. `--pattern` — ripgrep regex post-filter (after semantic search)
@@ -179,4 +179,10 @@ sensegrep search "token refresh flow" --async --pattern "refresh_token|refreshTo
 ```bash
 sensegrep search "data model" --variant dataclass --language python
 sensegrep search "async context manager" --variant generator --async --language python
+```
+
+**Java / Vue-specific:**
+```bash
+sensegrep search "order service orchestration" --language java --type class
+sensegrep search "checkout page state and composables" --language vue --include "frontend-store/**/*.vue"
 ```

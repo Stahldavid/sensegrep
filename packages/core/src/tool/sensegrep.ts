@@ -21,8 +21,46 @@ function normalizeFilePath(file: string): string {
   return file.replace(/\\/g, "/")
 }
 
+function canonicalizeProjectFilePath(file: string): string {
+  let normalized = normalizeFilePath(file)
+  const normalizedRoot = normalizeFilePath(path.resolve(Instance.directory))
+
+  if (path.isAbsolute(file)) {
+    const absolutePath = normalizeFilePath(path.resolve(file))
+    const rootWithSlash = `${normalizedRoot}/`
+    if (absolutePath.toLowerCase().startsWith(rootWithSlash.toLowerCase())) {
+      normalized = absolutePath.slice(rootWithSlash.length)
+    } else {
+      normalized = absolutePath
+    }
+  }
+
+  while (normalized.startsWith("./")) {
+    normalized = normalized.slice(2)
+  }
+
+  return normalized
+}
+
+function expandFilePathVariants(file: string): string[] {
+  const canonical = canonicalizeProjectFilePath(file)
+  const variants = new Set<string>([
+    file,
+    normalizeFilePath(file),
+    canonical,
+    canonical.replace(/\//g, "\\"),
+  ])
+
+  if (canonical && !canonical.startsWith("./")) {
+    variants.add(`./${canonical}`)
+    variants.add(`.\\${canonical.replace(/\//g, "\\")}`)
+  }
+
+  return [...variants].filter(Boolean)
+}
+
 function createGlobMatcher(pattern: string) {
-  const normalizedPattern = normalizeFilePath(pattern)
+  const normalizedPattern = canonicalizeProjectFilePath(pattern)
   const hasPathSeparator = normalizedPattern.includes("/")
   return picomatch(normalizedPattern, {
     dot: true,
@@ -78,7 +116,7 @@ async function runRipgrepOnFiles(
     const match = line.match(/^(.+?):(\d+):(.*)$/)
     if (match) {
       const [, fullPath, lineNum, text] = match
-      const relativePath = path.relative(Instance.directory, fullPath)
+      const relativePath = canonicalizeProjectFilePath(path.relative(Instance.directory, fullPath))
       matches.push({
         file: relativePath,
         line: parseInt(lineNum, 10),
@@ -327,7 +365,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     if (includeMatcher || excludeMatcher) {
       const indexedFiles = Object.keys(meta.files ?? {})
       const candidateFiles = indexedFiles.filter((file) => {
-        const normalized = normalizeFilePath(file)
+        const normalized = canonicalizeProjectFilePath(file)
         if (includeMatcher && !includeMatcher(normalized)) return false
         if (excludeMatcher && excludeMatcher(normalized)) return false
         return true
@@ -344,7 +382,8 @@ export const SenseGrepTool = Tool.define("sensegrep", {
         }
       }
 
-      filters.all!.push({ key: "file", operator: "in", value: candidateFiles })
+      const fileFilterValues = [...new Set(candidateFiles.flatMap((file) => expandFilePathVariants(file)))]
+      filters.all!.push({ key: "file", operator: "in", value: fileFilterValues })
     }
 
     // Only pass filters if we have any
@@ -360,10 +399,10 @@ export const SenseGrepTool = Tool.define("sensegrep", {
 
     // Apply file globs again as a safety net after semantic search.
     if (includeMatcher) {
-      semanticResults = semanticResults.filter((r) => includeMatcher!(normalizeFilePath(r.metadata.file as string)))
+      semanticResults = semanticResults.filter((r) => includeMatcher!(canonicalizeProjectFilePath(r.metadata.file as string)))
     }
     if (excludeMatcher) {
-      semanticResults = semanticResults.filter((r) => !excludeMatcher!(normalizeFilePath(r.metadata.file as string)))
+      semanticResults = semanticResults.filter((r) => !excludeMatcher!(canonicalizeProjectFilePath(r.metadata.file as string)))
     }
 
     // Step 2: Post-filter with ripgrep if pattern provided
@@ -375,7 +414,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
 
       // Keep only chunks that contain ripgrep matches (line within chunk range)
       filteredResults = semanticResults.filter((r) => {
-        const file = r.metadata.file as string
+        const file = canonicalizeProjectFilePath(r.metadata.file as string)
         const startLine = r.metadata.startLine as number
         const endLine = r.metadata.endLine as number
         return rgMatches.some((m) => m.file === file && m.line >= startLine && m.line <= endLine)

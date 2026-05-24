@@ -17,6 +17,10 @@ import crypto from "crypto"
 const log = Log.create({ service: "semantic.indexer" })
 
 export namespace Indexer {
+  function normalizeIndexedFilePath(filePath: string): string {
+    return filePath.replace(/\\/g, "/").replace(/^\.\//, "")
+  }
+
   // Supported file extensions for indexing
   const INDEXABLE_EXTENSIONS = new Set([
     ".ts",
@@ -134,9 +138,10 @@ export namespace Indexer {
     const files: string[] = []
 
     for await (const file of Ripgrep.files({ cwd: Instance.directory })) {
-      if (!shouldIndex(file)) continue
-      if (FileIgnore.match(file)) continue
-      files.push(file)
+      const normalized = normalizeIndexedFilePath(file)
+      if (!shouldIndex(normalized)) continue
+      if (FileIgnore.match(normalized)) continue
+      files.push(normalized)
     }
 
     return files
@@ -155,6 +160,7 @@ export namespace Indexer {
       documents?: Document[]
     },
   ): Promise<{ count: number; chunkHashes: string[] }> {
+    filePath = normalizeIndexedFilePath(filePath)
     const fullPath = path.join(Instance.directory, filePath)
     const stat = await fs.stat(fullPath).catch(() => null)
     if (!stat) return { count: 0, chunkHashes: [] }
@@ -188,19 +194,20 @@ export namespace Indexer {
   }
 
   async function buildDocuments(input: { filePath: string; content: string }): Promise<Document[]> {
-    const chunks = await Chunking.chunkAsync(input.content, input.filePath)
+    const normalizedFilePath = normalizeIndexedFilePath(input.filePath)
+    const chunks = await Chunking.chunkAsync(input.content, normalizedFilePath)
     if (chunks.length === 0) return []
 
     const chunksWithOverlap = Chunking.addOverlap(chunks)
     const lines = input.content.split("\n")
 
     return chunksWithOverlap.map((chunk, i) => ({
-      id: `${input.filePath}:${i}`,
+      id: `${normalizedFilePath}:${i}`,
       content: chunk.content,
       contentRaw: extractRawContentFromLines(lines, chunk.startLine, chunk.endLine),
       hash: hashContent(chunk.content),
       metadata: {
-        file: input.filePath,
+        file: normalizedFilePath,
         startLine: chunk.startLine,
         endLine: chunk.endLine,
         chunkIndex: i,
@@ -616,6 +623,7 @@ export namespace Indexer {
    * Incremental update for a single file
    */
   export async function updateFile(filePath: string): Promise<void> {
+    filePath = normalizeIndexedFilePath(filePath)
     if (!shouldIndex(filePath)) return
     if (FileIgnore.match(filePath)) return
     assertEmbeddingsConfigured()
@@ -667,6 +675,7 @@ export namespace Indexer {
    * Remove file from index
    */
   export async function removeFile(filePath: string): Promise<void> {
+    filePath = normalizeIndexedFilePath(filePath)
     log.info("removing file from index", { file: filePath })
 
     const collection = await VectorStore.getCollection(Instance.directory)
