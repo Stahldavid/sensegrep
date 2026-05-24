@@ -1,5 +1,14 @@
 # @sensegrep/mcp
 
+## 1.4.2
+
+### Patch Changes
+
+- [`82e6e99`](https://github.com/Stahldavid/sensegrep/commit/82e6e997fabea676855e4060048d8a6c3187e740) Thanks [@Stahldavid](https://github.com/Stahldavid)! - Fix Windows file glob filtering by normalizing indexed paths and document the updated sensegrep skill guidance for Java, Vue, and Windows glob usage.
+
+- Updated dependencies [[`82e6e99`](https://github.com/Stahldavid/sensegrep/commit/82e6e997fabea676855e4060048d8a6c3187e740)]:
+  - @sensegrep/core@1.4.2
+
 ## 1.4.1
 
 ### Patch Changes
