@@ -27,6 +27,8 @@ Start with these defaults and adjust based on what you find:
 
 > **Tip:** Use `include: "src/**/*.ts"` to focus on source folders, or add `exclude: "*.md"` / `exclude: "docs/**"` when you want to keep markdown, docs, and changelogs out of results. On Windows, prefer forward slashes in globs (`src/**/*.ts`), though backslash-based indexed paths are now normalized automatically.
 
+> **Identifier queries:** If the query looks like a symbol or framework API (`defineNuxtRouteMiddleware`, `defineStore`, `OrderServiceImpl`), sensegrep now auto-adds a literal fallback on top of semantic search. You usually do **not** need `pattern` for these exact identifier lookups anymore.
+
 ## Tools Available
 
 ### `sensegrep_search` — Primary search

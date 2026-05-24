@@ -73,17 +73,25 @@ function createGlobMatcher(pattern: string) {
 async function runRipgrepOnFiles(
   pattern: string,
   files: string[],
+  options?: {
+    caseSensitive?: boolean
+    fixedStrings?: boolean
+  },
 ): Promise<{ file: string; line: number; text: string }[]> {
   if (files.length === 0) return []
 
   const rgPath = await Ripgrep.filepath()
-  const args = [
+  const args: string[] = [
     "-n", // Line numbers
-    "-i", // Case insensitive always
     "--no-heading", // Simple format: file:line:text
-    "--regexp",
-    pattern,
   ]
+
+  if (!options?.caseSensitive) args.push("-i")
+  if (options?.fixedStrings) {
+    args.push("--fixed-strings", pattern)
+  } else {
+    args.push("--regexp", pattern)
+  }
 
   // Add each file as argument
   for (const file of files) {
@@ -113,7 +121,7 @@ async function runRipgrepOnFiles(
   const matches: { file: string; line: number; text: string }[] = []
   for (const line of output.trim().split("\n")) {
     if (!line) continue
-    const match = line.match(/^(.+?):(\d+):(.*)$/)
+    const match = line.match(/^(.*):(\d+):(.*)$/)
     if (match) {
       const [, fullPath, lineNum, text] = match
       const relativePath = canonicalizeProjectFilePath(path.relative(Instance.directory, fullPath))
@@ -125,6 +133,120 @@ async function runRipgrepOnFiles(
     }
   }
   return matches
+}
+
+function queryLooksLikeIdentifier(query: string): boolean {
+  const trimmed = query.trim()
+  if (trimmed.length < 3 || trimmed.length > 120) return false
+  if (/\s/.test(trimmed)) return false
+  if (!/^[A-Za-z_$][A-Za-z0-9_$.:#-]*$/.test(trimmed)) return false
+  if (!/[A-Za-z]/.test(trimmed)) return false
+
+  return (
+    /[A-Z]/.test(trimmed.slice(1)) ||
+    trimmed.includes("_") ||
+    trimmed.includes("-") ||
+    trimmed.includes(".") ||
+    /^(use|define|get|set|is|has)[A-Z_]/.test(trimmed)
+  )
+}
+
+function buildFiltersWithFileVariants(
+  filters: VectorStore.SearchFilters,
+  filePath: string,
+): VectorStore.SearchFilters {
+  return {
+    ...filters,
+    all: [...(filters.all ?? []), { key: "file", operator: "in", value: expandFilePathVariants(filePath) }],
+  }
+}
+
+function pickBestLiteralDocument(
+  documents: Awaited<ReturnType<typeof VectorStore.listDocuments>>,
+  matchedLine: number,
+) {
+  const candidates = documents.filter((doc) => {
+    const file = canonicalizeProjectFilePath(doc.metadata.file as string)
+    const startLine = doc.metadata.startLine as number
+    const endLine = doc.metadata.endLine as number
+    return file && matchedLine >= startLine && matchedLine <= endLine
+  })
+
+  if (candidates.length === 0) return undefined
+
+  return candidates.sort((a, b) => {
+    const aHasSymbol = a.metadata.symbolType ? 1 : 0
+    const bHasSymbol = b.metadata.symbolType ? 1 : 0
+    if (aHasSymbol !== bHasSymbol) return bHasSymbol - aHasSymbol
+
+    const aLen = Number(a.metadata.endLine ?? 0) - Number(a.metadata.startLine ?? 0)
+    const bLen = Number(b.metadata.endLine ?? 0) - Number(b.metadata.startLine ?? 0)
+    return aLen - bLen
+  })[0]
+}
+
+async function collectLiteralFallbackResults(
+  query: string,
+  files: string[],
+  collection: Awaited<ReturnType<typeof VectorStore.getCollectionUnsafe>>,
+  filters: VectorStore.SearchFilters,
+): Promise<
+  {
+    file: string
+    content: string
+    startLine: number
+    endLine: number
+    semanticScore: number
+    metadata: Record<string, string | number | boolean | string[] | undefined>
+  }[]
+> {
+  const rgMatches = await runRipgrepOnFiles(query, files, { caseSensitive: true, fixedStrings: true })
+  if (rgMatches.length === 0) return []
+
+  const byFile = new Map<string, { line: number; text: string }[]>()
+  for (const match of rgMatches) {
+    const canonicalFile = canonicalizeProjectFilePath(match.file)
+    const list = byFile.get(canonicalFile) ?? []
+    list.push({ line: match.line, text: match.text })
+    byFile.set(canonicalFile, list)
+  }
+
+  const results = new Map<
+    string,
+    {
+      file: string
+      content: string
+      startLine: number
+      endLine: number
+      semanticScore: number
+      metadata: Record<string, string | number | boolean | string[] | undefined>
+    }
+  >()
+
+  for (const [file, fileMatches] of byFile.entries()) {
+    const documents = await VectorStore.listDocuments(collection, {
+      filters: buildFiltersWithFileVariants(filters, file),
+    })
+
+    for (const fileMatch of fileMatches) {
+      const selected = pickBestLiteralDocument(documents, fileMatch.line)
+      if (!selected) continue
+
+      const key = `${selected.metadata.file}:${selected.metadata.startLine}:${selected.metadata.endLine}`
+      if (results.has(key)) continue
+
+      results.set(key, {
+        file: selected.metadata.file as string,
+        content: selected.content,
+        startLine: selected.metadata.startLine as number,
+        endLine: selected.metadata.endLine as number,
+        semanticScore: 1.05,
+        metadata: selected.metadata,
+      })
+    }
+  }
+
+  return [...results.values()]
 }
 
 function overlapRatio(aStart: number, aEnd: number, bStart: number, bEnd: number): number {
@@ -362,9 +484,10 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     if (params.include) includeMatcher = createGlobMatcher(params.include)
     if (params.exclude) excludeMatcher = createGlobMatcher(params.exclude)
 
+    let candidateFiles: string[] | undefined
     if (includeMatcher || excludeMatcher) {
       const indexedFiles = Object.keys(meta.files ?? {})
-      const candidateFiles = indexedFiles.filter((file) => {
+      candidateFiles = indexedFiles.filter((file) => {
         const normalized = canonicalizeProjectFilePath(file)
         if (includeMatcher && !includeMatcher(normalized)) return false
         if (excludeMatcher && excludeMatcher(normalized)) return false
@@ -405,6 +528,29 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       semanticResults = semanticResults.filter((r) => !excludeMatcher!(canonicalizeProjectFilePath(r.metadata.file as string)))
     }
 
+    const shouldRunLiteralFallback = !params.pattern && queryLooksLikeIdentifier(params.query)
+    let literalFallbackResults: WorkingResult[] = []
+    if (shouldRunLiteralFallback) {
+      const lexicalCandidateFiles =
+        candidateFiles ??
+        Object.keys(meta.files ?? {}).filter((file) => {
+          const normalized = canonicalizeProjectFilePath(file)
+          if (includeMatcher && !includeMatcher(normalized)) return false
+          if (excludeMatcher && excludeMatcher(normalized)) return false
+          return true
+        })
+
+      const literalResults = await collectLiteralFallbackResults(params.query, lexicalCandidateFiles, collection, filters)
+      literalFallbackResults = literalResults.map((result) => ({
+        file: result.file,
+        content: result.content,
+        startLine: result.startLine,
+        endLine: result.endLine,
+        semanticScore: result.semanticScore,
+        metadata: result.metadata,
+      }))
+    }
+
     // Step 2: Post-filter with ripgrep if pattern provided
     // This runs ripgrep ONLY on files found by semantic search
     let filteredResults = semanticResults
@@ -439,6 +585,30 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       semanticScore: 1 - r.distance, // Convert distance to similarity
       metadata: r.metadata,
     }))
+
+    if (literalFallbackResults.length > 0) {
+      const merged = new Map<string, WorkingResult>()
+
+      for (const result of workingResults) {
+        const key = `${result.file}:${result.startLine}:${result.endLine}`
+        merged.set(key, result)
+      }
+
+      for (const result of literalFallbackResults) {
+        const key = `${result.file}:${result.startLine}:${result.endLine}`
+        const existing = merged.get(key)
+        if (existing) {
+          merged.set(key, {
+            ...existing,
+            semanticScore: Math.max(existing.semanticScore, result.semanticScore),
+          })
+        } else {
+          merged.set(key, result)
+        }
+      }
+
+      workingResults = [...merged.values()]
+    }
 
     // Sort by semantic score initially
     workingResults.sort((a, b) => b.semanticScore - a.semanticScore)

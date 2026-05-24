@@ -1,10 +1,14 @@
+import { EventEmitter } from "node:events"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const readIndexMeta = vi.fn()
 const clearProjectCache = vi.fn()
 const getCollectionUnsafe = vi.fn()
 const search = vi.fn()
+const listDocuments = vi.fn()
 const withConfig = vi.fn(async (_config, run: () => Promise<unknown>) => run())
+const filepath = vi.fn(async () => "rg")
+const spawn = vi.fn()
 
 vi.mock("../semantic/lancedb.js", () => ({
   VectorStore: {
@@ -12,6 +16,7 @@ vi.mock("../semantic/lancedb.js", () => ({
     clearProjectCache,
     getCollectionUnsafe,
     search,
+    listDocuments,
   },
 }))
 
@@ -19,6 +24,16 @@ vi.mock("../semantic/embeddings.js", () => ({
   Embeddings: {
     withConfig,
   },
+}))
+
+vi.mock("../file/ripgrep.js", () => ({
+  Ripgrep: {
+    filepath,
+  },
+}))
+
+vi.mock("node:child_process", () => ({
+  spawn,
 }))
 
 vi.mock("../semantic/tree-shaker.js", () => ({
@@ -34,6 +49,28 @@ vi.mock("../project/instance.js", () => ({
 describe("SenseGrepTool file glob filters", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    filepath.mockResolvedValue("rg")
+    spawn.mockImplementation((_command, args: string[]) => {
+      const proc = new EventEmitter() as EventEmitter & {
+        stdout: EventEmitter
+        stderr: EventEmitter
+      }
+      proc.stdout = new EventEmitter()
+      proc.stderr = new EventEmitter()
+
+      queueMicrotask(() => {
+        const files = args
+          .filter((arg) => arg.includes("repo"))
+          .map((arg) => arg.replace(/\\/g, "/"))
+        const output = files
+          .map((file) => `${file}:3:defineNuxtRouteMiddleware(() => {})`)
+          .join("\n")
+        if (output) proc.stdout.emit("data", Buffer.from(output))
+        proc.emit("close", 0)
+      })
+
+      return proc
+    })
 
     readIndexMeta.mockResolvedValue({
       embeddings: {
@@ -48,6 +85,7 @@ describe("SenseGrepTool file glob filters", () => {
       },
     })
     getCollectionUnsafe.mockResolvedValue({})
+    listDocuments.mockResolvedValue([])
   })
 
   it("applies include before semantic limiting", async () => {
@@ -233,5 +271,72 @@ describe("SenseGrepTool file glob filters", () => {
 
     expect(result.output).toContain("src/feature.js")
     expect(result.output).not.toContain("docs/guide.md")
+  })
+
+  it("falls back to literal identifier matches when semantic search misses them", async () => {
+    readIndexMeta.mockResolvedValue({
+      embeddings: {
+        provider: "gemini",
+        model: "test-model",
+        dimension: 3,
+      },
+      files: {
+        "frontend-admin/src/middleware/auth.global.ts": {},
+      },
+    })
+
+    search.mockResolvedValue([])
+    listDocuments.mockImplementation(async (_collection, options) => {
+      const languageFilter = options.filters?.all?.find((filter: any) => filter.key === "language")
+      const fileFilter = options.filters?.all?.findLast((filter: any) => filter.key === "file")
+      expect(languageFilter).toEqual({
+        key: "language",
+        operator: "equals",
+        value: "typescript",
+      })
+      expect(fileFilter?.value).toEqual(
+        expect.arrayContaining(["frontend-admin/src/middleware/auth.global.ts"]),
+      )
+
+      return [
+        {
+          id: "frontend-admin/src/middleware/auth.global.ts:0",
+          content: "export default defineNuxtRouteMiddleware(() => {})",
+          metadata: {
+            file: "frontend-admin/src/middleware/auth.global.ts",
+            startLine: 1,
+            endLine: 8,
+            symbolName: "auth",
+            symbolType: "function",
+            language: "typescript",
+          },
+          distance: 0,
+        },
+      ]
+    })
+
+    const { SenseGrepTool } = await import("./sensegrep.js")
+    const tool = await SenseGrepTool.init()
+    const result = await tool.execute(
+      {
+        query: "defineNuxtRouteMiddleware",
+        language: "typescript",
+        include: "frontend-admin/**/*.ts",
+        limit: 3,
+        shake: false,
+      },
+      {
+        sessionID: "test",
+        messageID: "test",
+        agent: "vitest",
+        abort: new AbortController().signal,
+        metadata() {},
+      },
+    )
+
+    expect(search).toHaveBeenCalledTimes(1)
+    expect(listDocuments).toHaveBeenCalledTimes(1)
+    expect(result.output).toContain("frontend-admin/src/middleware/auth.global.ts")
+    expect(result.output).toContain("defineNuxtRouteMiddleware")
   })
 })
