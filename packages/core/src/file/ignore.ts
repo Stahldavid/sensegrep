@@ -1,7 +1,10 @@
-import { sep } from "node:path"
 import picomatch from "picomatch"
 
 export namespace FileIgnore {
+  function normalize(filepath: string): string {
+    return filepath.replace(/\\/g, "/")
+  }
+
   const FOLDERS = new Set([
     "node_modules",
     "bower_components",
@@ -54,10 +57,29 @@ export namespace FileIgnore {
     // Coverage/test outputs
     "**/coverage/**",
     "**/.nyc_output/**",
+
+    // Generated frontend assets / sourcemaps
+    "**/*.min.js",
+    "**/*.min.mjs",
+    "**/*.min.cjs",
+    "**/*.min.css",
+    "**/*.map",
   ]
 
   type GlobMatcher = (path: string) => boolean
-  const FILE_GLOBS: GlobMatcher[] = FILES.map((p) => picomatch(p, { dot: true }))
+  export function createGlobMatcher(pattern: string): GlobMatcher {
+    const normalizedPattern = normalize(pattern)
+    return picomatch(normalizedPattern, {
+      dot: true,
+      basename: !normalizedPattern.includes("/"),
+    })
+  }
+
+  export function createGlobMatchers(patterns: string[]): GlobMatcher[] {
+    return patterns.map((pattern) => createGlobMatcher(pattern))
+  }
+
+  const FILE_GLOBS: GlobMatcher[] = FILES.map((p) => createGlobMatcher(p))
 
   export const PATTERNS = [...FILES, ...FOLDERS]
 
@@ -68,18 +90,20 @@ export namespace FileIgnore {
       whitelist?: GlobMatcher[]
     },
   ) {
+    const normalized = normalize(filepath)
+
     for (const glob of opts?.whitelist || []) {
-      if (glob(filepath)) return false
+      if (glob(normalized)) return false
     }
 
-    const parts = filepath.split(sep)
+    const parts = normalized.split(/[\\/]/)
     for (let i = 0; i < parts.length; i++) {
       if (FOLDERS.has(parts[i])) return true
     }
 
     const extra = opts?.extra || []
     for (const glob of [...FILE_GLOBS, ...extra]) {
-      if (glob(filepath)) return true
+      if (glob(normalized)) return true
     }
 
     return false

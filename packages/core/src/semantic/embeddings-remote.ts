@@ -89,16 +89,26 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries: number, baseDelayM
       return await fn()
     } catch (err: any) {
       const message = typeof err?.message === "string" ? err.message : ""
-      const is429 =
-        err?.$metadata?.httpStatusCode === 429 ||
+      const statusCode = err?.$metadata?.httpStatusCode
+      const isRetriable =
+        statusCode === 429 ||
+        statusCode === 500 ||
+        statusCode === 502 ||
+        statusCode === 503 ||
+        statusCode === 504 ||
         err?.name === "ThrottlingException" ||
         err?.name === "TooManyRequestsException" ||
+        err?.name === "ServiceUnavailableException" ||
         message.includes("429") ||
-        message.includes("ThrottlingException")
-      if (!is429 || attempt >= maxRetries) throw err
+        message.includes("ThrottlingException") ||
+        message.includes("ServiceUnavailableException")
+      if (!isRetriable || attempt >= maxRetries) throw err
       const jitter = 0.5 + Math.random() * 0.5
       const delay = Math.min(baseDelayMs * Math.pow(2, attempt) * jitter, 60_000)
-      log.warn(`${label}: 429 rate limited, retry ${attempt + 1}/${maxRetries} in ${Math.ceil(delay / 1000)}s`)
+      log.warn(`${label}: transient error, retry ${attempt + 1}/${maxRetries} in ${Math.ceil(delay / 1000)}s`, {
+        statusCode,
+        errorName: err?.name,
+      })
       await new Promise<void>((r) => setTimeout(r, delay))
     }
   }

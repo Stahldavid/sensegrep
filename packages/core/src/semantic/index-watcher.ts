@@ -1,10 +1,10 @@
 import path from "node:path"
 import fs from "node:fs/promises"
-import { FileIgnore } from "../file/ignore.js"
 import { Instance } from "../project/instance.js"
 import { Log } from "../util/log.js"
 import { Indexer } from "./indexer.js"
 import { Global } from "../global/index.js"
+import { shouldIgnoreIndexedFile, clearProjectIndexFilterCache } from "./index-filters.js"
 
 export namespace IndexWatcher {
   export type Options = {
@@ -122,7 +122,11 @@ export namespace IndexWatcher {
     const rel = path.relative(rootDir, fullPath)
     if (!rel || rel.startsWith("..")) return true
     if (path.basename(rel) === ".gitignore") return true
-    if (FileIgnore.match(rel)) return true
+    if (path.basename(rel) === ".sensegreprc.json" || path.basename(rel) === "sensegrep.config.json") {
+      clearProjectIndexFilterCache(rootDir)
+      return false
+    }
+    if (shouldIgnoreIndexedFile(rootDir, rel)) return true
     if (!Indexer.isIndexableFile(rel)) return true
     return false
   }

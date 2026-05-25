@@ -43,6 +43,71 @@ export namespace Chunking {
   const MIN_CHUNK_SIZE = getMinChunkSize()
   const OVERLAP_SIZE = getOverlapSize()
 
+  function splitOversizedContent(content: string): string[] {
+    if (content.length <= MAX_CHUNK_SIZE) return [content]
+
+    const segments: string[] = []
+    const lines = content.split("\n")
+
+    if (lines.length > 1) {
+      let current: string[] = []
+      for (const line of lines) {
+        const candidate = current.length === 0 ? line : `${current.join("\n")}\n${line}`
+        if (candidate.length <= MAX_CHUNK_SIZE) {
+          current.push(line)
+          continue
+        }
+
+        if (current.length > 0) {
+          segments.push(current.join("\n"))
+          current = []
+        }
+
+        if (line.length > MAX_CHUNK_SIZE) {
+          const step = Math.max(1, MAX_CHUNK_SIZE - OVERLAP_SIZE)
+          for (let index = 0; index < line.length; index += step) {
+            segments.push(line.slice(index, index + MAX_CHUNK_SIZE))
+          }
+        } else {
+          current.push(line)
+        }
+      }
+
+      if (current.length > 0) {
+        segments.push(current.join("\n"))
+      }
+
+      return segments.filter(Boolean)
+    }
+
+    const step = Math.max(1, MAX_CHUNK_SIZE - OVERLAP_SIZE)
+    for (let index = 0; index < content.length; index += step) {
+      segments.push(content.slice(index, index + MAX_CHUNK_SIZE))
+    }
+    return segments.filter(Boolean)
+  }
+
+  function enforceMaxChunkSize(chunks: Chunk[]): Chunk[] {
+    const result: Chunk[] = []
+
+    for (const chunk of chunks) {
+      const segments = splitOversizedContent(chunk.content)
+      if (segments.length === 1) {
+        result.push(chunk)
+        continue
+      }
+
+      for (const segment of segments) {
+        result.push({
+          ...chunk,
+          content: segment,
+        })
+      }
+    }
+
+    return result
+  }
+
   export interface Chunk {
     content: string
     startLine: number
@@ -257,8 +322,9 @@ export namespace Chunking {
       }
     }
 
-    log.info("chunked code file", { filePath, chunks: chunks.length })
-    return chunks
+    const normalizedChunks = enforceMaxChunkSize(chunks)
+    log.info("chunked code file", { filePath, chunks: normalizedChunks.length })
+    return normalizedChunks
   }
 
   /**
@@ -322,8 +388,9 @@ export namespace Chunking {
       }
     }
 
-    log.info("chunked text file", { filePath, chunks: chunks.length })
-    return chunks
+    const normalizedChunks = enforceMaxChunkSize(chunks)
+    log.info("chunked text file", { filePath, chunks: normalizedChunks.length })
+    return normalizedChunks
   }
 
   /**
@@ -365,9 +432,9 @@ export namespace Chunking {
     }
 
     if (isCodeFile(filePath)) {
-      return await chunkCodeAsync(content, filePath)
+      return enforceMaxChunkSize(await chunkCodeAsync(content, filePath))
     }
-    return chunkText(content, filePath)
+    return enforceMaxChunkSize(chunkText(content, filePath))
   }
 
   /**

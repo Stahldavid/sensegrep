@@ -1,6 +1,6 @@
 import { Log } from "../util/log.js"
 import { Instance } from "../project/instance.js"
-import { FileIgnore } from "../file/ignore.js"
+import { shouldIgnoreIndexedFile, clearProjectIndexFilterCache } from "./index-filters.js"
 import { Chunking } from "./chunking.js"
 import { VectorStore } from "./lancedb.js"
 import { Bus } from "../bus/index.js"
@@ -131,16 +131,31 @@ export namespace Indexer {
     return isIndexableFile(filePath)
   }
 
+  function isProbablyMinifiedOrGenerated(filePath: string, content: string): boolean {
+    if (/\.(min)\.(js|mjs|cjs|css)$/i.test(filePath)) return true
+
+    const lineCount = Math.max(1, content.split("\n").length)
+    const maxLineLength = content.split("\n").reduce((max, line) => Math.max(max, line.length), 0)
+    const averageLineLength = Math.ceil(content.length / lineCount)
+    const veryLongLineCount = content.split("\n").filter((line) => line.length >= 10_000).length
+
+    return (
+      content.length >= 50_000 &&
+      (lineCount <= 5 || maxLineLength >= 20_000 || (averageLineLength >= 2_000 && veryLongLineCount >= 1))
+    )
+  }
+
   /**
    * Get all indexable files in the project
    */
   async function getFiles(): Promise<string[]> {
+    clearProjectIndexFilterCache(Instance.directory)
     const files: string[] = []
 
     for await (const file of Ripgrep.files({ cwd: Instance.directory })) {
       const normalized = normalizeIndexedFilePath(file)
       if (!shouldIndex(normalized)) continue
-      if (FileIgnore.match(normalized)) continue
+      if (shouldIgnoreIndexedFile(Instance.directory, normalized)) continue
       files.push(normalized)
     }
 
@@ -175,6 +190,10 @@ export namespace Indexer {
     // Read content
     const content = options?.content ?? (await fs.readFile(fullPath, "utf8").catch(() => ""))
     if (!content.trim()) return { count: 0, chunkHashes: [] }
+    if (isProbablyMinifiedOrGenerated(filePath, content)) {
+      log.info("skipping generated or minified file", { filePath, size, lineCount: content.split("\n").length })
+      return { count: 0, chunkHashes: [] }
+    }
 
     // Delete existing chunks for this file unless we're building a fresh collection
     if (options?.skipDelete !== true) {
@@ -314,6 +333,10 @@ export namespace Indexer {
 
           const content = await fs.readFile(fullPath, "utf8").catch(() => "")
           if (!content.trim()) return null
+          if (isProbablyMinifiedOrGenerated(file, content)) {
+            log.info("skipping generated or minified file", { filePath: file, size: stat.size })
+            return null
+          }
 
           // Run tree-shaker regions and chunking concurrently per file
           const [collapsibleRegions, documents] = await Promise.all([
@@ -481,6 +504,9 @@ export namespace Indexer {
           if (!content.trim()) {
             return { action: "delete", file }
           }
+          if (isProbablyMinifiedOrGenerated(file, content)) {
+            return { action: "delete", file }
+          }
 
           const hash = hashContent(content)
 
@@ -625,7 +651,7 @@ export namespace Indexer {
   export async function updateFile(filePath: string): Promise<void> {
     filePath = normalizeIndexedFilePath(filePath)
     if (!shouldIndex(filePath)) return
-    if (FileIgnore.match(filePath)) return
+    if (shouldIgnoreIndexedFile(Instance.directory, filePath)) return
     assertEmbeddingsConfigured()
 
     log.info("updating file in index", { file: filePath })
@@ -637,6 +663,10 @@ export namespace Indexer {
 
     const content = await fs.readFile(fullPath, "utf8").catch(() => "")
     const collection = await VectorStore.getCollection(Instance.directory)
+    if (isProbablyMinifiedOrGenerated(filePath, content)) {
+      await VectorStore.deleteByFile(collection, filePath)
+      return
+    }
     if (!content.trim()) {
       await VectorStore.deleteByFile(collection, filePath)
       const meta = await VectorStore.readIndexMeta(Instance.directory)
