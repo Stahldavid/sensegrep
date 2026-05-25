@@ -1,5 +1,15 @@
 # @sensegrep/core
 
+## 1.5.0
+
+### Minor Changes
+
+- [`ed8d00a`](https://github.com/Stahldavid/sensegrep/commit/ed8d00a3bdbebbdcdda021ee7119b6202b8e4caf) Thanks [@Stahldavid](https://github.com/Stahldavid)! - Add theme-oriented `survey` and `cluster` workflows to sensegrep.
+
+  `survey` groups broad semantic results into readable domains with representative tree-shaken snippets, while `cluster` decomposes wide queries into coherent subthemes using embeddings, AST metadata, path signals, and import hints.
+
+  The release also wires both commands through the CLI, MCP server, README, and bundled skills so they are discoverable everywhere sensegrep is used.
+
 ## 1.4.3
 
 ### Patch Changes
