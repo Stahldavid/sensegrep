@@ -1,5 +1,16 @@
 # @sensegrep/cli
 
+## 1.5.1
+
+### Patch Changes
+
+- [`1ca19af`](https://github.com/Stahldavid/sensegrep/commit/1ca19af9764a39d080e8f7d49b5d34047742d745) Thanks [@Stahldavid](https://github.com/Stahldavid)! - Improve indexing resilience for large and generated repositories.
+
+  This change teaches the indexer to respect project-level include/exclude config, ignore common minified and sourcemap assets by default, split oversized fallback chunks safely, and retry transient Bedrock service errors more gracefully.
+
+- Updated dependencies [[`1ca19af`](https://github.com/Stahldavid/sensegrep/commit/1ca19af9764a39d080e8f7d49b5d34047742d745)]:
+  - @sensegrep/core@1.5.1
+
 ## 1.5.0
 
 ### Minor Changes
