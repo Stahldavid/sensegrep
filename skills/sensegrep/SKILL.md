@@ -52,6 +52,35 @@ sensegrep search "error handling and retry logic" \
   --limit 10               # max results (default: 20)
 ```
 
+### `sensegrep survey` — Reading map for a theme
+
+Use this when a linear result list is still too noisy and you want a domain-oriented map of the query.
+
+```bash
+sensegrep survey "authentication login token" \
+  --language typescript \
+  --include "frontend-admin/**/*.ts" \
+  --limit 4 \
+  --per-group 2
+```
+
+Returns grouped, tree-shaken reading domains such as `middleware / guards`, `stores / state`, `services / api`, and `types / contracts`.
+
+### `sensegrep cluster` — Break a broad topic into subthemes
+
+Use this when the topic is large or fuzzy and you want semantically coherent clusters instead of a flat top-N.
+
+```bash
+sensegrep cluster "price list commission ncm uf packaging" \
+  --language java \
+  --include "backend-api/**/*.java" \
+  --limit 4 \
+  --per-cluster 2 \
+  --cluster-threshold 0.72
+```
+
+Returns cluster headings plus representative tree-shaken snippets, using embeddings + AST metadata + path/import signals.
+
 ### `sensegrep detect-duplicates` — Find logical duplicates
 
 ```bash
@@ -149,8 +178,15 @@ sensegrep search "cache invalidation logic" \
 
 **Codebase onboarding:**
 ```bash
+sensegrep survey "request lifecycle and middleware" --limit 4 --per-group 2
 sensegrep search "request lifecycle and middleware" --limit 20 --max-per-file 2
 sensegrep search "authentication and authorization" --type function --exported true --limit 20
+```
+
+**Break a broad domain into subthemes:**
+```bash
+sensegrep cluster "checkout payment order cart" --limit 4 --per-cluster 2
+sensegrep cluster "price list commission ncm uf packaging" --language java --include "backend-api/**/*.java"
 ```
 
 **Find refactoring candidates:**

@@ -192,6 +192,7 @@ async function collectLiteralFallbackResults(
   filters: VectorStore.SearchFilters,
 ): Promise<
   {
+    id: string
     file: string
     content: string
     startLine: number
@@ -214,6 +215,7 @@ async function collectLiteralFallbackResults(
   const results = new Map<
     string,
     {
+      id: string
       file: string
       content: string
       startLine: number
@@ -236,6 +238,7 @@ async function collectLiteralFallbackResults(
       if (results.has(key)) continue
 
       results.set(key, {
+        id: selected.id,
         file: selected.metadata.file as string,
         content: selected.content,
         startLine: selected.metadata.startLine as number,

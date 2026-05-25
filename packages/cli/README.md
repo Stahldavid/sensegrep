@@ -13,6 +13,8 @@ npm install -g @sensegrep/cli
 ```bash
 sensegrep index --root .
 sensegrep search "error handling and retry logic"
+sensegrep survey "authentication login token" --limit 4
+sensegrep cluster "checkout payment order cart" --limit 4
 sensegrep detect-duplicates --cross-file-only
 ```
 

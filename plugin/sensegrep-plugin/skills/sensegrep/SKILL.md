@@ -55,6 +55,39 @@ sensegrep_search({
 })
 ```
 
+### `sensegrep_survey` — Reading map for a theme
+
+Use this when you want grouped reading domains instead of a flat result list.
+
+```
+sensegrep_survey({
+  query: "authentication login token",
+  language: "typescript",
+  include: "frontend-admin/**/*.ts",
+  limit: 4,
+  perGroup: 2
+})
+```
+
+Returns grouped, tree-shaken domains such as `middleware / guards`, `stores / state`, and `services / api`.
+
+### `sensegrep_cluster` — Break a broad topic into subthemes
+
+Use this when a theme is broad and you want coherent clusters instead of just top-N hits.
+
+```
+sensegrep_cluster({
+  query: "price list commission ncm uf packaging",
+  language: "java",
+  include: "backend-api/**/*.java",
+  limit: 4,
+  perCluster: 2,
+  clusterThreshold: 0.72
+})
+```
+
+Returns cluster headings plus representative tree-shaken snippets using embeddings + AST metadata + path/import signals.
+
 ### `sensegrep_detect_duplicates` — Find logical duplicates
 
 ```

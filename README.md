@@ -65,6 +65,12 @@ sensegrep index --root .
 # Search by meaning
 sensegrep search "error handling and retry logic" --type function --exported --exclude "*.md"
 
+# Build a reading map for a broad theme
+sensegrep survey "authentication login token" --language typescript --limit 4
+
+# Break a broad topic into coherent subthemes
+sensegrep cluster "checkout payment order cart" --limit 4
+
 # Find duplicates
 sensegrep detect-duplicates --threshold 0.85
 ```
@@ -125,7 +131,7 @@ npm install -g @sensegrep/mcp
 }
 ```
 
-The MCP server provides `sensegrep.search`, `sensegrep.index`, and `sensegrep.detect_duplicates` tools.
+The MCP server provides `sensegrep.search`, `sensegrep.survey`, `sensegrep.cluster`, `sensegrep.index`, and `sensegrep.detect_duplicates` tools.
 
 ### VS Code Extension
 
@@ -205,6 +211,12 @@ sensegrep search "route handler" --type function --decorator route
 
 # Keep docs and markdown out of results
 sensegrep search "authentication flow" --include "src/**/*.ts" --exclude "*.md"
+
+# Build a reading map for onboarding a domain
+sensegrep survey "authentication login token" --language typescript --limit 4
+
+# Split a broad backend topic into subthemes
+sensegrep cluster "price list commission ncm uf packaging" --language java --include "backend-api/**/*.java"
 ```
 
 ## Embeddings Configuration

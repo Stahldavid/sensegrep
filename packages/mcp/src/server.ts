@@ -10,7 +10,9 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 let corePromise: Promise<any> | null = null;
-let toolPromise: Promise<any> | null = null;
+let searchToolPromise: Promise<any> | null = null;
+let surveyToolPromise: Promise<any> | null = null;
+let clusterToolPromise: Promise<any> | null = null;
 let cachedTools: Tool[] | null = null;
 const WATCH_INTERVAL_MS = 60_000;
 let watchHandle: { stop: () => Promise<void> } | null = null;
@@ -18,6 +20,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const TOOL_NAMES = {
   search: "sensegrep_search",
+  survey: "sensegrep_survey",
+  cluster: "sensegrep_cluster",
   detectDuplicates: "sensegrep_detect_duplicates",
   index: "sensegrep_index",
 } as const;
@@ -51,8 +55,22 @@ async function loadCore() {
 
 async function loadTool() {
   const core = await loadCore();
-  if (!toolPromise) toolPromise = core.SenseGrepTool.init();
-  const tool = await toolPromise;
+  if (!searchToolPromise) searchToolPromise = core.SenseGrepTool.init();
+  const tool = await searchToolPromise;
+  return { core, tool };
+}
+
+async function loadSurveyTool() {
+  const core = await loadCore();
+  if (!surveyToolPromise) surveyToolPromise = core.SenseGrepSurveyTool.init();
+  const tool = await surveyToolPromise;
+  return { core, tool };
+}
+
+async function loadClusterTool() {
+  const core = await loadCore();
+  if (!clusterToolPromise) clusterToolPromise = core.SenseGrepClusterTool.init();
+  const tool = await clusterToolPromise;
   return { core, tool };
 }
 
@@ -184,6 +202,106 @@ async function generateTools(): Promise<Tool[]> {
       },
     },
     {
+      name: TOOL_NAMES.survey,
+      description: "Theme-oriented code survey. Groups semantically related hits into reading domains and returns representative tree-shaken snippets.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Natural-language theme query to map a domain or feature area" },
+          pattern: { type: "string", description: "Optional regex pattern filter" },
+          limit: { type: "number", description: "Max groups to return (default: 5)" },
+          rawLimit: { type: "number", description: "Raw matches to gather before grouping (default: 60)" },
+          perGroup: { type: "number", description: "Representative snippets per group (default: 2)" },
+          include: { type: "string", description: "File glob include filter (e.g., 'src/**/*.ts')" },
+          exclude: { type: "string", description: "File glob exclude filter (e.g., '*.md' or 'docs/**')" },
+          symbol: { type: "string", description: "Filter by symbol name" },
+          name: { type: "string", description: "Alias for symbol name" },
+          symbolType: {
+            type: "string",
+            enum: [...caps.symbolTypes],
+            description: "Semantic symbol type",
+          },
+          variant: {
+            type: "string",
+            description: `Language-specific variant. Available: ${variantDesc}...`,
+          },
+          decorator: {
+            type: "string",
+            description: `Filter by decorator (${caps.decorators.slice(0, 5).join(", ")}...)`,
+          },
+          isExported: { type: "boolean", description: "Only exported symbols" },
+          isAsync: { type: "boolean", description: "Only async functions/methods" },
+          isStatic: { type: "boolean", description: "Only static methods" },
+          isAbstract: { type: "boolean", description: "Only abstract classes/methods" },
+          minComplexity: { type: "number", description: "Minimum cyclomatic complexity" },
+          maxComplexity: { type: "number", description: "Maximum cyclomatic complexity" },
+          minScore: { type: "number", description: "Minimum relevance score 0-1" },
+          hasDocumentation: { type: "boolean", description: "Require documentation" },
+          language: {
+            type: "string",
+            enum: [...caps.languages],
+            description: "Filter by programming language",
+          },
+          parentScope: { type: "string", description: "Parent scope/class name" },
+          imports: { type: "string", description: "Filter by imported module name" },
+          shake: { type: "boolean", description: "Enable tree-shaken representative snippets" },
+          rootDir: { type: "string", description: "Root directory (default: cwd)" },
+        },
+        required: ["query"],
+      },
+    },
+    {
+      name: TOOL_NAMES.cluster,
+      description: "Semantic code clustering. Breaks a broad query into coherent subthemes using embeddings + AST metadata and returns representative snippets.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Natural-language theme query to decompose into clusters" },
+          pattern: { type: "string", description: "Optional regex pattern filter" },
+          limit: { type: "number", description: "Max clusters to return (default: 5)" },
+          rawLimit: { type: "number", description: "Raw matches to gather before clustering (default: 70)" },
+          perCluster: { type: "number", description: "Representative snippets per cluster (default: 2)" },
+          clusterThreshold: { type: "number", description: "Similarity threshold for linking matches (default: 0.72)" },
+          minClusterSize: { type: "number", description: "Minimum cluster size before singleton fallback (default: 2)" },
+          include: { type: "string", description: "File glob include filter (e.g., 'src/**/*.ts')" },
+          exclude: { type: "string", description: "File glob exclude filter (e.g., '*.md' or 'docs/**')" },
+          symbol: { type: "string", description: "Filter by symbol name" },
+          name: { type: "string", description: "Alias for symbol name" },
+          symbolType: {
+            type: "string",
+            enum: [...caps.symbolTypes],
+            description: "Semantic symbol type",
+          },
+          variant: {
+            type: "string",
+            description: `Language-specific variant. Available: ${variantDesc}...`,
+          },
+          decorator: {
+            type: "string",
+            description: `Filter by decorator (${caps.decorators.slice(0, 5).join(", ")}...)`,
+          },
+          isExported: { type: "boolean", description: "Only exported symbols" },
+          isAsync: { type: "boolean", description: "Only async functions/methods" },
+          isStatic: { type: "boolean", description: "Only static methods" },
+          isAbstract: { type: "boolean", description: "Only abstract classes/methods" },
+          minComplexity: { type: "number", description: "Minimum cyclomatic complexity" },
+          maxComplexity: { type: "number", description: "Maximum cyclomatic complexity" },
+          minScore: { type: "number", description: "Minimum relevance score 0-1" },
+          hasDocumentation: { type: "boolean", description: "Require documentation" },
+          language: {
+            type: "string",
+            enum: [...caps.languages],
+            description: "Filter by programming language",
+          },
+          parentScope: { type: "string", description: "Parent scope/class name" },
+          imports: { type: "string", description: "Filter by imported module name" },
+          shake: { type: "boolean", description: "Enable tree-shaken representative snippets" },
+          rootDir: { type: "string", description: "Root directory (default: cwd)" },
+        },
+        required: ["query"],
+      },
+    },
+    {
       name: TOOL_NAMES.detectDuplicates,
       description: "Detect logical duplicates using the existing semantic index.",
       inputSchema: {
@@ -268,6 +386,52 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { rootDir: _root, ...toolArgs } = args as any;
       const { Instance } = core;
       // Search tool now reads embeddings config from index automatically
+      const res = await Instance.provide({
+        directory: rootDir,
+        fn: () =>
+          tool.execute(toolArgs, {
+            sessionID: "mcp",
+            messageID: "mcp",
+            agent: "sensegrep-mcp",
+            abort: new AbortController().signal,
+            metadata(_input: { title?: string; metadata?: unknown }) {},
+          }),
+      });
+      return {
+        content: [{ type: "text", text: res.output }],
+        structuredContent: {
+          output: res.output,
+        },
+      };
+    }
+
+    if (matchesToolName(name, TOOL_NAMES.survey, "sensegrep.survey")) {
+      const { core, tool } = await loadSurveyTool();
+      const { rootDir: _root, ...toolArgs } = args as any;
+      const { Instance } = core;
+      const res = await Instance.provide({
+        directory: rootDir,
+        fn: () =>
+          tool.execute(toolArgs, {
+            sessionID: "mcp",
+            messageID: "mcp",
+            agent: "sensegrep-mcp",
+            abort: new AbortController().signal,
+            metadata(_input: { title?: string; metadata?: unknown }) {},
+          }),
+      });
+      return {
+        content: [{ type: "text", text: res.output }],
+        structuredContent: {
+          output: res.output,
+        },
+      };
+    }
+
+    if (matchesToolName(name, TOOL_NAMES.cluster, "sensegrep.cluster")) {
+      const { core, tool } = await loadClusterTool();
+      const { rootDir: _root, ...toolArgs } = args as any;
+      const { Instance } = core;
       const res = await Instance.provide({
         directory: rootDir,
         fn: () =>

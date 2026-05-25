@@ -1,4 +1,6 @@
 export { SenseGrepTool } from "./tool/sensegrep.js"
+export { SenseGrepSurveyTool } from "./tool/sensegrep-survey.js"
+export { SenseGrepClusterTool } from "./tool/sensegrep-cluster.js"
 export { Tool } from "./tool/tool.js"
 export { Indexer } from "./semantic/indexer.js"
 export { IndexWatcher } from "./semantic/index-watcher.js"

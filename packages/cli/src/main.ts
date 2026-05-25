@@ -33,6 +33,8 @@ Usage:
   sensegrep verify [--root <dir>]
   sensegrep status [--root <dir>]
   sensegrep search <query...> [options]
+  sensegrep survey <query...> [options]
+  sensegrep cluster <query...> [options]
   sensegrep detect-duplicates [--root <dir>] [options]
   sensegrep languages [--detect] [--variants]
 
@@ -69,6 +71,16 @@ Search options:
   --watch                   Keep running; reindex on changes (default: on)
   --no-watch                Exit after indexing (for CI/scripts)
   --json                    Output JSON
+
+Survey options:
+  --raw-limit <n>           Raw matches to gather before grouping (default: 60)
+  --per-group <n>           Representative snippets per group (default: 2)
+
+Cluster options:
+  --raw-limit <n>           Raw matches to gather before clustering (default: 70)
+  --per-cluster <n>         Representative snippets per cluster (default: 2)
+  --cluster-threshold <n>   Similarity threshold for linking clusters (default: 0.72)
+  --min-cluster-size <n>    Minimum cluster size before singleton fallback (default: 2)
 
 Duplicate detection options:
   --threshold <number>      Minimum similarity 0.0-1.0 (default: 0.85)
@@ -177,6 +189,8 @@ function formatIndexResult(result: IndexResult): string {
 async function run() {
   const {
     SenseGrepTool,
+    SenseGrepSurveyTool,
+    SenseGrepClusterTool,
     Indexer,
     IndexWatcher,
     Instance,
@@ -352,6 +366,142 @@ if (flags.pattern) params.pattern = String(flags.pattern)
     if (flags["no-rerank"] !== undefined) params.rerank = false
 
     const tool = await SenseGrepTool.init()
+    const res = await Instance.provide({
+      directory: rootDir,
+      fn: () =>
+        tool.execute(params, {
+          sessionID: "cli",
+          messageID: "cli",
+          agent: "sensegrep-cli",
+          abort: new AbortController().signal,
+          metadata(_input: { title?: string; metadata?: unknown }) {},
+        }),
+    })
+
+    if (flags.json) {
+      console.log(JSON.stringify(res, null, 2))
+      return
+    }
+    console.log(res.output)
+    return
+  }
+
+  if (command === "survey") {
+    const query = (flags.query as string | undefined) || positional.join(" ")
+    if (!query) {
+      console.error("Missing query")
+      usage()
+      process.exitCode = 1
+      return
+    }
+
+    const params: ToolType.InferParameters<typeof SenseGrepSurveyTool> = {
+      query,
+      shake: true,
+    }
+
+    if (flags.pattern) params.pattern = String(flags.pattern)
+    if (flags.limit) params.limit = Number(flags.limit)
+    if (flags["raw-limit"]) params.rawLimit = Number(flags["raw-limit"])
+    if (flags.rawLimit) params.rawLimit = Number(flags.rawLimit)
+    if (flags["per-group"]) params.perGroup = Number(flags["per-group"])
+    if (flags.perGroup) params.perGroup = Number(flags.perGroup)
+    if (flags.include) params.include = String(flags.include)
+    if (flags.exclude) params.exclude = String(flags.exclude)
+    if (flags.type) params.symbolType = String(flags.type) as any
+    if (flags.symbolType) params.symbolType = String(flags.symbolType) as any
+    if (flags.variant) params.variant = String(flags.variant)
+    if (flags.decorator) params.decorator = String(flags.decorator)
+    if (flags.async !== undefined) params.isAsync = true
+    if (flags.static !== undefined) params.isStatic = true
+    if (flags.abstract !== undefined) params.isAbstract = true
+    if (flags.exported !== undefined) params.isExported = toBool(flags.exported)
+    if (flags.minComplexity) params.minComplexity = Number(flags.minComplexity)
+    if (flags["min-complexity"]) params.minComplexity = Number(flags["min-complexity"])
+    if (flags.maxComplexity) params.maxComplexity = Number(flags.maxComplexity)
+    if (flags["max-complexity"]) params.maxComplexity = Number(flags["max-complexity"])
+    if (flags.hasDocs !== undefined) params.hasDocumentation = toBool(flags.hasDocs)
+    if (flags["has-docs"] !== undefined) params.hasDocumentation = toBool(flags["has-docs"])
+    if (flags.language) params.language = String(flags.language) as any
+    if (flags.parent) params.parentScope = String(flags.parent)
+    if (flags.parentScope) params.parentScope = String(flags.parentScope)
+    if (flags.imports) params.imports = String(flags.imports)
+    if (flags.symbol) params.symbol = String(flags.symbol)
+    if (flags.name) params.symbol = String(flags.name)
+    if (flags["min-score"]) params.minScore = Number(flags["min-score"])
+    if (flags.minScore) params.minScore = Number(flags.minScore)
+
+    const tool = await SenseGrepSurveyTool.init()
+    const res = await Instance.provide({
+      directory: rootDir,
+      fn: () =>
+        tool.execute(params, {
+          sessionID: "cli",
+          messageID: "cli",
+          agent: "sensegrep-cli",
+          abort: new AbortController().signal,
+          metadata(_input: { title?: string; metadata?: unknown }) {},
+        }),
+    })
+
+    if (flags.json) {
+      console.log(JSON.stringify(res, null, 2))
+      return
+    }
+    console.log(res.output)
+    return
+  }
+
+  if (command === "cluster") {
+    const query = (flags.query as string | undefined) || positional.join(" ")
+    if (!query) {
+      console.error("Missing query")
+      usage()
+      process.exitCode = 1
+      return
+    }
+
+    const params: ToolType.InferParameters<typeof SenseGrepClusterTool> = {
+      query,
+      shake: true,
+    }
+
+    if (flags.pattern) params.pattern = String(flags.pattern)
+    if (flags.limit) params.limit = Number(flags.limit)
+    if (flags["raw-limit"]) params.rawLimit = Number(flags["raw-limit"])
+    if (flags.rawLimit) params.rawLimit = Number(flags.rawLimit)
+    if (flags["per-cluster"]) params.perCluster = Number(flags["per-cluster"])
+    if (flags.perCluster) params.perCluster = Number(flags.perCluster)
+    if (flags["cluster-threshold"]) params.clusterThreshold = Number(flags["cluster-threshold"])
+    if (flags.clusterThreshold) params.clusterThreshold = Number(flags.clusterThreshold)
+    if (flags["min-cluster-size"]) params.minClusterSize = Number(flags["min-cluster-size"])
+    if (flags.minClusterSize) params.minClusterSize = Number(flags.minClusterSize)
+    if (flags.include) params.include = String(flags.include)
+    if (flags.exclude) params.exclude = String(flags.exclude)
+    if (flags.type) params.symbolType = String(flags.type) as any
+    if (flags.symbolType) params.symbolType = String(flags.symbolType) as any
+    if (flags.variant) params.variant = String(flags.variant)
+    if (flags.decorator) params.decorator = String(flags.decorator)
+    if (flags.async !== undefined) params.isAsync = true
+    if (flags.static !== undefined) params.isStatic = true
+    if (flags.abstract !== undefined) params.isAbstract = true
+    if (flags.exported !== undefined) params.isExported = toBool(flags.exported)
+    if (flags.minComplexity) params.minComplexity = Number(flags.minComplexity)
+    if (flags["min-complexity"]) params.minComplexity = Number(flags["min-complexity"])
+    if (flags.maxComplexity) params.maxComplexity = Number(flags.maxComplexity)
+    if (flags["max-complexity"]) params.maxComplexity = Number(flags["max-complexity"])
+    if (flags.hasDocs !== undefined) params.hasDocumentation = toBool(flags.hasDocs)
+    if (flags["has-docs"] !== undefined) params.hasDocumentation = toBool(flags["has-docs"])
+    if (flags.language) params.language = String(flags.language) as any
+    if (flags.parent) params.parentScope = String(flags.parent)
+    if (flags.parentScope) params.parentScope = String(flags.parentScope)
+    if (flags.imports) params.imports = String(flags.imports)
+    if (flags.symbol) params.symbol = String(flags.symbol)
+    if (flags.name) params.symbol = String(flags.name)
+    if (flags["min-score"]) params.minScore = Number(flags["min-score"])
+    if (flags.minScore) params.minScore = Number(flags.minScore)
+
+    const tool = await SenseGrepClusterTool.init()
     const res = await Instance.provide({
       directory: rootDir,
       fn: () =>
