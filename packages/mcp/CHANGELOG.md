@@ -1,5 +1,14 @@
 # @sensegrep/mcp
 
+## 1.5.2
+
+### Patch Changes
+
+- [`b155b33`](https://github.com/Stahldavid/sensegrep/commit/b155b33fcdedd80d74ab46d26ea90254a634ca09) Thanks [@Stahldavid](https://github.com/Stahldavid)! - Fix Windows ripgrep fallback batching to avoid ENAMETOOLONG during identifier and pattern-based searches in large repos.
+
+- Updated dependencies [[`b155b33`](https://github.com/Stahldavid/sensegrep/commit/b155b33fcdedd80d74ab46d26ea90254a634ca09)]:
+  - @sensegrep/core@1.5.2
+
 ## 1.5.1
 
 ### Patch Changes

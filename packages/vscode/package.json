@@ -479,6 +479,6 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@sensegrep/core": "^1.5.1"
+    "@sensegrep/core": "^1.5.2"
   }
 }
