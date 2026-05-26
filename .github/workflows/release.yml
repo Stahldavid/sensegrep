@@ -51,7 +51,7 @@ jobs:
 
       - name: Create Release PR or Publish to npm
         id: changesets
-        uses: changesets/action@v1
+        uses: changesets/action@v1.5.3
         with:
           publish: npm run release
           version: npm run version
