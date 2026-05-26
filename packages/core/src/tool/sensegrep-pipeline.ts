@@ -74,6 +74,8 @@ type CollectWorkingResultsOptions = {
 }
 
 const MAX_LINE_LENGTH = 2000
+const RIPGREP_MAX_ARG_CHARS = process.platform === "win32" ? 7000 : 30000
+const RIPGREP_MAX_FILES_PER_BATCH = 256
 const GENERIC_PATH_SEGMENTS = new Set([
   "src",
   "lib",
@@ -208,49 +210,74 @@ async function runRipgrepOnFiles(
   if (files.length === 0) return []
 
   const rgPath = await Ripgrep.filepath()
-  const args: string[] = ["-n", "--no-heading"]
-
-  if (!options?.caseSensitive) args.push("-i")
-  if (options?.fixedStrings) {
-    args.push("--fixed-strings", pattern)
-  } else {
-    args.push("--regexp", pattern)
-  }
-
-  for (const file of files) {
-    args.push(path.join(Instance.directory, file))
-  }
-
-  const proc = spawn(rgPath, args, {
-    stdio: ["ignore", "pipe", "pipe"],
-  })
-
-  let output = ""
-  let stderr = ""
-  proc.stdout?.on("data", (chunk) => {
-    output += chunk.toString()
-  })
-  proc.stderr?.on("data", (chunk) => {
-    stderr += chunk.toString()
-  })
-
-  const [code] = (await once(proc, "close")) as [number]
-  if (code && code !== 1) {
-    throw new Error(`ripgrep failed with code ${code}: ${stderr}`)
-  }
-
   const matches: { file: string; line: number; text: string }[] = []
-  for (const line of output.trim().split("\n")) {
-    if (!line) continue
-    const match = line.match(/^(.*):(\d+):(.*)$/)
-    if (!match) continue
 
-    const [, fullPath, lineNum, text] = match
-    matches.push({
-      file: canonicalizeProjectFilePath(path.relative(Instance.directory, fullPath)),
-      line: parseInt(lineNum, 10),
-      text: text.trim(),
+  const normalizedFiles = files.map((file) => canonicalizeProjectFilePath(file))
+  const fileBatches: string[][] = []
+  let currentBatch: string[] = []
+  let currentChars = 0
+
+  for (const file of normalizedFiles) {
+    const estimatedChars = file.length + 1
+    const wouldOverflow =
+      currentBatch.length > 0 &&
+      (currentBatch.length >= RIPGREP_MAX_FILES_PER_BATCH || currentChars + estimatedChars > RIPGREP_MAX_ARG_CHARS)
+
+    if (wouldOverflow) {
+      fileBatches.push(currentBatch)
+      currentBatch = []
+      currentChars = 0
+    }
+
+    currentBatch.push(file)
+    currentChars += estimatedChars
+  }
+
+  if (currentBatch.length > 0) fileBatches.push(currentBatch)
+
+  for (const batch of fileBatches) {
+    const args: string[] = ["-n", "--no-heading"]
+
+    if (!options?.caseSensitive) args.push("-i")
+    if (options?.fixedStrings) {
+      args.push("--fixed-strings", pattern)
+    } else {
+      args.push("--regexp", pattern)
+    }
+
+    args.push("--", ...batch)
+
+    const proc = spawn(rgPath, args, {
+      cwd: Instance.directory,
+      stdio: ["ignore", "pipe", "pipe"],
     })
+
+    let output = ""
+    let stderr = ""
+    proc.stdout?.on("data", (chunk) => {
+      output += chunk.toString()
+    })
+    proc.stderr?.on("data", (chunk) => {
+      stderr += chunk.toString()
+    })
+
+    const [code] = (await once(proc, "close")) as [number]
+    if (code && code !== 1) {
+      throw new Error(`ripgrep failed with code ${code}: ${stderr}`)
+    }
+
+    for (const line of output.trim().split("\n")) {
+      if (!line) continue
+      const match = line.match(/^(.*):(\d+):(.*)$/)
+      if (!match) continue
+
+      const [, matchedPath, lineNum, text] = match
+      matches.push({
+        file: canonicalizeProjectFilePath(matchedPath),
+        line: parseInt(lineNum, 10),
+        text: text.trim(),
+      })
+    }
   }
   return matches
 }

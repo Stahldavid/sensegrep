@@ -59,9 +59,9 @@ describe("SenseGrepTool file glob filters", () => {
       proc.stderr = new EventEmitter()
 
       queueMicrotask(() => {
-        const files = args
-          .filter((arg) => arg.includes("repo"))
-          .map((arg) => arg.replace(/\\/g, "/"))
+        const separatorIndex = args.indexOf("--")
+        const fileArgs = separatorIndex >= 0 ? args.slice(separatorIndex + 1) : args.filter((arg) => /[\\/]/.test(arg))
+        const files = fileArgs.map((arg) => arg.replace(/\\/g, "/"))
         const output = files
           .map((file) => `${file}:3:defineNuxtRouteMiddleware(() => {})`)
           .join("\n")
@@ -338,5 +338,62 @@ describe("SenseGrepTool file glob filters", () => {
     expect(listDocuments).toHaveBeenCalledTimes(1)
     expect(result.output).toContain("frontend-admin/src/middleware/auth.global.ts")
     expect(result.output).toContain("defineNuxtRouteMiddleware")
+  })
+
+  it("batches ripgrep file arguments to avoid Windows command length issues", async () => {
+    readIndexMeta.mockResolvedValue({
+      embeddings: {
+        provider: "gemini",
+        model: "test-model",
+        dimension: 3,
+      },
+      files: Object.fromEntries(
+        Array.from({ length: 400 }, (_, i) => [`backend-api/src/module/File${i}.java`, {}]),
+      ),
+    })
+
+    search.mockResolvedValue([])
+    listDocuments.mockResolvedValue([
+      {
+        id: "backend-api/src/module/File0.java:0",
+        content: "class OrderScheduleApi {}",
+        metadata: {
+          file: "backend-api/src/module/File0.java",
+          startLine: 1,
+          endLine: 8,
+          symbolName: "OrderScheduleApi",
+          symbolType: "class",
+          language: "java",
+        },
+        distance: 0,
+      },
+    ])
+
+    const { SenseGrepTool } = await import("./sensegrep.js")
+    const tool = await SenseGrepTool.init()
+    await tool.execute(
+      {
+        query: "OrderScheduleApi",
+        language: "java",
+        include: "backend-api/**/*.java",
+        limit: 3,
+        shake: false,
+      },
+      {
+        sessionID: "test",
+        messageID: "test",
+        agent: "vitest",
+        abort: new AbortController().signal,
+        metadata() {},
+      },
+    )
+
+    expect(spawn.mock.calls.length).toBeGreaterThan(1)
+    for (const [, args] of spawn.mock.calls) {
+      const separatorIndex = args.indexOf("--")
+      expect(separatorIndex).toBeGreaterThan(-1)
+      const fileArgs = args.slice(separatorIndex + 1)
+      expect(fileArgs.every((file: string) => !file.includes("/repo"))).toBe(true)
+    }
   })
 })
