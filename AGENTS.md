@@ -33,44 +33,38 @@ There is **no ESLint/Prettier** at the repo root. “Lint” for this repo means
 
 Indexing and semantic search use **remote embeddings only**. CI does **not** configure providers.
 
-#### Recommended: Cohere via Amazon Bedrock
+#### Recommended: Cohere via Amazon Bedrock (Bedrock API key)
 
-Default Bedrock model in code: **`cohere.embed-v4:0`** (1536-dim). Cross-region / global inference ID: **`global.cohere.embed-v4:0`** (set via `SENSEGREP_EMBED_MODEL`).
+Default model: **`cohere.embed-v4:0`** (1536-dim). Global inference ID: **`global.cohere.embed-v4:0`** via `embedModel` in config.
 
-**Environment (CLI, MCP, extension):**
+Authentication is either:
 
-```bash
-export SENSEGREP_PROVIDER=bedrock
-export AWS_REGION=us-east-1          # or SENSEGREP_BEDROCK_REGION
-# Optional overrides:
-# export SENSEGREP_EMBED_MODEL=cohere.embed-v4:0
-# export SENSEGREP_EMBED_DIM=1536      # must be 256, 512, 1024, or 1536 for Cohere v4
-```
+1. **Bedrock API key** (prefix `ABSK…`) in `apiKey` — bearer token, **not** `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`, or  
+2. **IAM** via the AWS SDK default chain (no `apiKey` in config).
 
-**AWS credentials:** standard AWS SDK chain (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, or instance/profile). No Gemini key is used when `SENSEGREP_PROVIDER=bedrock`.
-
-**Persistent config** (`~/.config/sensegrep/config.json`):
+**Canonical config file** — `~/.config/sensegrep/config.json`:
 
 ```json
 {
   "provider": "bedrock",
   "embedModel": "cohere.embed-v4:0",
   "embedDim": 1536,
-  "region": "us-east-1"
+  "region": "us-east-1",
+  "apiKey": "<Bedrock API key from console>"
 }
 ```
 
-**CLI flags** (override env for one run): `--provider bedrock` plus optional `--embed-model` / `--embed-dim`.
+`embedDim` must be **256, 512, 1024, or 1536** for Cohere Embed v4.
 
-**VS Code / Cursor:** `sensegrep.embeddings.provider` = `bedrock`, region via `sensegrep.embeddings.bedrockRegion` (see `packages/vscode/README.md`).
+**Cursor Cloud secret (preferred):** one secret named **`SENSEGREP_EMBEDDINGS_CONFIG`** whose value is the **entire JSON above** (minified one line is fine). The VM **update script** writes it to `~/.config/sensegrep/config.json` on startup. Do **not** use separate `GEMINI_API_KEY` or `AWS_ACCESS_KEY_ID` secrets for this setup.
 
-**IAM:** caller needs `bedrock:InvokeModel` on the chosen Cohere embedding model in that region (model access enabled in the Bedrock console).
+**Optional env overrides** (merge with / override file): `SENSEGREP_PROVIDER`, `SENSEGREP_EMBED_MODEL`, `SENSEGREP_EMBED_DIM`, `SENSEGREP_BEDROCK_REGION`.
 
-Example smoke flow (from repo root, after build):
+**VS Code / Cursor extension:** `sensegrep.embeddings.provider` = `bedrock`; for API-key auth, mirror the same fields in global `config.json` (extension does not store Bedrock keys in SecretStorage today).
+
+Example smoke flow (after build, with `config.json` in place):
 
 ```bash
-export SENSEGREP_PROVIDER=bedrock
-export AWS_REGION=us-east-1
 node packages/cli/dist/main.js index --root packages/core --no-watch
 node packages/cli/dist/main.js search "embedding configuration" --limit 3 --json
 ```
@@ -80,7 +74,7 @@ node packages/cli/dist/main.js search "embedding configuration" --limit 3 --json
 - **Gemini:** `GEMINI_API_KEY` / `GOOGLE_API_KEY` (default provider if unset and no OpenAI key)
 - **OpenAI-compatible:** `SENSEGREP_OPENAI_API_KEY` / `FIREWORKS_API_KEY` with `--provider openai`
 
-Without credentials, Bedrock fails with `CredentialsProviderError`; Gemini/OpenAI fail with explicit API-key errors. `languages`, `status`, and MCP **initialize / tools/list** still work without indexing.
+Without `apiKey` (and without IAM credentials), Bedrock fails with `CredentialsProviderError`. `languages`, `status`, and MCP **initialize / tools/list** still work without indexing.
 
 ### MCP server
 
