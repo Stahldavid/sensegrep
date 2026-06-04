@@ -74,8 +74,6 @@ type CollectWorkingResultsOptions = {
 }
 
 const MAX_LINE_LENGTH = 2000
-const RIPGREP_MAX_ARG_CHARS = process.platform === "win32" ? 7000 : 30000
-const RIPGREP_MAX_FILES_PER_BATCH = 256
 const GENERIC_PATH_SEGMENTS = new Set([
   "src",
   "lib",
@@ -199,6 +197,10 @@ export function createGlobMatcher(pattern: string) {
   })
 }
 
+// Batch ripgrep file arguments to avoid command line length limits (notably on Windows).
+const RIPGREP_MAX_ARG_CHARS = process.platform === "win32" ? 7000 : 30000
+const RIPGREP_MAX_FILES_PER_BATCH = 256
+
 async function runRipgrepOnFiles(
   pattern: string,
   files: string[],
@@ -212,6 +214,7 @@ async function runRipgrepOnFiles(
   const rgPath = await Ripgrep.filepath()
   const matches: { file: string; line: number; text: string }[] = []
 
+  // Use repo-relative paths together with cwd so each argument stays short.
   const normalizedFiles = files.map((file) => canonicalizeProjectFilePath(file))
   const fileBatches: string[][] = []
   let currentBatch: string[] = []
@@ -245,6 +248,7 @@ async function runRipgrepOnFiles(
       args.push("--regexp", pattern)
     }
 
+    // "--" guards against file paths that could be parsed as flags.
     args.push("--", ...batch)
 
     const proc = spawn(rgPath, args, {
@@ -266,6 +270,7 @@ async function runRipgrepOnFiles(
       throw new Error(`ripgrep failed with code ${code}: ${stderr}`)
     }
 
+    // Parse output: "file:line:text"
     for (const line of output.trim().split("\n")) {
       if (!line) continue
       const match = line.match(/^(.*):(\d+):(.*)$/)
@@ -279,6 +284,7 @@ async function runRipgrepOnFiles(
       })
     }
   }
+
   return matches
 }
 

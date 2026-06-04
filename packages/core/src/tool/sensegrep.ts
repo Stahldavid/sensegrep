@@ -16,8 +16,22 @@ const DESCRIPTION = readFileSync(new URL("./sensegrep.txt", import.meta.url), "u
 const log = Log.create({ service: "tool.sensegrep" })
 
 const MAX_LINE_LENGTH = 2000
+
+// Batch ripgrep file arguments to avoid command line length limits (notably on Windows).
 const RIPGREP_MAX_ARG_CHARS = process.platform === "win32" ? 7000 : 30000
 const RIPGREP_MAX_FILES_PER_BATCH = 256
+
+// Extensions used to prioritize code matches over docs/config in the literal fallback.
+const CODE_EXTENSIONS = new Set([
+  ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
+  ".py", ".go", ".rs", ".java", ".c", ".cpp", ".h", ".hpp", ".cs",
+  ".rb", ".php", ".swift", ".kt", ".scala", ".vue", ".svelte"
+])
+
+function isCodeFile(filePath: string): boolean {
+  const ext = path.extname(filePath).toLowerCase()
+  return CODE_EXTENSIONS.has(ext)
+}
 
 function normalizeFilePath(file: string): string {
   return file.replace(/\\/g, "/")
@@ -83,9 +97,9 @@ async function runRipgrepOnFiles(
   if (files.length === 0) return []
 
   const rgPath = await Ripgrep.filepath()
-  // Parse output: "file:line:text"
   const matches: { file: string; line: number; text: string }[] = []
 
+  // Use repo-relative paths together with cwd so each argument stays short.
   const normalizedFiles = files.map((file) => canonicalizeProjectFilePath(file))
   const fileBatches: string[][] = []
   let currentBatch: string[] = []
@@ -111,8 +125,8 @@ async function runRipgrepOnFiles(
 
   for (const batch of fileBatches) {
     const args: string[] = [
-      "-n",
-      "--no-heading",
+      "-n", // Line numbers
+      "--no-heading", // Simple format: file:line:text
     ]
 
     if (!options?.caseSensitive) args.push("-i")
@@ -122,6 +136,7 @@ async function runRipgrepOnFiles(
       args.push("--regexp", pattern)
     }
 
+    // "--" guards against file paths that could be parsed as flags.
     args.push("--", ...batch)
 
     const proc = spawn(rgPath, args, {
@@ -143,6 +158,7 @@ async function runRipgrepOnFiles(
       throw new Error(`ripgrep failed with code ${code}: ${stderr}`)
     }
 
+    // Parse output: "file:line:text"
     for (const line of output.trim().split("\n")) {
       if (!line) continue
       const match = line.match(/^(.*):(\d+):(.*)$/)
@@ -156,6 +172,7 @@ async function runRipgrepOnFiles(
       }
     }
   }
+
   return matches
 }
 
@@ -246,9 +263,11 @@ async function collectLiteralFallbackResults(
       endLine: number
       semanticScore: number
       metadata: Record<string, string | number | boolean | string[] | undefined>
+      isCode: boolean
     }
   >()
 
+  // Collect all candidates first
   for (const [file, fileMatches] of byFile.entries()) {
     const documents = await VectorStore.listDocuments(collection, {
       filters: buildFiltersWithFileVariants(filters, file),
@@ -269,11 +288,18 @@ async function collectLiteralFallbackResults(
         endLine: selected.metadata.endLine as number,
         semanticScore: 1.05,
         metadata: selected.metadata,
+        isCode: isCodeFile(selected.metadata.file as string),
       })
     }
   }
 
-  return [...results.values()]
+  // Prioritize code files over docs/config
+  const resultArray = [...results.values()]
+  const codeResults = resultArray.filter((r) => r.isCode)
+  const nonCodeResults = resultArray.filter((r) => !r.isCode)
+
+  // Return code results first, then non-code results
+  return [...codeResults, ...nonCodeResults]
 }
 
 function overlapRatio(aStart: number, aEnd: number, bStart: number, bEnd: number): number {

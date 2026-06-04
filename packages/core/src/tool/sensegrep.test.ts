@@ -340,7 +340,7 @@ describe("SenseGrepTool file glob filters", () => {
     expect(result.output).toContain("defineNuxtRouteMiddleware")
   })
 
-  it("batches ripgrep file arguments to avoid Windows command length issues", async () => {
+  it("batches ripgrep file arguments to avoid command length issues", async () => {
     readIndexMeta.mockResolvedValue({
       embeddings: {
         provider: "gemini",

@@ -29,7 +29,7 @@ function usage() {
 sensegrep (CLI)
 
 Usage:
-  sensegrep index [--root <dir>] [--full|--incremental] [--verify] [--no-watch]
+  sensegrep index [--root <dir>] [--full|--incremental] [--verify] [--no-watch] [--include-docs] [--include-config]
   sensegrep verify [--root <dir>]
   sensegrep status [--root <dir>]
   sensegrep search <query...> [options]
@@ -70,6 +70,8 @@ Search options:
   --root <dir>              Root directory (default: cwd)
   --watch                   Keep running; reindex on changes (default: on)
   --no-watch                Exit after indexing (for CI/scripts)
+  --include-docs            Include markdown/docs in the index (default: false)
+  --include-config          Include config files (JSON/YAML/TOML) in the index (default: false)
   --json                    Output JSON
 
 Survey options:
@@ -219,7 +221,13 @@ async function run() {
     const full = flags.full === true
     const noWatch = flags["no-watch"] === true
     const watch = noWatch ? false : (toBool(flags.watch) ?? true)
-    
+    const includeDocs = flags["include-docs"] === true
+    const includeConfig = flags["include-config"] === true
+
+    // Configure index options
+    const { Indexer } = await loadCore()
+    Indexer.setIndexOptions({ includeDocs, includeConfig })
+
     // Auto-detect languages if not specified
     const { detectProjectLanguages } = await loadCore()
     const detected = await detectProjectLanguages(rootDir)
@@ -227,7 +235,7 @@ async function run() {
       const langSummary = detected.map((d: any) => `${d.language} (${d.fileCount})`).join(", ")
       console.log(`Detected: ${langSummary}`)
     }
-    
+
     let skipIndex = false
     if (flags.verify === true) {
       const check = await Instance.provide({
@@ -235,13 +243,14 @@ async function run() {
         fn: () => Indexer.verifyIndex(),
       })
       console.log(
-        `Verify: indexed=${check.indexed} changed=${check.changed} missing=${check.missing} removed=${check.removed}`,
+        `Verify: indexed=${check.indexed} changed=${check.changed} missing=${check.missing} removed=${check.removed} chunkMismatch=${(check as any).chunkMismatch === true ? `${(check as any).actualChunks}/${(check as any).expectedChunks}` : "false"}`,
       )
       if (
         check.indexed &&
         check.changed === 0 &&
         check.missing === 0 &&
         check.removed === 0 &&
+        (check as any).chunkMismatch !== true &&
         !full
       ) {
         console.log("Index is up to date. Skipping.")
@@ -285,11 +294,25 @@ async function run() {
   }
 
   if (command === "status") {
-    const stats = await Instance.provide({
-      directory: rootDir,
-      fn: () => Indexer.getStats(),
-    })
-    console.log(JSON.stringify(stats, null, 2))
+    const [stats, verify] = await Promise.all([
+      Instance.provide({
+        directory: rootDir,
+        fn: () => Indexer.getStats(),
+      }),
+      Instance.provide({
+        directory: rootDir,
+        fn: () => Indexer.verifyIndex(),
+      }),
+    ])
+    console.log(JSON.stringify({
+      ...stats,
+      changed: (verify as any).changed,
+      missing: (verify as any).missing,
+      removed: (verify as any).removed,
+      expectedChunks: (verify as any).expectedChunks,
+      actualChunks: (verify as any).actualChunks,
+      chunkMismatch: (verify as any).chunkMismatch,
+    }, null, 2))
     return
   }
 
@@ -304,7 +327,7 @@ if (command === "verify") {
       fn: () => Indexer.getStats(),
     })
     console.log(
-      `Index summary: indexed=${stats.indexed} files=${stats.files} chunks=${stats.chunks} provider=${stats.embeddings?.provider ?? "n/a"}`,
+      `Index summary: indexed=${stats.indexed} files=${stats.files} chunks=${stats.chunks} provider=${stats.embeddings?.provider ?? "n/a"}${(result as any).chunkMismatch === true ? ` expectedChunks=${(result as any).expectedChunks} actualChunks=${(result as any).actualChunks}` : ""}`,
     )
     return
   }

@@ -127,8 +127,72 @@ export namespace Indexer {
     return INDEXABLE_EXTENSIONS.has(ext)
   }
 
+  // Index options for controlling what gets indexed
+  let indexOptions: { includeDocs?: boolean; includeConfig?: boolean } = {}
+
+  export function setIndexOptions(options: { includeDocs?: boolean; includeConfig?: boolean }): void {
+    indexOptions = options
+  }
+
+  function getFileKind(filePath: string): "code" | "doc" | "config" {
+    const ext = path.extname(filePath).toLowerCase()
+    const baseName = path.basename(filePath).toLowerCase()
+
+    // Config files
+    if (
+      ext === ".json" ||
+      ext === ".yaml" ||
+      ext === ".yml" ||
+      ext === ".toml" ||
+      ext === ".ini" ||
+      ext === ".conf" ||
+      baseName.startsWith("tsconfig") ||
+      baseName.startsWith("jest.config") ||
+      baseName.startsWith("vitest.config") ||
+      baseName.startsWith("webpack") ||
+      baseName.startsWith("rollup") ||
+      baseName.startsWith("babel") ||
+      baseName.startsWith("eslint") ||
+      baseName.startsWith("prettier") ||
+      baseName === "package.json" ||
+      baseName === "package-lock.json"
+    ) {
+      return "config"
+    }
+
+    // Doc files
+    if (
+      ext === ".md" ||
+      ext === ".mdx" ||
+      ext === ".txt" ||
+      ext === ".rst" ||
+      baseName === "changelog" ||
+      baseName === "readme" ||
+      baseName.startsWith("readme.") ||
+      baseName.startsWith("changelog.") ||
+      baseName.startsWith("contributing.") ||
+      baseName.startsWith("license.")
+    ) {
+      return "doc"
+    }
+
+    return "code"
+  }
+
   function shouldIndex(filePath: string): boolean {
-    return isIndexableFile(filePath)
+    if (!isIndexableFile(filePath)) return false
+
+    const fileKind = getFileKind(filePath)
+
+    // Filter out docs and config by default
+    if (fileKind === "doc" && !indexOptions.includeDocs) {
+      return false
+    }
+    if (fileKind === "config" && !indexOptions.includeConfig) {
+      return false
+    }
+
+    return true
   }
 
   function isProbablyMinifiedOrGenerated(filePath: string, content: string): boolean {
@@ -219,6 +283,7 @@ export namespace Indexer {
 
     const chunksWithOverlap = Chunking.addOverlap(chunks)
     const lines = input.content.split("\n")
+    const fileKind = getFileKind(normalizedFilePath)
 
     return chunksWithOverlap.map((chunk, i) => ({
       id: `${normalizedFilePath}:${i}`,
@@ -227,6 +292,7 @@ export namespace Indexer {
       hash: hashContent(chunk.content),
       metadata: {
         file: normalizedFilePath,
+        fileKind,
         startLine: chunk.startLine,
         endLine: chunk.endLine,
         chunkIndex: i,
@@ -391,6 +457,15 @@ export namespace Indexer {
         await VectorStore.addDocuments(freshCollection, allDocs.slice(i, i + ADD_BATCH_SIZE))
       }
 
+      // Verify that all chunks were actually persisted
+      const finalStats = await VectorStore.getStats(freshCollection)
+      if (finalStats.count !== allDocs.length) {
+        log.warn("chunk persistence mismatch detected", {
+          expected: allDocs.length,
+          actual: finalStats.count,
+        })
+      }
+
       const config = Embeddings.getConfig()
       await VectorStore.writeIndexMeta(Instance.directory, {
         version: 1,
@@ -467,7 +542,26 @@ export namespace Indexer {
         return { ...full, skipped: 0, removed: 0, mode: "full" }
       }
 
+      // Check for chunk consistency between meta and LanceDB
+      let expectedChunks = 0
+      for (const fileStat of Object.values(meta.files || {})) {
+        if (fileStat.chunks) {
+          expectedChunks += fileStat.chunks.length
+        }
+      }
+
       const collection = await VectorStore.getCollection(Instance.directory)
+      const stats = await VectorStore.getStats(collection)
+      const actualChunks = stats.count
+
+      if (expectedChunks > 0 && actualChunks !== expectedChunks) {
+        log.warn("chunk mismatch detected, falling back to full rebuild", {
+          expectedChunks,
+          actualChunks,
+        })
+        const full = await indexProject()
+        return { ...full, skipped: 0, removed: 0, mode: "full" }
+      }
 
       let indexed = 0
       let totalChunks = 0
@@ -726,12 +820,15 @@ export namespace Indexer {
   }
 
   /**
-   * Get index stats
+   * Get index stats with chunk consistency check
    */
   export async function getStats(): Promise<{
     indexed: boolean
     chunks: number
     files: number
+    expectedChunks?: number
+    actualChunks?: number
+    chunkMismatch?: boolean
     embeddings?: { provider: string; model?: string; dimension: number; device?: string }
     updatedAt?: number
   }> {
@@ -745,10 +842,24 @@ export namespace Indexer {
     const collection = await VectorStore.getCollectionUnsafe(Instance.directory)
     const stats = await VectorStore.getStats(collection)
 
+    // Calculate expected chunks from meta
+    let expectedChunks = 0
+    for (const fileStat of Object.values(meta.files || {})) {
+      if (fileStat.chunks) {
+        expectedChunks += fileStat.chunks.length
+      }
+    }
+
+    const actualChunks = stats.count
+    const chunkMismatch = expectedChunks > 0 && actualChunks !== expectedChunks
+
     return {
       indexed: true,
-      chunks: stats.count,
+      chunks: actualChunks,
       files: meta?.files ? Object.keys(meta.files).length : 0,
+      expectedChunks,
+      actualChunks,
+      chunkMismatch,
       embeddings: meta?.embeddings,
       updatedAt: meta?.updatedAt,
     }
@@ -756,6 +867,7 @@ export namespace Indexer {
 
   /**
    * Verify index against current filesystem content using hashes only (no reindex).
+   * Also checks for consistency between metadata and LanceDB table.
    */
   export async function verifyIndex(): Promise<{
     indexed: boolean
@@ -763,6 +875,9 @@ export namespace Indexer {
     changed: number
     missing: number
     removed: number
+    expectedChunks?: number
+    actualChunks?: number
+    chunkMismatch?: boolean
     embeddings?: { provider: string; model?: string; dimension: number; device?: string }
     updatedAt?: number
   }> {
@@ -804,12 +919,28 @@ export namespace Indexer {
 
     const removed = remaining.size
 
+    // Check for chunk consistency between meta and LanceDB
+    let expectedChunks = 0
+    for (const fileStat of Object.values(meta.files || {})) {
+      if (fileStat.chunks) {
+        expectedChunks += fileStat.chunks.length
+      }
+    }
+
+    const collection = await VectorStore.getCollectionUnsafe(Instance.directory)
+    const stats = await VectorStore.getStats(collection)
+    const actualChunks = stats.count
+    const chunkMismatch = expectedChunks > 0 && actualChunks !== expectedChunks
+
     return {
       indexed: true,
       files: Object.keys(previous).length,
       changed,
       missing,
       removed,
+      expectedChunks,
+      actualChunks,
+      chunkMismatch,
       embeddings: meta.embeddings,
       updatedAt: meta.updatedAt,
     }
