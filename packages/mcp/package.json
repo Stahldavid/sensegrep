@@ -1,5 +1,6 @@
 {
   "name": "@sensegrep/mcp",
+  "description": "MCP server for sensegrep — semantic grep for AI coding assistants (Claude Code, Cursor, Windsurf).",
   "mcpName": "io.github.Stahldavid/sensegrep",
   "version": "1.5.2",
   "type": "module",
@@ -42,7 +43,17 @@
     "mcp",
     "mcp-server",
     "semantic-search",
+    "semantic-code-search",
+    "code-search",
+    "code-retrieval",
     "ai-agents",
-    "code-search"
+    "ai-coding",
+    "claude-code",
+    "cursor",
+    "windsurf",
+    "grep",
+    "tree-sitter",
+    "ast",
+    "developer-tools"
   ]
 }

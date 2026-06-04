@@ -1,12 +1,42 @@
 # sensegrep
 
-**Semantic + structural code search for AI-native development.**
+**Semantic grep for AI coding agents.**
 
-[![npm version](https://img.shields.io/npm/v/@sensegrep/core)](https://www.npmjs.com/package/@sensegrep/core)
+[![npm version](https://img.shields.io/npm/v/@sensegrep/cli)](https://www.npmjs.com/package/@sensegrep/cli)
+[![npm downloads](https://img.shields.io/npm/dw/@sensegrep/cli)](https://www.npmjs.com/package/@sensegrep/cli)
+[![GitHub stars](https://img.shields.io/github/stars/Stahldavid/sensegrep)](https://github.com/Stahldavid/sensegrep/stargazers)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![CI](https://github.com/Stahldavid/sensegrep/actions/workflows/ci.yml/badge.svg)](https://github.com/Stahldavid/sensegrep/actions/workflows/ci.yml)
 
-sensegrep understands your code semantically. Instead of matching text patterns, it uses AI embeddings and tree-sitter AST parsing to find code by *meaning* - so you can search for "authentication logic" and actually find your auth functions, even if they never contain the word "authentication".
+AI coding agents should not read more code — they should read the **right** code.
+
+sensegrep combines **semantic search** (when you know the idea), **exact matching** (when you know the identifier), and **AST-aware structural filters** (when you need precision) — then returns smaller symbol-level slices instead of dumping whole files. Use it from the **CLI**, **MCP** (Claude Code, Cursor, Windsurf, custom agents), or the VS Code extension.
+
+```bash
+npm i -g @sensegrep/cli
+sensegrep index --root .
+sensegrep search "where user permissions are validated before protected routes" --type function --limit 15
+```
+
+```bash
+npx -y @sensegrep/mcp
+```
+
+### Why not only grep or only embeddings?
+
+| Approach | Strength | Weakness |
+|----------|----------|----------|
+| grep / ripgrep | Fast, exact | Needs the right string |
+| Semantic search | Finds concepts | Often noisy, broad |
+| sensegrep | Meaning + structure + exact mode | Requires index + embedding provider |
+
+## Early traction
+
+sensegrep is early, but npm shows real download activity across `@sensegrep/cli`, `@sensegrep/mcp`, and `@sensegrep/core` (on the order of **~700 combined weekly downloads** — not the same as active users). See [docs/traction.md](docs/traction.md) for how metrics are updated.
+
+**Use cases:** [parallel AI agents](docs/parallel-agents.md) · [all use cases](docs/use-cases.md) · [integration recipes](docs/recipes/README.md)
+
+If sensegrep helps your agent workflow, consider [starring the repo](https://github.com/Stahldavid/sensegrep) and sharing your setup in [Discussions](https://github.com/Stahldavid/sensegrep/discussions) or a [use case issue](https://github.com/Stahldavid/sensegrep/issues/new?template=use_case.yml).
 
 ![Sensegrep time-to-value demo](assets/time-to-value.gif)
 
@@ -290,6 +320,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, architecture overv
 
 ## Community
 
+- [Use cases](docs/use-cases.md)
+- [Parallel AI agents](docs/parallel-agents.md)
+- [Traction (public metrics)](docs/traction.md)
+- [GitHub Discussions](https://github.com/Stahldavid/sensegrep/discussions)
 - [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Security Policy](SECURITY.md)
 - [Support](SUPPORT.md)

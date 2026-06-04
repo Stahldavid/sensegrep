@@ -58,5 +58,25 @@
     "name": "performance",
     "color": "ff9f1c",
     "description": "Latency, memory, and runtime efficiency"
+  },
+  {
+    "name": "ai-agents",
+    "color": "7057ff",
+    "description": "AI coding agent and orchestration workflows"
+  },
+  {
+    "name": "examples",
+    "color": "d4c5f9",
+    "description": "Sample projects and example workflows"
+  },
+  {
+    "name": "cli",
+    "color": "ededed",
+    "description": "Command-line interface"
+  },
+  {
+    "name": "use case",
+    "color": "f9d0c4",
+    "description": "Real-world usage reports from users"
   }
 ]
