@@ -29,25 +29,58 @@ Root `npm run dev` is a **placeholder**; use package-specific commands above.
 
 There is **no ESLint/Prettier** at the repo root. “Lint” for this repo means **`npm run check`** (TypeScript `--noEmit` per workspace).
 
-### Semantic index and search (requires API keys)
+### Semantic index and search (remote embeddings)
 
-Indexing and semantic search use **remote embeddings only** (default provider: Gemini). CI does **not** set embedding keys.
+Indexing and semantic search use **remote embeddings only**. CI does **not** configure providers.
 
-Before `sensegrep index` or semantic `search` / `survey` / `cluster`:
+#### Recommended: Cohere via Amazon Bedrock
 
-- Set **`GEMINI_API_KEY`** or **`GOOGLE_API_KEY`**, or
-- Use **`--provider openai`** with **`SENSEGREP_OPENAI_API_KEY`** / **`FIREWORKS_API_KEY`**, or
-- Use **`--provider bedrock`** with AWS credentials.
+Default Bedrock model in code: **`cohere.embed-v4:0`** (1536-dim). Cross-region / global inference ID: **`global.cohere.embed-v4:0`** (set via `SENSEGREP_EMBED_MODEL`).
+
+**Environment (CLI, MCP, extension):**
+
+```bash
+export SENSEGREP_PROVIDER=bedrock
+export AWS_REGION=us-east-1          # or SENSEGREP_BEDROCK_REGION
+# Optional overrides:
+# export SENSEGREP_EMBED_MODEL=cohere.embed-v4:0
+# export SENSEGREP_EMBED_DIM=1536      # must be 256, 512, 1024, or 1536 for Cohere v4
+```
+
+**AWS credentials:** standard AWS SDK chain (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, or instance/profile). No Gemini key is used when `SENSEGREP_PROVIDER=bedrock`.
+
+**Persistent config** (`~/.config/sensegrep/config.json`):
+
+```json
+{
+  "provider": "bedrock",
+  "embedModel": "cohere.embed-v4:0",
+  "embedDim": 1536,
+  "region": "us-east-1"
+}
+```
+
+**CLI flags** (override env for one run): `--provider bedrock` plus optional `--embed-model` / `--embed-dim`.
+
+**VS Code / Cursor:** `sensegrep.embeddings.provider` = `bedrock`, region via `sensegrep.embeddings.bedrockRegion` (see `packages/vscode/README.md`).
+
+**IAM:** caller needs `bedrock:InvokeModel` on the chosen Cohere embedding model in that region (model access enabled in the Bedrock console).
 
 Example smoke flow (from repo root, after build):
 
 ```bash
-export GEMINI_API_KEY=...
-node packages/cli/dist/main.js index --root . --no-watch
+export SENSEGREP_PROVIDER=bedrock
+export AWS_REGION=us-east-1
+node packages/cli/dist/main.js index --root packages/core --no-watch
 node packages/cli/dist/main.js search "embedding configuration" --limit 3 --json
 ```
 
-Without keys, `index` fails fast with a clear configuration error; `languages`, `status`, and MCP **initialize / tools/list** still work.
+#### Other providers (optional)
+
+- **Gemini:** `GEMINI_API_KEY` / `GOOGLE_API_KEY` (default provider if unset and no OpenAI key)
+- **OpenAI-compatible:** `SENSEGREP_OPENAI_API_KEY` / `FIREWORKS_API_KEY` with `--provider openai`
+
+Without credentials, Bedrock fails with `CredentialsProviderError`; Gemini/OpenAI fail with explicit API-key errors. `languages`, `status`, and MCP **initialize / tools/list** still work without indexing.
 
 ### MCP server
 
