@@ -1,0 +1,57 @@
+name: Share your use case
+description: Tell us how you use sensegrep with AI coding agents, MCP, CLI, or CI.
+title: "[use case]: "
+labels:
+  - adoption
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Help others discover real workflows. Downloads are not the same as active users — your setup matters.
+  - type: dropdown
+    id: surface
+    attributes:
+      label: How do you use sensegrep?
+      options:
+        - Claude Code (plugin or MCP)
+        - Cursor (plugin or MCP)
+        - Windsurf (MCP)
+        - VS Code extension
+        - CLI only
+        - Custom agent / MCP client
+        - CI / shared index
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Workflow
+      description: What problem does sensegrep solve for you?
+      placeholder: e.g. parallel agents researching auth vs API layers on a monorepo...
+    validations:
+      required: true
+  - type: textarea
+    id: commands
+    attributes:
+      label: Commands or MCP tools
+      description: Example commands, env vars, or MCP tool names you rely on.
+      render: shell
+  - type: textarea
+    id: repo_context
+    attributes:
+      label: Codebase context
+      description: Language, approximate size, monorepo or not (no proprietary secrets).
+      placeholder: TypeScript monorepo, ~200k LOC, 3 packages...
+  - type: textarea
+    id: gaps
+    attributes:
+      label: What's missing?
+      description: Features, docs, or integrations that would make this easier.
+  - type: checkboxes
+    id: permission
+    attributes:
+      label: Attribution
+      options:
+        - label: I am okay being mentioned anonymously in docs (no name/company)
+        - label: I am okay being credited by name in docs (add your name/handle in the workflow field)

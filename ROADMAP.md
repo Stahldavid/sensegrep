@@ -8,6 +8,8 @@ This roadmap is intentionally short-horizon and focused on adoption + reliabilit
 - Publish reproducible case studies focused on practical search outcomes.
 - Improve repository onboarding with README media and faster time-to-value.
 - Standardize issue labels for contributor routing (`good first issue`, `help wanted`, etc.).
+- Document parallel-agent and MCP retrieval workflows ([use-cases.md](docs/use-cases.md), [parallel-agents.md](docs/parallel-agents.md)).
+- Track public traction honestly ([traction.md](docs/traction.md)).
 
 ## Next (Month 2): Benchmark Methodology
 

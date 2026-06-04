@@ -1,6 +1,7 @@
 {
   "name": "@sensegrep/cli",
   "version": "1.5.2",
+  "description": "CLI for sensegrep — semantic grep for AI coding agents (semantic + structural code search).",
   "type": "module",
   "bin": {
     "sensegrep": "dist/main.js"
@@ -33,5 +34,24 @@
   "homepage": "https://github.com/Stahldavid/sensegrep",
   "bugs": {
     "url": "https://github.com/Stahldavid/sensegrep/issues"
-  }
+  },
+  "keywords": [
+    "sensegrep",
+    "cli",
+    "grep",
+    "ripgrep",
+    "semantic-search",
+    "code-search",
+    "semantic-code-search",
+    "code-retrieval",
+    "ai-agents",
+    "ai-coding",
+    "claude-code",
+    "cursor",
+    "windsurf",
+    "mcp",
+    "tree-sitter",
+    "ast",
+    "developer-tools"
+  ]
 }

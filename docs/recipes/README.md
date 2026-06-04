@@ -2,6 +2,11 @@
 
 Production-ready setup and workflow recipes for common sensegrep usage paths.
 
+## Related guides
+
+- [Use cases](../use-cases.md)
+- [Parallel AI agents](../parallel-agents.md)
+
 ## Available Recipes
 
 - [Claude Code](claude-code.md)

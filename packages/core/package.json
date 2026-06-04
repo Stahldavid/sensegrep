@@ -1,6 +1,7 @@
 {
   "name": "@sensegrep/core",
   "version": "1.5.2",
+  "description": "Core library for sensegrep — semantic + structural code search for AI coding agents.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -46,5 +47,17 @@
   "homepage": "https://github.com/Stahldavid/sensegrep",
   "bugs": {
     "url": "https://github.com/Stahldavid/sensegrep/issues"
-  }
+  },
+  "keywords": [
+    "sensegrep",
+    "semantic-search",
+    "code-search",
+    "code-retrieval",
+    "ai-agents",
+    "tree-sitter",
+    "ast",
+    "embeddings",
+    "lancedb",
+    "developer-tools"
+  ]
 }
