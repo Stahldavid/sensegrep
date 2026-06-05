@@ -2,7 +2,7 @@
   "name": "sensegrep",
   "owner": {
     "name": "sensegrep",
-    "url": "https://github.com/Stahldavid/sensegrep"
+    "email": "stahldavid97@gmail.com"
   },
   "metadata": {
     "description": "Official sensegrep plugin marketplace for Claude Code",
@@ -13,13 +13,13 @@
       "name": "sensegrep",
       "source": "./plugin/sensegrep-plugin",
       "description": "Semantic code search for AI agents. Search code by meaning, not text patterns. Adds sensegrep MCP tools + smart usage instructions to Claude Code.",
-      "version": "1.5.2",
+      "version": "1.5.3",
       "author": {
         "name": "sensegrep"
       },
       "homepage": "https://github.com/Stahldavid/sensegrep",
       "repository": "https://github.com/Stahldavid/sensegrep",
-      "license": "MIT",
+      "license": "Apache-2.0",
       "keywords": [
         "code-search",
         "semantic-search",

@@ -54,6 +54,8 @@ const jsonVersionTargets = [
   "plugin/sensegrep-plugin/.mcp.json",
   "plugin/sensegrep-cursor/.cursor-plugin/plugin.json",
   "plugin/sensegrep-cursor/.mcp.json",
+  "plugins/sensegrep/.codex-plugin/plugin.json",
+  "plugins/sensegrep/.mcp.json",
   ".claude-plugin/marketplace.json",
   ".cursor-plugin/marketplace.json",
 ]

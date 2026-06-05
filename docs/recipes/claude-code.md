@@ -18,17 +18,23 @@ That's it. Claude now has access to all sensegrep tools and knows when to prefer
 >
 > On a fresh setup, `claude plugin install sensegrep@sensegrep` fails until `claude plugin marketplace add Stahldavid/sensegrep` has been run.
 
-## Option B: Skill Only (no plugin)
+## Option B: Skill Only — CLI, no MCP server
 
-If you already have the MCP server configured and only want the skill (the guidance that tells Claude when and how to use sensegrep):
+If you don't want to run an MCP server, install the **CLI skill**. It teaches Claude to
+use the `sensegrep` command-line tool directly — no MCP server required:
 
 ```bash
-npx skills add Stahldavid/sensegrep -g
+npm install -g @sensegrep/cli
+npx skills add Stahldavid/sensegrep --skill sensegrep-cli -g
 ```
 
-This installs the skill globally for Claude Code. The skill teaches Claude to prefer `sensegrep_search` over grep for code exploration, how to combine filters and patterns, and when to use each search strategy.
+This installs the `sensegrep-cli` skill globally for Claude Code. The skill teaches Claude
+to prefer `sensegrep search` over grep for code exploration, how to combine filters and
+patterns, and to read `--json` output. Claude runs the CLI through its Bash tool, so this
+works without any MCP wiring.
 
-> You still need the MCP server running. See [Option C](#option-c-manual-mcp-setup) if you haven't set it up yet.
+> This is the self-contained path: the CLI skill needs only `@sensegrep/cli`, not the MCP
+> server. If you'd rather use MCP tools, use Option A (plugin) or Option C (manual MCP).
 
 ## Option C: Manual MCP Setup
 

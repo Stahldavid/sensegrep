@@ -1,0 +1,49 @@
+name: Use case
+description: Share how you use sensegrep so we can learn from real workflows.
+title: "[use case]: "
+labels:
+  - use case
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sharing how you use sensegrep. Real workflows help us improve the tool and show others what is possible.
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      description: Where do you use sensegrep?
+      multiple: true
+      options:
+        - Claude Code
+        - Cursor
+        - Codex
+        - MCP
+        - CLI
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Workflow
+      description: What do you do with sensegrep? Walk us through the steps you take.
+      placeholder: |
+        1. I ...
+        2. Then I ...
+        3. sensegrep helps by ...
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome observed
+      description: What changed for you? Describe the result, including any before/after difference you noticed.
+      placeholder: Describe the outcome you observed when using sensegrep.
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Additional details
+      description: Anything else worth sharing (codebase size, languages, links).

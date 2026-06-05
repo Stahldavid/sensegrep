@@ -5,6 +5,11 @@
     "description": "Great for first-time contributors"
   },
   {
+    "name": "use case",
+    "color": "d4c5f9",
+    "description": "User-submitted account of how sensegrep is used in a real workflow"
+  },
+  {
     "name": "help wanted",
     "color": "0e8a16",
     "description": "Maintainers are looking for community help"

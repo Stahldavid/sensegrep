@@ -1,6 +1,6 @@
 {
   "name": "@sensegrep/core",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -46,5 +46,15 @@
   "homepage": "https://github.com/Stahldavid/sensegrep",
   "bugs": {
     "url": "https://github.com/Stahldavid/sensegrep/issues"
-  }
+  },
+  "description": "Semantic + structural code search engine that helps AI agents read the right code, not more code — combining semantic search, exact matching, and AST-aware retrieval.",
+  "keywords": [
+    "semantic-search",
+    "code-search",
+    "ai-agents",
+    "ast",
+    "tree-sitter",
+    "embeddings",
+    "grep"
+  ]
 }

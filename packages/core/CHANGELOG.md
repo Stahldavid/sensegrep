@@ -1,5 +1,11 @@
 # @sensegrep/core
 
+## 1.5.3
+
+### Patch Changes
+
+- Improve npm discoverability: add/refresh `description` and `keywords` on the published packages so they surface in npm and registry search. No runtime or API changes.
+
 ## 1.5.2
 
 ### Patch Changes

@@ -40,4 +40,13 @@ demo/out/
 demo/node_modules/
 demo/package-lock.json
 
+# Maintainer-only material (not part of the public product)
+# Distribution kit: marketing drafts, launch checklist, outreach drafts,
+# good-first-issue drafts, Discussions setup. For the maintainer to act on,
+# not consumed by end users.
+docs/distribution/
+
+# Kiro spec workspace (internal planning docs)
+.kiro/
+
 

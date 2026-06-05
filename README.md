@@ -1,12 +1,14 @@
 # sensegrep
 
-**Semantic + structural code search for AI-native development.**
+**semantic grep for AI coding agents**
 
 [![npm version](https://img.shields.io/npm/v/@sensegrep/core)](https://www.npmjs.com/package/@sensegrep/core)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![CI](https://github.com/Stahldavid/sensegrep/actions/workflows/ci.yml/badge.svg)](https://github.com/Stahldavid/sensegrep/actions/workflows/ci.yml)
 
 sensegrep understands your code semantically. Instead of matching text patterns, it uses AI embeddings and tree-sitter AST parsing to find code by *meaning* - so you can search for "authentication logic" and actually find your auth functions, even if they never contain the word "authentication".
+
+AI agents should not read more code, they should read the right code. sensegrep combines semantic search, exact matching, and AST-aware structural retrieval to deliver smaller, more relevant context.
 
 ![Sensegrep time-to-value demo](assets/time-to-value.gif)
 
@@ -96,7 +98,18 @@ Fallback deeplink (copy/paste if needed):
 cursor://anysphere.cursor-deeplink/mcp/install?name=sensegrep&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkBzZW5zZWdyZXAvbWNwQGxhdGVzdCJdfQ%3D%3D
 ```
 
-### MCP Server (for Windsurf or manual setup)
+### Codex Plugin
+
+Install from the public marketplace — no manual config:
+
+```bash
+codex plugin marketplace add Stahldavid/sensegrep
+codex plugin install sensegrep
+```
+
+See the [Codex recipe](docs/recipes/codex.md) for the manual `~/.codex/config.toml` setup.
+
+### MCP Server (for Codex or manual setup)
 
 ```bash
 npx -y @sensegrep/mcp
@@ -133,6 +146,19 @@ npm install -g @sensegrep/mcp
 
 The MCP server provides `sensegrep.search`, `sensegrep.survey`, `sensegrep.cluster`, `sensegrep.index`, and `sensegrep.detect_duplicates` tools.
 
+### Agent Skill — CLI (no MCP server)
+
+For terminal-first agents or CI, you don't need an MCP server. Install the CLI and the
+`sensegrep-cli` [Agent Skill](docs/agent-skills.md), which teaches the agent to run
+`sensegrep` commands directly:
+
+```bash
+npm i -g @sensegrep/cli
+npx skills add Stahldavid/sensegrep --skill sensegrep-cli -g
+```
+
+See [docs/agent-skills.md](docs/agent-skills.md) for when to use the MCP tools vs the CLI skill.
+
 ### VS Code Extension
 
 Search for **"Sensegrep"** in the VS Code marketplace, or install from [the extension page](https://marketplace.visualstudio.com/items?itemName=sensegrep.sensegrep).
@@ -145,7 +171,7 @@ Copy-paste setup and practical workflows:
 
 - [Claude Code recipe](docs/recipes/claude-code.md)
 - [Cursor recipe](docs/recipes/cursor.md)
-- [Windsurf recipe](docs/recipes/windsurf.md)
+- [Codex recipe](docs/recipes/codex.md)
 - [CI with GitHub Actions](docs/recipes/ci-github-actions.md)
 - [Generic CI recipe](docs/recipes/ci-generic.md)
 
@@ -272,12 +298,15 @@ More embedding providers and API integrations may be added in the future.
 | [sensegrep](packages/vscode) | VS Code extension | [Marketplace](https://marketplace.visualstudio.com/items?itemName=sensegrep.sensegrep) |
 | [sensegrep-plugin](plugin/sensegrep-plugin) | Claude Code plugin | `claude plugin marketplace add Stahldavid/sensegrep && claude plugin install sensegrep` |
 | [sensegrep-cursor](plugin/sensegrep-cursor) | Cursor plugin | `cursor plugin install sensegrep` |
+| [sensegrep (Codex)](plugins/sensegrep) | Codex plugin | `codex plugin marketplace add Stahldavid/sensegrep && codex plugin install sensegrep` |
 
 ## Case Studies
 
 Reproducible qualitative examples from public repositories:
 
 - [Case studies](docs/case-studies.md)
+- [Use cases](docs/use-cases.md)
+- [Parallel-agent workflows](docs/parallel-agents.md)
 
 ## Roadmap
 

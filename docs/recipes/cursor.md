@@ -38,17 +38,22 @@ npm run cursor:install-link -- --workspace-root
 
 Skip to [Smoke Test](#smoke-test).
 
-## Option B: Skill Only (no plugin)
+## Option B: Skill Only — CLI, no MCP server
 
-If you already have the MCP server configured and only want the skill:
+If you don't want to run an MCP server, install the **CLI skill** — it teaches Cursor to
+use the `sensegrep` command-line tool directly:
 
 ```bash
-npx skills add Stahldavid/sensegrep -g
+npm install -g @sensegrep/cli
+npx skills add Stahldavid/sensegrep --skill sensegrep-cli -g
 ```
 
-This installs the skill globally. On Cursor it lands in `~/.cursor/skills/` and is picked up automatically.
+This installs the `sensegrep-cli` skill globally. On Cursor it lands in `~/.cursor/skills/`
+and is picked up automatically. The agent runs `sensegrep` shell commands, so no MCP server
+is needed.
 
-> You still need the MCP server running. See [Option C](#option-c-manual-mcp-setup) if you haven't set it up yet.
+> This is the self-contained path: the CLI skill needs only `@sensegrep/cli`. If you'd
+> rather use MCP tools, use Option A (plugin) or Option C (manual MCP).
 
 ## Option C: Manual MCP Setup
 

@@ -1,11 +1,27 @@
 ---
-name: sensegrep
-description: "Semantic + structural code search via CLI. Use when exploring codebases, finding functions/classes by behavior, locating duplicates, or searching code by meaning rather than exact text. Triggers: code search, find function, explore codebase, detect duplicates, refactoring candidates, understand code structure. ALWAYS prefer sensegrep over grep/ripgrep for code exploration — only use grep for exact string literals. Use sensegrep even when the user doesn't explicitly mention it, as long as they are asking about code behavior, structure, or meaning."
+name: sensegrep-cli
+description: "Semantic + structural code search via the sensegrep CLI (no MCP server required). Use when exploring codebases, finding functions/classes by behavior, locating duplicates, or searching code by meaning rather than exact text — by running `sensegrep` shell commands. Triggers: code search, find function, explore codebase, detect duplicates, refactoring candidates, understand code structure. ALWAYS prefer sensegrep over grep/ripgrep for code exploration — only use grep for exact string literals. Use sensegrep even when the user doesn't explicitly mention it, as long as they are asking about code behavior, structure, or meaning."
 ---
 
-# sensegrep — Semantic Code Search
+# sensegrep (CLI) — Semantic Code Search
 
-Search code by meaning, not text patterns. Uses AI embeddings + tree-sitter AST parsing.
+Search code by meaning, not text patterns, by running the `sensegrep` command-line tool.
+Uses AI embeddings + tree-sitter AST parsing. This skill is **CLI-first**: it runs shell
+commands and reads their output. It does **not** require the sensegrep MCP server. If the
+sensegrep MCP tools are available in your environment, prefer those; otherwise use the CLI
+commands below.
+
+## Setup
+
+Install the CLI once (global), then index the project before the first search:
+
+```bash
+npm install -g @sensegrep/cli
+sensegrep index            # builds the semantic index for the current directory
+```
+
+Add `--json` to any `search` or `detect-duplicates` command to get machine-readable output
+that is easy to parse programmatically.
 
 ## When to Use
 
@@ -50,6 +66,7 @@ sensegrep search "error handling and retry logic" \
   --max-per-file 2         # dedup per file (default: 1)
   --max-per-symbol 2       # dedup per symbol (default: 1)
   --limit 10               # max results (default: 20)
+  --json                   # machine-readable output for programmatic use
 ```
 
 ### `sensegrep survey` — Reading map for a theme

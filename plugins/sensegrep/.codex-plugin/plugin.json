@@ -1,0 +1,40 @@
+{
+  "name": "sensegrep",
+  "version": "1.5.3",
+  "description": "Semantic + structural code search for AI agents. Read the right code, not more code — combining semantic search, exact matching, and AST-aware retrieval.",
+  "author": {
+    "name": "sensegrep",
+    "url": "https://github.com/Stahldavid/sensegrep"
+  },
+  "homepage": "https://github.com/Stahldavid/sensegrep",
+  "repository": "https://github.com/Stahldavid/sensegrep",
+  "license": "Apache-2.0",
+  "keywords": [
+    "code-search",
+    "semantic-search",
+    "ai-agents",
+    "ast",
+    "tree-sitter",
+    "embeddings",
+    "mcp",
+    "refactoring",
+    "duplicate-detection"
+  ],
+  "interface": {
+    "displayName": "sensegrep",
+    "shortDescription": "Semantic grep for AI coding agents",
+    "longDescription": "Semantic + structural code search for AI agents. Read the right code, not more code — sensegrep combines semantic search, exact matching, and AST-aware structural retrieval to deliver smaller, more relevant context. Exposes search, survey, cluster, index, and duplicate-detection tools over MCP.",
+    "developerName": "sensegrep",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive"
+    ],
+    "websiteURL": "https://github.com/Stahldavid/sensegrep",
+    "defaultPrompt": [
+      "Search this codebase by meaning with sensegrep",
+      "Find logical duplicate code with sensegrep"
+    ]
+  },
+  "skills": "./skills",
+  "mcpServers": "./.mcp.json"
+}

@@ -1,0 +1,20 @@
+{
+  "name": "sensegrep",
+  "interface": {
+    "displayName": "sensegrep"
+  },
+  "plugins": [
+    {
+      "name": "sensegrep",
+      "source": {
+        "source": "local",
+        "path": "./plugins/sensegrep"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

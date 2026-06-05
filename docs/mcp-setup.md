@@ -81,21 +81,22 @@ Add to your Cursor MCP settings:
 }
 ```
 
-### Windsurf
+### Codex (OpenAI)
 
-Add to your Windsurf MCP configuration:
+Codex reads MCP config from `~/.codex/config.toml` (TOML, not JSON) and uses
+`mcp_servers` (underscore). Add it with the CLI:
 
-```json
-{
-  "mcpServers": {
-    "sensegrep": {
-      "command": "sensegrep-mcp",
-      "env": {
-        "SENSEGREP_ROOT": "/path/to/your/project"
-      }
-    }
-  }
-}
+```bash
+codex mcp add sensegrep --env SENSEGREP_ROOT=/path/to/your/project -- sensegrep-mcp
+```
+
+Or edit `~/.codex/config.toml` manually:
+
+```toml
+[mcp_servers.sensegrep]
+command = "sensegrep-mcp"
+args = []
+env = { SENSEGREP_ROOT = "/path/to/your/project" }
 ```
 
 ### Generic MCP Client

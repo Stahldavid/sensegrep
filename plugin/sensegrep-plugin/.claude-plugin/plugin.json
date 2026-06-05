@@ -1,6 +1,6 @@
 {
   "name": "sensegrep",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "description": "Semantic code search for AI agents. Search code by meaning, not text patterns. Replaces grep/ripgrep for 95% of code exploration tasks.",
   "author": {
     "name": "sensegrep",
@@ -8,7 +8,7 @@
   },
   "homepage": "https://github.com/Stahldavid/sensegrep",
   "repository": "https://github.com/Stahldavid/sensegrep",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "keywords": [
     "code-search",
     "semantic-search",

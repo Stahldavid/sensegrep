@@ -1,6 +1,6 @@
 {
   "name": "@sensegrep/cli",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "type": "module",
   "bin": {
     "sensegrep": "dist/main.js"
@@ -20,7 +20,7 @@
     "node": ">=18"
   },
   "dependencies": {
-    "@sensegrep/core": "^1.5.2"
+    "@sensegrep/core": "^1.5.3"
   },
   "publishConfig": {
     "access": "public"
@@ -33,5 +33,14 @@
   "homepage": "https://github.com/Stahldavid/sensegrep",
   "bugs": {
     "url": "https://github.com/Stahldavid/sensegrep/issues"
-  }
+  },
+  "description": "Command-line semantic code search for AI coding workflows — find the right code by meaning using semantic, exact, and AST-aware retrieval.",
+  "keywords": [
+    "semantic-search",
+    "code-search",
+    "ai-agents",
+    "cli",
+    "grep",
+    "ast"
+  ]
 }
