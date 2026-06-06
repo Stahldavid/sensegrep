@@ -135,3 +135,49 @@ describe("EmbeddingsRemote Bedrock", () => {
     expect(body.texts[0].length).toBeLessThanOrEqual(8192)
   })
 })
+
+describe("EmbeddingsRemote OpenAI-compatible", () => {
+  const fetchMock = vi.fn()
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.resetModules()
+    mockMissingGlobalConfig()
+    vi.stubGlobal("fetch", fetchMock)
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+    vi.doUnmock("node:fs")
+    vi.unstubAllGlobals()
+    delete process.env.SENSEGREP_OPENAI_API_KEY
+    delete process.env.FIREWORKS_API_KEY
+    delete process.env.OPENAI_API_KEY
+  })
+
+  it("uses apiKey from embedding config without environment variables", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: [{ index: 0, embedding: [3, 4] }],
+      }),
+    })
+
+    const { EmbeddingsRemote } = await import("./embeddings-remote.js")
+    EmbeddingsRemote.configure({
+      provider: "openai",
+      embedModel: "text-embedding-qwen3-embedding-0.6b",
+      embedDim: 1024,
+      baseUrl: "http://127.0.0.1:1234/v1",
+      apiKey: "lm-studio",
+    })
+
+    const [vector] = await EmbeddingsRemote.embed("find auth flow", { skipValidation: true })
+    const [, init] = fetchMock.mock.calls[0]
+
+    expect(init.headers.Authorization).toBe("Bearer lm-studio")
+    expect(fetchMock.mock.calls[0][0]).toBe("http://127.0.0.1:1234/v1/embeddings")
+    expect(vector[0]).toBeCloseTo(0.6)
+    expect(vector[1]).toBeCloseTo(0.8)
+  })
+})

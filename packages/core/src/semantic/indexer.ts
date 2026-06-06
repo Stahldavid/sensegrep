@@ -100,7 +100,8 @@ export namespace Indexer {
     if (config.provider === "openai" && !config.apiKey) {
       throw new Error(
         "OpenAI-compatible embeddings are configured but no API key was found. " +
-          "Set SENSEGREP_OPENAI_API_KEY, FIREWORKS_API_KEY, or OPENAI_API_KEY.",
+          "Set SENSEGREP_OPENAI_API_KEY, FIREWORKS_API_KEY, or OPENAI_API_KEY, " +
+          "or add \"apiKey\" to ~/.config/sensegrep/config.json.",
       )
     }
   }

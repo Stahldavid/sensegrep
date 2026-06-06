@@ -1,5 +1,14 @@
 # @sensegrep/cli
 
+## 1.5.4
+
+### Patch Changes
+
+- Fix OpenAI-compatible and Gemini embedding providers to honor `apiKey` from `~/.config/sensegrep/config.json`, so local LM Studio and other config-file-only setups work without extra environment variables.
+
+- Updated dependencies []:
+  - @sensegrep/core@1.5.4
+
 ## 1.5.3
 
 ### Patch Changes

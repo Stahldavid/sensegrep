@@ -374,10 +374,12 @@ export namespace EmbeddingsRemote {
     options: (EmbedOptions & { skipValidation?: boolean }) | undefined,
     config: EmbeddingConfig,
   ): Promise<number[][]> {
-    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
+    const apiKey =
+      config.apiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
     if (!apiKey) {
       throw new Error(
-        "Gemini embeddings requested but GEMINI_API_KEY (or GOOGLE_API_KEY) is not set.",
+        "Gemini embeddings requested but no API key was found. " +
+          "Set GEMINI_API_KEY or GOOGLE_API_KEY, or add \"apiKey\" to ~/.config/sensegrep/config.json.",
       )
     }
 
@@ -488,13 +490,15 @@ export namespace EmbeddingsRemote {
     config: EmbeddingConfig,
   ): Promise<number[][]> {
     const apiKey =
+      config.apiKey ||
       process.env.SENSEGREP_OPENAI_API_KEY ||
       process.env.FIREWORKS_API_KEY ||
       process.env.OPENAI_API_KEY
     if (!apiKey) {
       throw new Error(
         "OpenAI-compatible embeddings requested but no API key found. " +
-          "Set SENSEGREP_OPENAI_API_KEY, FIREWORKS_API_KEY, or OPENAI_API_KEY.",
+          "Set SENSEGREP_OPENAI_API_KEY, FIREWORKS_API_KEY, or OPENAI_API_KEY, " +
+          "or add \"apiKey\" to ~/.config/sensegrep/config.json.",
       )
     }
 
