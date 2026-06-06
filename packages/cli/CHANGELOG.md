@@ -1,5 +1,14 @@
 # @sensegrep/cli
 
+## 1.5.5
+
+### Patch Changes
+
+- Fix provider-aware embedding API key resolution and improve index watcher error reporting. VS Code extension now defers to `~/.config/sensegrep/config.json` when embedding settings are not explicitly configured, fixing LM Studio and OpenAI-compatible local setups.
+
+- Updated dependencies []:
+  - @sensegrep/core@1.5.5
+
 ## 1.5.4
 
 ### Patch Changes

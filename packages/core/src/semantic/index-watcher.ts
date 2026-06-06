@@ -215,6 +215,7 @@ export namespace IndexWatcher {
     let running = false
     let pending = false
     let consecutiveErrors = 0
+    let lastError: unknown = null
     let currentInterval = intervalMs
     let intervalHandle: NodeJS.Timeout | null = null
 
@@ -240,10 +241,11 @@ export namespace IndexWatcher {
           errors: consecutiveErrors,
           rootDir,
         })
+        const detail = lastError ? `: ${String(lastError)}` : ""
         options.onError?.(
           new Error(
-            `Watcher paused after ${consecutiveErrors} consecutive errors. Check directory: ${rootDir}`
-          )
+            `Watcher paused after ${consecutiveErrors} consecutive errors${detail}. Check embeddings config and directory: ${rootDir}`,
+          ),
         )
         return
       }
@@ -259,12 +261,14 @@ export namespace IndexWatcher {
 
         // Success - reset error count and interval
         consecutiveErrors = 0
+        lastError = null
         if (currentInterval !== intervalMs) {
           currentInterval = intervalMs
           resetInterval()
         }
       } catch (error) {
         consecutiveErrors++
+        lastError = error
         log.error("watch index error", {
           error: String(error),
           consecutiveErrors,

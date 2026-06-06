@@ -135,14 +135,17 @@ export function getEmbeddingConfig(overrides?: EmbeddingOverrides): EmbeddingCon
     (fileConfig as any).region ||
     (provider === "bedrock" ? process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION : undefined)
 
+  const fileApiKey = (fileConfig as any).apiKey as string | undefined
   const apiKey =
     mergedOverrides.apiKey ||
-    process.env.SENSEGREP_OPENAI_API_KEY ||
-    process.env.FIREWORKS_API_KEY ||
-    process.env.OPENAI_API_KEY ||
-    process.env.GEMINI_API_KEY ||
-    process.env.GOOGLE_API_KEY ||
-    (fileConfig as any).apiKey
+    (provider === "openai"
+      ? process.env.SENSEGREP_OPENAI_API_KEY ||
+        process.env.FIREWORKS_API_KEY ||
+        process.env.OPENAI_API_KEY ||
+        fileApiKey
+      : provider === "gemini"
+        ? process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || fileApiKey
+        : fileApiKey)
 
   const rateLimit: RateLimitConfig = {}
   const fileRl = (fileConfig as any).rateLimit

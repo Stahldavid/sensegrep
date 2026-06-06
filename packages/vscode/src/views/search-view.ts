@@ -369,6 +369,19 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  private getEffectiveProvider(): "gemini" | "openai" | "bedrock" | "config" {
+    const config = vscode.workspace.getConfiguration("sensegrep")
+    const inspected = config.inspect<string>("embeddings.provider")
+    const explicit =
+      inspected?.workspaceFolderValue ??
+      inspected?.workspaceValue ??
+      inspected?.globalValue
+    if (explicit === "gemini" || explicit === "openai" || explicit === "bedrock") {
+      return explicit
+    }
+    return "config"
+  }
+
   private async updateApiKeyBanner() {
     if (!this._view) return
     const provider = this.getEffectiveProvider()
@@ -381,13 +394,6 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
     } else {
       this._view.webview.postMessage({ type: "hideApiKeyBanner" })
     }
-  }
-
-  private getEffectiveProvider(): "gemini" | "openai" | "bedrock" {
-    const config = vscode.workspace.getConfiguration("sensegrep")
-    const provider = config.get<string>("embeddings.provider")
-    if (provider === "gemini" || provider === "openai" || provider === "bedrock") return provider
-    return "gemini"
   }
 
   private async saveSearch(query: string, options: SearchOptions) {

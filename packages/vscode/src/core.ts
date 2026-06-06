@@ -227,15 +227,6 @@ export class SensegrepCore {
   private async applySettings() {
     const config = vscode.workspace.getConfiguration("sensegrep")
 
-    // Set Gemini API key from settings or secret storage
-    let apiKey = config.get<string>("geminiApiKey")
-    if (!apiKey) {
-      apiKey = await this.context.secrets.get("sensegrep.geminiApiKey")
-    }
-    if (apiKey) {
-      process.env.GEMINI_API_KEY = apiKey
-    }
-
     const explicitSetting = <T>(key: string): T | undefined => {
       const inspected = config.inspect<T>(key)
       if (!inspected) return undefined
@@ -248,31 +239,54 @@ export class SensegrepCore {
     const explicitProvider = explicitSetting<string>("embeddings.provider")
     const explicitModel = explicitSetting<string>("embeddings.model")
     const explicitDim = explicitSetting<number>("embeddings.dimension")
-    const hasGeminiKey = !!(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY)
-    const wantsGemini = explicitProvider === "gemini" || (!explicitProvider && hasGeminiKey)
+    const explicitBaseUrl = explicitSetting<string>("embeddings.baseUrl")
+    const explicitApiKey = explicitSetting<string>("embeddings.apiKey")
 
-    // Apply provider settings
+    // Only push embedding env vars when the user explicitly set them in VS Code.
+    // Otherwise ~/.config/sensegrep/config.json is the source of truth (e.g. LM Studio).
     if (explicitProvider) {
       process.env.SENSEGREP_PROVIDER = explicitProvider
-    } else if (
-      process.env.SENSEGREP_PROVIDER &&
-      process.env.SENSEGREP_PROVIDER !== "gemini" &&
-      process.env.SENSEGREP_PROVIDER !== "openai" &&
-      process.env.SENSEGREP_PROVIDER !== "bedrock"
-    ) {
+    } else {
       delete process.env.SENSEGREP_PROVIDER
     }
 
     if (explicitModel) {
       process.env.SENSEGREP_EMBED_MODEL = explicitModel
-    } else if (process.env.SENSEGREP_EMBED_MODEL === "BAAI/bge-small-en-v1.5") {
+    } else {
       delete process.env.SENSEGREP_EMBED_MODEL
     }
 
-    if (explicitDim) {
+    if (explicitDim !== undefined) {
       process.env.SENSEGREP_EMBED_DIM = String(explicitDim)
-    } else if (process.env.SENSEGREP_EMBED_DIM === "384") {
+    } else {
       delete process.env.SENSEGREP_EMBED_DIM
+    }
+
+    if (explicitBaseUrl) {
+      process.env.SENSEGREP_OPENAI_BASE_URL = explicitBaseUrl
+    } else {
+      delete process.env.SENSEGREP_OPENAI_BASE_URL
+    }
+
+    if (explicitApiKey) {
+      process.env.SENSEGREP_OPENAI_API_KEY = explicitApiKey
+    } else {
+      delete process.env.SENSEGREP_OPENAI_API_KEY
+    }
+
+    // Gemini key only when the user explicitly chose Gemini in settings.
+    if (explicitProvider === "gemini") {
+      let geminiKey = config.get<string>("geminiApiKey")
+      if (!geminiKey) {
+        geminiKey = await this.context.secrets.get("sensegrep.geminiApiKey")
+      }
+      if (geminiKey) {
+        process.env.GEMINI_API_KEY = geminiKey
+      } else {
+        delete process.env.GEMINI_API_KEY
+      }
+    } else {
+      delete process.env.GEMINI_API_KEY
     }
 
     if (process.env.SENSEGREP_EMBED_DEVICE) {
@@ -287,7 +301,9 @@ export class SensegrepCore {
   }
 
   async reloadSettings(): Promise<void> {
+    this.isInitialized = false
     await this.applySettings()
+    this.isInitialized = true
   }
 
   async setApiKey(apiKey: string): Promise<void> {

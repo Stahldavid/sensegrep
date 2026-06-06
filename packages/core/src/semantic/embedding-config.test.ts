@@ -5,6 +5,9 @@ const ENV_KEYS = [
   "SENSEGREP_EMBED_MODEL",
   "SENSEGREP_EMBED_DIM",
   "SENSEGREP_BEDROCK_REGION",
+  "SENSEGREP_OPENAI_API_KEY",
+  "GEMINI_API_KEY",
+  "GOOGLE_API_KEY",
   "AWS_REGION",
   "AWS_DEFAULT_REGION",
 ] as const
@@ -62,5 +65,18 @@ describe("embedding config", () => {
     expect(config.embedModel).toBe("global.cohere.embed-v4:0")
     expect(config.embedDim).toBe(1024)
     expect(config.region).toBe("eu-west-1")
+  })
+
+  it("does not use Gemini env keys for OpenAI-compatible provider", async () => {
+    mockMissingGlobalConfig()
+    process.env.SENSEGREP_PROVIDER = "openai"
+    process.env.GEMINI_API_KEY = "gemini-should-not-win"
+    process.env.SENSEGREP_OPENAI_API_KEY = "openai-key"
+
+    const { getEmbeddingConfig } = await import("./embedding-config.js")
+    const config = getEmbeddingConfig()
+
+    expect(config.provider).toBe("openai")
+    expect(config.apiKey).toBe("openai-key")
   })
 })

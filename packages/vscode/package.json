@@ -3,7 +3,7 @@
   "private": true,
   "displayName": "Sensegrep",
   "description": "Semantic + structural code search with AI-powered duplicate detection",
-  "version": "0.1.23",
+  "version": "0.1.24",
   "publisher": "sensegrep",
   "license": "Apache-2.0",
   "icon": "resources/icon.png",
@@ -452,6 +452,16 @@
           "default": 768,
           "description": "Embedding dimension"
         },
+        "sensegrep.embeddings.baseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "OpenAI-compatible API base URL (e.g. http://127.0.0.1:1234/v1 for LM Studio). Leave empty to use ~/.config/sensegrep/config.json"
+        },
+        "sensegrep.embeddings.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key for the selected embeddings provider. Leave empty to use ~/.config/sensegrep/config.json or environment variables"
+        },
         "sensegrep.geminiApiKey": {
           "type": "string",
           "default": "",
@@ -479,6 +489,6 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@sensegrep/core": "^1.5.4"
+    "@sensegrep/core": "^1.5.5"
   }
 }

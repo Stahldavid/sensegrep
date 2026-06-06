@@ -107,6 +107,7 @@ export async function activate(context: vscode.ExtensionContext) {
       return
     }
     try {
+      await coreInstance.reloadSettings()
       const interval =
         vscode.workspace.getConfiguration("sensegrep").get<number>("watchIntervalMs") ||
         60000
@@ -116,8 +117,24 @@ export async function activate(context: vscode.ExtensionContext) {
           statusBar.setIndexed(result.chunks)
         },
         onError: (err) => {
-          statusBar.setError(String(err))
-          vscode.window.showErrorMessage(`Sensegrep watcher error: ${err}`)
+          const message = String(err)
+          statusBar.setError(message)
+          if (message.includes("Watcher paused after")) {
+            void vscode.window
+              .showErrorMessage(`Sensegrep watcher error: ${message}`, "Open Settings", "Reindex")
+              .then((choice) => {
+                if (choice === "Open Settings") {
+                  void vscode.commands.executeCommand(
+                    "workbench.action.openSettings",
+                    "sensegrep.embeddings",
+                  )
+                } else if (choice === "Reindex") {
+                  void vscode.commands.executeCommand("sensegrep.indexProject")
+                }
+              })
+          } else {
+            console.warn("Sensegrep watcher error:", err)
+          }
         },
       })
     } catch (err) {
@@ -169,9 +186,20 @@ export async function activate(context: vscode.ExtensionContext) {
 
       if (
         event.affectsConfiguration("sensegrep.embeddings.provider") ||
+        event.affectsConfiguration("sensegrep.embeddings.model") ||
+        event.affectsConfiguration("sensegrep.embeddings.dimension") ||
+        event.affectsConfiguration("sensegrep.embeddings.baseUrl") ||
+        event.affectsConfiguration("sensegrep.embeddings.apiKey") ||
         event.affectsConfiguration("sensegrep.geminiApiKey")
       ) {
+        void coreInstance.reloadSettings()
         void searchViewProvider.refreshApiKeyBanner()
+        const watchEnabled = vscode.workspace
+          .getConfiguration("sensegrep")
+          .get<boolean>("watchMode")
+        if (watchEnabled) {
+          void updateWatcher(true)
+        }
       }
 
       if (
