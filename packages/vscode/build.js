@@ -32,15 +32,33 @@ function copyBundledCore() {
   const destPackage = path.join(dest, "package.json")
 
   if (!fs.existsSync(coreDist)) {
-    console.warn("[sensegrep] core dist not found, skipping bundled core copy")
-    return
+    console.error("[sensegrep] core dist not found at", coreDist)
+    console.error("[sensegrep] build core first (npm run build from repo root)")
+    process.exit(1)
+  }
+
+  const indexJs = path.join(coreDist, "index.js")
+  if (!fs.existsSync(indexJs)) {
+    console.error("[sensegrep] core dist is incomplete (missing index.js)")
+    process.exit(1)
   }
 
   fs.rmSync(dest, { recursive: true, force: true })
   fs.cpSync(coreDist, dest, { recursive: true })
   if (fs.existsSync(corePackage)) {
     const pkg = JSON.parse(fs.readFileSync(corePackage, "utf8"))
-    fs.writeFileSync(destPackage, JSON.stringify({ type: pkg.type ?? "module" }, null, 2))
+    fs.writeFileSync(
+      destPackage,
+      JSON.stringify(
+        {
+          type: pkg.type ?? "module",
+          bundledCoreVersion: pkg.version,
+          name: pkg.name,
+        },
+        null,
+        2,
+      ),
+    )
   } else {
     fs.writeFileSync(destPackage, JSON.stringify({ type: "module" }, null, 2))
   }

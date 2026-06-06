@@ -55,4 +55,10 @@ if (mcpContent.startsWith('#!')) {
 }
 fs.writeFileSync(mcpPath, mcpContent);
 
+console.log('Building vscode extension...');
+execSync('node build.js', {
+  stdio: 'inherit',
+  cwd: path.join(rootDir, 'packages', 'vscode'),
+});
+
 console.log('Build complete!');

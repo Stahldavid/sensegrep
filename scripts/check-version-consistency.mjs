@@ -17,12 +17,14 @@ function fail(message) {
 const corePkgPath = "packages/core/package.json";
 const cliPkgPath = "packages/cli/package.json";
 const mcpPkgPath = "packages/mcp/package.json";
+const vscodePkgPath = "packages/vscode/package.json";
 const serverMetaPath = "server.json";
 const mcpRuntimePath = "packages/mcp/src/server.ts";
 
 const corePkg = readJson(corePkgPath);
 const cliPkg = readJson(cliPkgPath);
 const mcpPkg = readJson(mcpPkgPath);
+const vscodePkg = readJson(vscodePkgPath);
 const serverMeta = readJson(serverMetaPath);
 const mcpRuntime = fs.readFileSync(path.join(root, mcpRuntimePath), "utf8");
 
@@ -43,6 +45,10 @@ if (cliPkg.dependencies?.["@sensegrep/core"] !== expectedCoreRange) {
 
 if (mcpPkg.dependencies?.["@sensegrep/core"] !== expectedCoreRange) {
   fail(`${mcpPkgPath} dependency @sensegrep/core (${mcpPkg.dependencies?.["@sensegrep/core"]}) != ${expectedCoreRange}`);
+}
+
+if (vscodePkg.dependencies?.["@sensegrep/core"] !== expectedCoreRange) {
+  fail(`${vscodePkgPath} dependency @sensegrep/core (${vscodePkg.dependencies?.["@sensegrep/core"]}) != ${expectedCoreRange}`);
 }
 
 if (serverMeta.version !== expectedVersion) {
