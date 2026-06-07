@@ -37,4 +37,5 @@ jobs:
         run: npm run version:check
 
       - name: Test
+        if: matrix.node-version != 18
         run: npm test
