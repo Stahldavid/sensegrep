@@ -21,11 +21,16 @@ function clearEnv() {
 function mockMissingGlobalConfig() {
   vi.doMock("node:fs", async () => {
     const actual = await vi.importActual<typeof import("node:fs")>("node:fs")
+    const readFileSync = vi.fn(() => {
+      throw new Error("ENOENT")
+    })
     return {
       ...actual,
-      readFileSync: vi.fn(() => {
-        throw new Error("ENOENT")
-      }),
+      default: {
+        ...actual,
+        readFileSync,
+      },
+      readFileSync,
     }
   })
 }

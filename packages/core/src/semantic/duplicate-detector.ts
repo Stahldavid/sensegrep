@@ -23,6 +23,7 @@ export namespace DuplicateDetector {
     endLine: number
     complexity?: number
     symbolType?: string
+    language?: string
   }
 
   export interface DuplicateGroup {
@@ -56,8 +57,11 @@ export namespace DuplicateDetector {
     minComplexity?: number
     rankByImpact?: boolean
     crossFileOnly?: boolean
+    crossLanguage?: boolean
+    language?: string | string[]
     onlyExported?: boolean
     excludePattern?: string
+    maxCandidates?: number
   }
 
   export interface DetectResult {
@@ -66,6 +70,9 @@ export namespace DuplicateDetector {
       byLevel: Record<DuplicateLevel, number>
       totalSavings: number
       filesAffected: number
+      candidates?: number
+      analyzedCandidates?: number
+      truncated?: boolean
     }
     duplicates: DuplicateGroup[]
     acceptableDuplicates?: DuplicateGroup[]
@@ -594,6 +601,7 @@ export namespace DuplicateDetector {
     const ignoreAcceptablePatterns = options.ignoreAcceptablePatterns ?? false
     const minLines = options.minLines ?? 3
     const minComplexity = options.minComplexity ?? 0
+    const maxCandidates = Math.max(50, options.maxCandidates ?? 1500)
 
     const resolvedPath = await fs.realpath(options.path).catch(() => path.resolve(options.path))
 
@@ -607,8 +615,9 @@ export namespace DuplicateDetector {
       normalizeIdentifiers,
     })
 
-    const meta = await VectorStore.readIndexMeta(resolvedPath)
-    if (!meta || !meta.embeddings) {
+    const resolvedIndex = await VectorStore.resolveIndexedProject(resolvedPath)
+    const meta = resolvedIndex?.meta
+    if (!resolvedIndex || !meta?.embeddings) {
       log.warn("index metadata not found; run sensegrep index first", { path: resolvedPath })
       return {
         summary: {
@@ -626,7 +635,7 @@ export namespace DuplicateDetector {
       }
     }
 
-    const collection = await VectorStore.getCollectionUnsafe(resolvedPath, meta.embeddings.dimension)
+    const collection = await VectorStore.getCollectionUnsafe(resolvedIndex.root, meta.embeddings.dimension)
 
     const filters: VectorStore.SearchFilters = { all: [] }
     if (scopeFilter === undefined) {
@@ -639,6 +648,16 @@ export namespace DuplicateDetector {
     }
     if (minComplexity > 0) {
       filters.all!.push({ key: "complexity", operator: "greater_or_equal", value: minComplexity })
+    }
+    const languageFilter = Array.isArray(options.language)
+      ? options.language
+      : typeof options.language === "string"
+        ? options.language.split(",").map((item) => item.trim()).filter(Boolean)
+        : []
+    if (languageFilter.length === 1) {
+      filters.all!.push({ key: "language", operator: "equals", value: languageFilter[0] })
+    } else if (languageFilter.length > 1) {
+      filters.all!.push({ key: "language", operator: "in", value: languageFilter })
     }
 
     const rows = await VectorStore.listDocuments(collection, {
@@ -655,19 +674,28 @@ export namespace DuplicateDetector {
         "complexity",
         "isExported",
         "parentScope",
+        "language",
         "vector",
       ],
     })
 
+    const subdirPrefix = resolvedIndex.subdirPrefix
+    const isInScopedPath = (file: string) => {
+      if (!subdirPrefix) return true
+      const normalizedFile = file.replace(/\\/g, "/").replace(/^\.\//, "")
+      const normalizedPrefix = subdirPrefix.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/$/, "")
+      return normalizedFile === normalizedPrefix || normalizedFile.toLowerCase().startsWith(`${normalizedPrefix.toLowerCase()}/`)
+    }
+
     const excludeRegex = options.excludePattern ? new RegExp(options.excludePattern) : null
-    const candidates = rows
+    let candidates = rows
       .filter((row) => Array.isArray(row.vector) && row.vector.length > 0)
       .map((row) => {
         const startLine = Number(row.metadata.startLine ?? 0)
         const endLine = Number(row.metadata.endLine ?? 0)
         const content = String(row.content ?? "")
         const rawContent = String((row as any).contentRaw ?? "")
-        const normalized = normalizeIdentifiers ? normalizeCode(rawContent || content) : undefined
+        const normalized = normalizeIdentifiers ? normalizeCode(rawContent || content, String(row.metadata.file ?? "")) : undefined
         return {
           id: row.id,
           file: String(row.metadata.file ?? ""),
@@ -678,11 +706,13 @@ export namespace DuplicateDetector {
           endLine,
           complexity: typeof row.metadata.complexity === "number" ? row.metadata.complexity : undefined,
           symbolType: row.metadata.symbolType ? String(row.metadata.symbolType) : undefined,
+          language: row.metadata.language ? String(row.metadata.language) : undefined,
           vector: row.vector as number[],
           normalized,
         } as CodeInstance & { id: string; vector: number[]; normalized?: string; rawContent: string }
       })
       .filter((c) => {
+        if (!isInScopedPath(c.file)) return false
         if (options.ignoreTests) {
           if (c.file.includes(".test.") || c.file.includes(".spec.") || c.file.includes("__tests__")) {
             return false
@@ -694,6 +724,24 @@ export namespace DuplicateDetector {
         if ((c.complexity ?? 0) < minComplexity) return false
         return true
       })
+
+    const originalCandidateCount = candidates.length
+    if (candidates.length > maxCandidates) {
+      log.warn("duplicate candidate set too large; truncating", {
+        candidates: candidates.length,
+        maxCandidates,
+        path: resolvedPath,
+      })
+      candidates = candidates
+        .sort((a, b) => {
+          const complexityDiff = (b.complexity ?? 0) - (a.complexity ?? 0)
+          if (complexityDiff !== 0) return complexityDiff
+          const aLines = a.endLine - a.startLine + 1
+          const bLines = b.endLine - b.startLine + 1
+          return bLines - aLines
+        })
+        .slice(0, maxCandidates)
+    }
 
     log.info("candidates after filtering", { count: candidates.length })
 
@@ -709,6 +757,9 @@ export namespace DuplicateDetector {
           },
           totalSavings: 0,
           filesAffected: 0,
+          candidates: originalCandidateCount,
+          analyzedCandidates: candidates.length,
+          truncated: originalCandidateCount > candidates.length,
         },
         duplicates: [],
       }
@@ -731,13 +782,14 @@ export namespace DuplicateDetector {
         const other = candidateById.get(neighbor.id)
         if (!other) continue
         if (options.crossFileOnly && other.file === candidate.file) continue
+        if (!options.crossLanguage && candidate.language && other.language && candidate.language !== other.language) continue
 
         const vectorSimilarity = 1 - neighbor.distance
         let similarity = vectorSimilarity
         const rawA = candidate.rawContent || candidate.content
         const rawB = other.rawContent || other.content
-        const normA = normalizeIdentifiers ? candidate.normalized ?? normalizeCode(rawA) : rawA
-        const normB = normalizeIdentifiers ? other.normalized ?? normalizeCode(rawB) : rawB
+        const normA = normalizeIdentifiers ? candidate.normalized ?? normalizeCode(rawA, candidate.file) : rawA
+        const normB = normalizeIdentifiers ? other.normalized ?? normalizeCode(rawB, other.file) : rawB
         if (normalizeIdentifiers && normA && normB && normA === normB) {
           similarity = 1
         } else {
@@ -771,6 +823,9 @@ export namespace DuplicateDetector {
           },
           totalSavings: 0,
           filesAffected: 0,
+          candidates: originalCandidateCount,
+          analyzedCandidates: candidates.length,
+          truncated: originalCandidateCount > candidates.length,
         },
         duplicates: [],
       }
@@ -830,6 +885,7 @@ export namespace DuplicateDetector {
           endLine: c!.endLine,
           complexity: c!.complexity,
           symbolType: c!.symbolType,
+          language: c!.language,
         }))
 
       const similarity = group.maxSim
@@ -896,6 +952,9 @@ export namespace DuplicateDetector {
         byLevel,
         totalSavings,
         filesAffected,
+        candidates: originalCandidateCount,
+        analyzedCandidates: candidates.length,
+        truncated: originalCandidateCount > candidates.length,
       },
       duplicates,
       acceptableDuplicates: acceptableDuplicates.length > 0 ? acceptableDuplicates : undefined,

@@ -56,8 +56,8 @@ Search options:
   --min-complexity <n>      Minimum cyclomatic complexity
   --max-complexity <n>      Maximum cyclomatic complexity
   --min-score <n>           Minimum relevance score 0-1
-  --max-per-file <n>        Max results per file (default: 1)
-  --max-per-symbol <n>      Max results per symbol (default: 1)
+  --max-per-file <n>        Max results per file (default: 2)
+  --max-per-symbol <n>      Max results per symbol (default: 2)
   --has-docs <true|false>   Require documentation
   --language <lang>         typescript|javascript|python|java|vue (comma-separated for multiple)
   --parent <name>           Parent scope/class name
@@ -95,6 +95,7 @@ Duplicate detection options:
   --exclude-pattern <regex> Exclude functions matching pattern
   --min-lines <n>           Minimum lines (default: 10)
   --min-complexity <n>      Minimum complexity (default: 0)
+  --max-candidates <n>      Max duplicate candidates to analyze (default: 1500)
   --ignore-acceptable-patterns  Do not ignore simple validations/guards
   --normalize-identifiers <true|false>  Normalize identifiers (default: true)
   --no-normalize-identifiers    Disable identifier normalization
@@ -587,10 +588,13 @@ if (flags.pattern) params.pattern = String(flags.pattern)
       scopeFilter,
       ignoreTests: toBool(flags["ignore-tests"]) ?? false,
       crossFileOnly: toBool(flags["cross-file-only"]) ?? false,
+      crossLanguage: toBool(flags["cross-language"]) ?? false,
+      language: flags.language ? String(flags.language) : undefined,
       onlyExported: toBool(flags["only-exported"]) ?? false,
       excludePattern: flags["exclude-pattern"] ? String(flags["exclude-pattern"]) : undefined,
       minLines: flags["min-lines"] ? Number(flags["min-lines"]) : 10,
       minComplexity: flags["min-complexity"] ? Number(flags["min-complexity"]) : 0,
+      maxCandidates: flags["max-candidates"] ? Number(flags["max-candidates"]) : undefined,
       ignoreAcceptablePatterns: toBool(flags["ignore-acceptable-patterns"]) ?? false,
       normalizeIdentifiers,
       rankByImpact,

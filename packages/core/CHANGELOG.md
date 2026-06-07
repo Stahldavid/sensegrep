@@ -1,5 +1,17 @@
 # @sensegrep/core
 
+## 1.6.0
+
+### Minor Changes
+
+- Improve semantic search automation and broad-codebase behavior.
+
+  - Reuse the nearest indexed parent when search, survey, cluster, or duplicate detection runs from a subdirectory.
+  - Return structured search results for `search --json`, survey groups for `survey --json`, cluster groups for `cluster --json`, and MCP `structuredContent`.
+  - Make `parentScope` and `imports` filters more tolerant for practical narrowing.
+  - Add duplicate-detection candidate caps, language filtering, cross-language control, and truncation metadata.
+  - Update standalone CLI and plugin MCP skills to document the current behavior.
+
 ## 1.5.5
 
 ### Patch Changes

@@ -318,6 +318,7 @@ async function generateTools(): Promise<Tool[]> {
           excludePattern: { type: "string", description: "Exclude symbols matching regex" },
           minLines: { type: "number", description: "Minimum lines (default: 10)" },
           minComplexity: { type: "number", description: "Minimum complexity (default: 0)" },
+          maxCandidates: { type: "number", description: "Max duplicate candidates to analyze (default: 1500)" },
           ignoreAcceptablePatterns: { type: "boolean", description: "Do not ignore acceptable duplicates" },
           normalizeIdentifiers: { type: "boolean", description: "Normalize identifiers (default: true)" },
           rankByImpact: { type: "boolean", description: "Rank by impact (default: true)" },
@@ -357,7 +358,7 @@ async function generateTools(): Promise<Tool[]> {
 const server = new Server(
   {
     name: "sensegrep",
-    version: "1.5.5",
+    version: "1.6.0",
   },
   {
     capabilities: {
@@ -400,6 +401,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return {
         content: [{ type: "text", text: res.output }],
         structuredContent: {
+          ...res,
           output: res.output,
         },
       };
@@ -423,6 +425,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return {
         content: [{ type: "text", text: res.output }],
         structuredContent: {
+          ...res,
           output: res.output,
         },
       };
@@ -446,6 +449,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return {
         content: [{ type: "text", text: res.output }],
         structuredContent: {
+          ...res,
           output: res.output,
         },
       };
@@ -558,11 +562,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         scopeFilter,
         ignoreTests: Boolean((args as any)?.ignoreTests),
         crossFileOnly: Boolean((args as any)?.crossFileOnly),
+        crossLanguage: Boolean((args as any)?.crossLanguage),
+        language: (args as any)?.language ? String((args as any).language) : undefined,
         onlyExported: Boolean((args as any)?.onlyExported),
         excludePattern: (args as any)?.excludePattern ? String((args as any).excludePattern) : undefined,
         minLines: typeof (args as any)?.minLines === "number" ? Number((args as any).minLines) : 10,
         minComplexity:
           typeof (args as any)?.minComplexity === "number" ? Number((args as any).minComplexity) : 0,
+        maxCandidates:
+          typeof (args as any)?.maxCandidates === "number" ? Number((args as any).maxCandidates) : undefined,
         ignoreAcceptablePatterns: Boolean((args as any)?.ignoreAcceptablePatterns),
         normalizeIdentifiers,
         rankByImpact,

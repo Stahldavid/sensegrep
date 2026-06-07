@@ -11,6 +11,7 @@ import { Ripgrep } from "../file/ripgrep.js"
 import { TreeShaker } from "../semantic/tree-shaker.js"
 import { Log } from "../util/log.js"
 import path from "path"
+import { toStructuredSearchResult } from "./sensegrep-pipeline.js"
 
 const DESCRIPTION = readFileSync(new URL("./sensegrep.txt", import.meta.url), "utf8")
 const log = Log.create({ service: "tool.sensegrep" })
@@ -83,6 +84,45 @@ function createGlobMatcher(pattern: string) {
     // Treat "*.ts" like a repo-wide basename match instead of only matching root files.
     basename: !hasPathSeparator,
   })
+}
+
+function expandImportFilterValues(imports: string): string[] {
+  const values = new Set<string>()
+  for (const raw of imports.split(",")) {
+    const cleaned = raw.trim().replace(/^['"`]|['"`]$/g, "")
+    if (!cleaned) continue
+    values.add(cleaned)
+
+    const withoutScopePrefix = cleaned.startsWith("@") ? cleaned.slice(1) : cleaned
+    if (withoutScopePrefix !== cleaned) values.add(withoutScopePrefix)
+
+    const parts = withoutScopePrefix.split(/[\\/]/).filter(Boolean)
+    const last = parts.at(-1)
+    if (last) values.add(last)
+  }
+  return [...values]
+}
+
+function getScopedFilePath(file: string, subdirPrefix?: string): string | undefined {
+  const normalizedFile = canonicalizeProjectFilePath(file)
+  if (!subdirPrefix) return normalizedFile
+
+  const normalizedPrefix = normalizeFilePath(subdirPrefix).replace(/^\.\//, "").replace(/\/$/, "")
+  if (normalizedFile === normalizedPrefix) return ""
+  const prefixWithSlash = `${normalizedPrefix}/`
+  if (!normalizedFile.toLowerCase().startsWith(prefixWithSlash.toLowerCase())) return undefined
+  return normalizedFile.slice(prefixWithSlash.length)
+}
+
+function matchesScopedGlob(
+  file: string,
+  matcher: ReturnType<typeof createGlobMatcher> | undefined,
+  subdirPrefix?: string,
+): boolean {
+  if (!matcher) return true
+  const projectPath = canonicalizeProjectFilePath(file)
+  const scopedPath = getScopedFilePath(file, subdirPrefix)
+  return matcher(projectPath) || (scopedPath !== undefined && matcher(scopedPath))
 }
 
 // Helper: Run ripgrep only on specific files (post-filter approach)
@@ -444,17 +484,20 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     imports: z.string().optional().describe('Filter by imported module name (e.g. "react")'),
     shake: z.boolean().default(true).describe("Enable semantic tree-shaking to show full file context with irrelevant regions collapsed (default: true)"),
   }),
-  async execute(params, _ctx) {
+  async execute(params, _ctx): Promise<Tool.Result<Record<string, unknown>>> {
     // Read index metadata first (before any embedding initialization)
-    const meta = await VectorStore.readIndexMeta(Instance.directory)
-    if (!meta || !meta.embeddings) {
+    const resolved = await VectorStore.resolveIndexedProject(Instance.directory)
+    if (!resolved?.meta.embeddings) {
       return {
         title: params.query,
         metadata: { matches: 0, indexed: false },
+        results: [],
         output:
           "Semantic index not found. Run `sensegrep index` to create the index first.\n\nThis will enable semantic search across your codebase using AI embeddings.",
       }
     }
+
+    const meta = resolved.meta
 
     // Configure embeddings to match the index
     const indexConfig = {
@@ -465,13 +508,13 @@ export const SenseGrepTool = Tool.define("sensegrep", {
 
     const run = async () => {
     // Clear any cached tables that might have wrong dimension expectations
-    VectorStore.clearProjectCache(Instance.directory)
+    VectorStore.clearProjectCache(resolved.root)
 
     const limit = params.limit ?? 10
     const shouldRerank = params.rerank === true
 
     // Get collection, passing the expected dimension from index metadata
-    const collection = await VectorStore.getCollectionUnsafe(Instance.directory, meta.embeddings.dimension)
+    const collection = await VectorStore.getCollectionUnsafe(resolved.root, meta.embeddings.dimension)
 
     // Build semantic filters from parameters
     const filters: VectorStore.SearchFilters = { all: [] }
@@ -522,10 +565,18 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     }
 
     if (params.parentScope) {
-      filters.all!.push({ key: "parentScope", operator: "equals", value: params.parentScope })
+      filters.all!.push({ key: "parentScope", operator: "contains", value: params.parentScope })
     }
     if (params.imports) {
-      filters.all!.push({ key: "imports", operator: "contains", value: params.imports })
+      const importValues = expandImportFilterValues(params.imports)
+      if (importValues.length === 1) {
+        filters.all!.push({ key: "imports", operator: "contains", value: importValues[0] })
+      } else if (importValues.length > 1) {
+        filters.any = [
+          ...(filters.any ?? []),
+          ...importValues.map((value) => ({ key: "imports", operator: "contains" as const, value })),
+        ]
+      }
     }
     const symbolQuery = params.symbol ?? params.name
     if (symbolQuery) {
@@ -538,22 +589,27 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     if (params.exclude) excludeMatcher = createGlobMatcher(params.exclude)
 
     let candidateFiles: string[] | undefined
-    if (includeMatcher || excludeMatcher) {
+    if (includeMatcher || excludeMatcher || resolved.subdirPrefix) {
       const indexedFiles = Object.keys(meta.files ?? {})
       candidateFiles = indexedFiles.filter((file) => {
-        const normalized = canonicalizeProjectFilePath(file)
-        if (includeMatcher && !includeMatcher(normalized)) return false
-        if (excludeMatcher && excludeMatcher(normalized)) return false
+        if (getScopedFilePath(file, resolved.subdirPrefix) === undefined) return false
+        if (!matchesScopedGlob(file, includeMatcher, resolved.subdirPrefix)) return false
+        if (excludeMatcher && matchesScopedGlob(file, excludeMatcher, resolved.subdirPrefix)) return false
         return true
       })
 
       if (candidateFiles.length === 0) {
-        const filterLabel = [params.include ? `include="${params.include}"` : null, params.exclude ? `exclude="${params.exclude}"` : null]
+        const filterLabel = [
+          params.include ? `include="${params.include}"` : null,
+          params.exclude ? `exclude="${params.exclude}"` : null,
+          resolved.subdirPrefix ? `scope="${resolved.subdirPrefix}"` : null,
+        ]
           .filter(Boolean)
           .join(", ")
         return {
           title: params.query,
           metadata: { matches: 0, indexed: true },
+          results: [],
           output: `No indexed files matched the file filters${filterLabel ? ` (${filterLabel})` : ""}.`,
         }
       }
@@ -566,7 +622,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     const searchOptions: { limit: number; filters?: VectorStore.SearchFilters } = {
       limit: params.pattern ? limit * 3 : limit * 2, // Get more if we need to post-filter
     }
-    if (filters.all && filters.all.length > 0) {
+    if ((filters.all && filters.all.length > 0) || (filters.any && filters.any.length > 0)) {
       searchOptions.filters = filters
     }
 
@@ -575,10 +631,14 @@ export const SenseGrepTool = Tool.define("sensegrep", {
 
     // Apply file globs again as a safety net after semantic search.
     if (includeMatcher) {
-      semanticResults = semanticResults.filter((r) => includeMatcher!(canonicalizeProjectFilePath(r.metadata.file as string)))
+      semanticResults = semanticResults.filter((r) =>
+        matchesScopedGlob(r.metadata.file as string, includeMatcher, resolved.subdirPrefix),
+      )
     }
     if (excludeMatcher) {
-      semanticResults = semanticResults.filter((r) => !excludeMatcher!(canonicalizeProjectFilePath(r.metadata.file as string)))
+      semanticResults = semanticResults.filter((r) =>
+        !matchesScopedGlob(r.metadata.file as string, excludeMatcher, resolved.subdirPrefix),
+      )
     }
 
     const shouldRunLiteralFallback = !params.pattern && queryLooksLikeIdentifier(params.query)
@@ -692,6 +752,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       return {
         title: params.query,
         metadata: { matches: 0, indexed: true },
+        results: [],
         output: "No matching results found for your query.",
       }
     }
@@ -771,6 +832,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
           indexed: true,
           shaked: true,
         },
+        results: finalResults.map(toStructuredSearchResult),
         output: outputLines.join("\n"),
       }
     }
@@ -837,11 +899,17 @@ export const SenseGrepTool = Tool.define("sensegrep", {
           matches: finalResults.length,
           indexed: true,
         },
+        results: finalResults.map(toStructuredSearchResult),
         output: outputLines.join("\n"),
       }
     }
 
     // Use withConfig to match index embeddings and ensure proper cleanup
-    return Embeddings.withConfig(indexConfig as any, run)
+    return Embeddings.withConfig(indexConfig as any, () =>
+      Instance.provide({
+        directory: resolved.root,
+        fn: run,
+      }),
+    )
   },
 })

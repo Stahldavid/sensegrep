@@ -28,16 +28,12 @@ Install the MCP server:
 npm install -g @sensegrep/mcp
 ```
 
-Install the skill so the agent knows when and how to use sensegrep. Codex supports both
-runtimes — pick one:
+If you are not using the plugin and want a standalone skill, install the CLI skill. The
+MCP-oriented skill is bundled with the plugin only.
 
 ```bash
-# CLI skill (no MCP server needed; the agent runs `sensegrep` shell commands)
 npm install -g @sensegrep/cli
 npx skills add Stahldavid/sensegrep --skill sensegrep-cli -g
-
-# or the MCP skill, if you wired the MCP server above
-npx skills add Stahldavid/sensegrep --skill sensegrep -g
 ```
 
 Wire sensegrep into Codex. Codex reads MCP config from `~/.codex/config.toml` (TOML, not

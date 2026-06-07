@@ -22,6 +22,21 @@ export type WorkingResult = {
   vector?: number[]
 }
 
+export type StructuredSearchResult = {
+  file: string
+  startLine: number
+  endLine: number
+  score: number
+  symbolName?: string
+  symbolType?: string
+  type?: string
+  language?: string
+  parentScope?: string
+  imports?: string[]
+  content: string
+  metadata: ResultMetadata
+}
+
 export type CommonSensegrepParams = {
   query: string
   pattern?: string
@@ -52,12 +67,16 @@ type IndexMeta = NonNullable<Awaited<ReturnType<typeof VectorStore.readIndexMeta
 export type SearchResources = {
   meta: IndexMeta
   collection: Awaited<ReturnType<typeof VectorStore.getCollectionUnsafe>>
+  projectDirectory: string
+  requestedDirectory: string
+  subdirPrefix?: string
 }
 
 type ToolLikeResult = {
   title: string
   metadata: Record<string, unknown>
   output: string
+  [key: string]: unknown
 }
 
 type FileFilterContext = {
@@ -123,8 +142,8 @@ export async function withIndexedSearchResources<T extends ToolLikeResult>(
   query: string,
   fn: (resources: SearchResources) => Promise<T>,
 ): Promise<T> {
-  const meta = await VectorStore.readIndexMeta(Instance.directory)
-  if (!meta || !meta.embeddings) {
+  const resolved = await VectorStore.resolveIndexedProject(Instance.directory)
+  if (!resolved?.meta.embeddings) {
     return {
       title: query,
       metadata: { matches: 0, indexed: false },
@@ -133,6 +152,7 @@ export async function withIndexedSearchResources<T extends ToolLikeResult>(
     } as unknown as T
   }
 
+  const meta = resolved.meta
   const indexConfig = {
     provider: meta.embeddings.provider,
     embedModel: meta.embeddings.model,
@@ -140,9 +160,20 @@ export async function withIndexedSearchResources<T extends ToolLikeResult>(
   }
 
   return Embeddings.withConfig(indexConfig as any, async () => {
-    VectorStore.clearProjectCache(Instance.directory)
-    const collection = await VectorStore.getCollectionUnsafe(Instance.directory, meta.embeddings.dimension)
-    return fn({ meta, collection })
+    return Instance.provide({
+      directory: resolved.root,
+      fn: async () => {
+        VectorStore.clearProjectCache(resolved.root)
+        const collection = await VectorStore.getCollectionUnsafe(resolved.root, meta.embeddings.dimension)
+        return fn({
+          meta,
+          collection,
+          projectDirectory: resolved.root,
+          requestedDirectory: resolved.requestedPath,
+          subdirPrefix: resolved.subdirPrefix,
+        })
+      },
+    })
   })
 }
 
@@ -195,6 +226,28 @@ export function createGlobMatcher(pattern: string) {
     dot: true,
     basename: !hasPathSeparator,
   })
+}
+
+function getScopedFilePath(file: string, subdirPrefix?: string): string | undefined {
+  const normalizedFile = canonicalizeProjectFilePath(file)
+  if (!subdirPrefix) return normalizedFile
+
+  const normalizedPrefix = normalizeFilePath(subdirPrefix).replace(/^\.\//, "").replace(/\/$/, "")
+  if (normalizedFile === normalizedPrefix) return ""
+  const prefixWithSlash = `${normalizedPrefix}/`
+  if (!normalizedFile.toLowerCase().startsWith(prefixWithSlash.toLowerCase())) return undefined
+  return normalizedFile.slice(prefixWithSlash.length)
+}
+
+function matchesScopedGlob(
+  file: string,
+  matcher: ReturnType<typeof createGlobMatcher> | undefined,
+  subdirPrefix?: string,
+): boolean {
+  if (!matcher) return true
+  const projectPath = canonicalizeProjectFilePath(file)
+  const scopedPath = getScopedFilePath(file, subdirPrefix)
+  return matcher(projectPath) || (scopedPath !== undefined && matcher(scopedPath))
 }
 
 // Batch ripgrep file arguments to avoid command line length limits (notably on Windows).
@@ -325,10 +378,18 @@ function buildSearchFilters(params: CommonSensegrepParams): VectorStore.SearchFi
     filters.all!.push({ key: "decorators", operator: "contains", value: params.decorator })
   }
   if (params.parentScope) {
-    filters.all!.push({ key: "parentScope", operator: "equals", value: params.parentScope })
+    filters.all!.push({ key: "parentScope", operator: "contains", value: params.parentScope })
   }
   if (params.imports) {
-    filters.all!.push({ key: "imports", operator: "contains", value: params.imports })
+    const importValues = expandImportFilterValues(params.imports)
+    if (importValues.length === 1) {
+      filters.all!.push({ key: "imports", operator: "contains", value: importValues[0] })
+    } else if (importValues.length > 1) {
+      filters.any = [
+        ...(filters.any ?? []),
+        ...importValues.map((value) => ({ key: "imports", operator: "contains" as const, value })),
+      ]
+    }
   }
 
   const symbolQuery = params.symbol ?? params.name
@@ -339,21 +400,43 @@ function buildSearchFilters(params: CommonSensegrepParams): VectorStore.SearchFi
   return filters
 }
 
-function resolveFileFiltering(meta: IndexMeta, params: CommonSensegrepParams, filters: VectorStore.SearchFilters): FileFilterContext | ToolLikeResult {
+function expandImportFilterValues(imports: string): string[] {
+  const values = new Set<string>()
+  for (const raw of imports.split(",")) {
+    const cleaned = raw.trim().replace(/^['"`]|['"`]$/g, "")
+    if (!cleaned) continue
+    values.add(cleaned)
+
+    const withoutScopePrefix = cleaned.startsWith("@") ? cleaned.slice(1) : cleaned
+    if (withoutScopePrefix !== cleaned) values.add(withoutScopePrefix)
+
+    const parts = withoutScopePrefix.split(/[\\/]/).filter(Boolean)
+    const last = parts.at(-1)
+    if (last) values.add(last)
+  }
+  return [...values]
+}
+
+function resolveFileFiltering(
+  meta: IndexMeta,
+  params: CommonSensegrepParams,
+  filters: VectorStore.SearchFilters,
+  subdirPrefix?: string,
+): FileFilterContext | ToolLikeResult {
   let includeMatcher: ReturnType<typeof createGlobMatcher> | undefined
   let excludeMatcher: ReturnType<typeof createGlobMatcher> | undefined
   if (params.include) includeMatcher = createGlobMatcher(params.include)
   if (params.exclude) excludeMatcher = createGlobMatcher(params.exclude)
 
-  if (!includeMatcher && !excludeMatcher) {
+  if (!includeMatcher && !excludeMatcher && !subdirPrefix) {
     return { includeMatcher, excludeMatcher }
   }
 
   const indexedFiles = Object.keys(meta.files ?? {})
   const candidateFiles = indexedFiles.filter((file) => {
-    const normalized = canonicalizeProjectFilePath(file)
-    if (includeMatcher && !includeMatcher(normalized)) return false
-    if (excludeMatcher && excludeMatcher(normalized)) return false
+    if (getScopedFilePath(file, subdirPrefix) === undefined) return false
+    if (!matchesScopedGlob(file, includeMatcher, subdirPrefix)) return false
+    if (excludeMatcher && matchesScopedGlob(file, excludeMatcher, subdirPrefix)) return false
     return true
   })
 
@@ -361,6 +444,7 @@ function resolveFileFiltering(meta: IndexMeta, params: CommonSensegrepParams, fi
     const filterLabel = [
       params.include ? `include="${params.include}"` : null,
       params.exclude ? `exclude="${params.exclude}"` : null,
+      subdirPrefix ? `scope="${subdirPrefix}"` : null,
     ]
       .filter(Boolean)
       .join(", ")
@@ -576,13 +660,13 @@ export async function collectWorkingResults(
   options: CollectWorkingResultsOptions,
 ): Promise<{ results: WorkingResult[]; filters: VectorStore.SearchFilters; candidateFiles?: string[] } | ToolLikeResult> {
   const filters = buildSearchFilters(params)
-  const fileFiltering = resolveFileFiltering(resources.meta, params, filters)
+  const fileFiltering = resolveFileFiltering(resources.meta, params, filters, resources.subdirPrefix)
   if ("output" in fileFiltering) return fileFiltering
 
   const searchOptions: { limit: number; filters?: VectorStore.SearchFilters } = {
     limit: options.rawLimit,
   }
-  if (filters.all && filters.all.length > 0) {
+  if ((filters.all && filters.all.length > 0) || (filters.any && filters.any.length > 0)) {
     searchOptions.filters = filters
   }
 
@@ -590,12 +674,12 @@ export async function collectWorkingResults(
 
   if (fileFiltering.includeMatcher) {
     semanticResults = semanticResults.filter((result) =>
-      fileFiltering.includeMatcher!(canonicalizeProjectFilePath(result.metadata.file as string)),
+      matchesScopedGlob(result.metadata.file as string, fileFiltering.includeMatcher, resources.subdirPrefix),
     )
   }
   if (fileFiltering.excludeMatcher) {
     semanticResults = semanticResults.filter((result) =>
-      !fileFiltering.excludeMatcher!(canonicalizeProjectFilePath(result.metadata.file as string)),
+      !matchesScopedGlob(result.metadata.file as string, fileFiltering.excludeMatcher, resources.subdirPrefix),
     )
   }
 
@@ -605,9 +689,9 @@ export async function collectWorkingResults(
     const lexicalCandidateFiles =
       fileFiltering.candidateFiles ??
       Object.keys(resources.meta.files ?? {}).filter((file) => {
-        const normalized = canonicalizeProjectFilePath(file)
-        if (fileFiltering.includeMatcher && !fileFiltering.includeMatcher(normalized)) return false
-        if (fileFiltering.excludeMatcher && fileFiltering.excludeMatcher(normalized)) return false
+        if (getScopedFilePath(file, resources.subdirPrefix) === undefined) return false
+        if (!matchesScopedGlob(file, fileFiltering.includeMatcher, resources.subdirPrefix)) return false
+        if (fileFiltering.excludeMatcher && matchesScopedGlob(file, fileFiltering.excludeMatcher, resources.subdirPrefix)) return false
         return true
       })
 
@@ -899,6 +983,24 @@ export function formatCodeFence(content: string, maxLines: number): string[] {
   }
   output.push("```")
   return output
+}
+
+export function toStructuredSearchResult(result: WorkingResult): StructuredSearchResult {
+  const metadata = result.metadata
+  return {
+    file: result.file,
+    startLine: result.startLine,
+    endLine: result.endLine,
+    score: Number((result.rerankScore ?? result.semanticScore).toFixed(6)),
+    symbolName: typeof metadata.symbolName === "string" && metadata.symbolName ? metadata.symbolName : undefined,
+    symbolType: typeof metadata.symbolType === "string" && metadata.symbolType ? metadata.symbolType : undefined,
+    type: typeof metadata.type === "string" && metadata.type ? metadata.type : undefined,
+    language: typeof metadata.language === "string" && metadata.language ? metadata.language : undefined,
+    parentScope: typeof metadata.parentScope === "string" && metadata.parentScope ? metadata.parentScope : undefined,
+    imports: splitListField(metadata.imports),
+    content: result.content,
+    metadata,
+  }
 }
 
 export function cosineSimilarity(a?: number[], b?: number[]): number {

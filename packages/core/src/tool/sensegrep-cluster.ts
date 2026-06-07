@@ -18,6 +18,7 @@ import {
   selectRepresentatives,
   shakeRepresentativeResults,
   topCounts,
+  toStructuredSearchResult,
   withIndexedSearchResources,
 } from "./sensegrep-pipeline.js"
 
@@ -369,6 +370,17 @@ async function runCluster(params: ClusterParams) {
         shaked: params.shake !== false,
         clusterThreshold,
       },
+      clusters: groups.map((group) => ({
+        title: group.title,
+        score: Number(group.score.toFixed(6)),
+        matches: group.members.length,
+        files: [...group.files],
+        imports: topCounts(group.importHints, 10),
+        symbols: topCounts(group.symbolHints, 10),
+        domains: topCounts(group.domainHints, 10),
+        symbolTypes: topCounts(group.dominantSymbolTypes, 10),
+        results: group.members.map(toStructuredSearchResult),
+      })),
       output: outputLines.join("\n"),
     }
   })

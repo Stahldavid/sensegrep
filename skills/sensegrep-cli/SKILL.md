@@ -44,6 +44,10 @@ Start with these defaults and adjust based on what you find:
 
 > **Identifier queries:** If the query looks like a symbol or framework API (`defineNuxtRouteMiddleware`, `defineStore`, `OrderServiceImpl`), sensegrep now auto-adds a literal fallback on top of semantic search. You usually do **not** need `--pattern` for these exact identifier lookups anymore.
 
+> **Subdirectory roots:** If the repo root was indexed and you run `sensegrep` with `--root` pointing at a subdirectory, Sensegrep reuses the nearest indexed parent and scopes the query to that subdirectory. You no longer need to reindex every subfolder separately.
+
+> **JSON output:** `--json` returns structured data plus the human-readable `output`: `search` returns `results`, `survey` returns `groups`, and `cluster` returns `clusters`. Prefer these fields for automation instead of parsing Markdown text.
+
 ## Commands
 
 ### `sensegrep search` — Primary search
@@ -63,11 +67,13 @@ sensegrep search "error handling and retry logic" \
   --imports express        # filter by imported module
   --has-docs true          # require docs
   --min-score 0.5          # relevance threshold
-  --max-per-file 2         # dedup per file (default: 1)
-  --max-per-symbol 2       # dedup per symbol (default: 1)
-  --limit 10               # max results (default: 20)
-  --json                   # machine-readable output for programmatic use
+  --max-per-file 2         # dedup per file (default: 2)
+  --max-per-symbol 2       # dedup per symbol (default: 2)
+  --limit 10               # max results (default: 10)
+  --json                   # structured results + text output
 ```
+
+`--parent` matches parent/class scope by containment, so partial class names are acceptable. `--imports` tries package-name variants (`@scope/pkg`, `scope/pkg`, `pkg`) to reduce false misses in scoped packages.
 
 ### `sensegrep survey` — Reading map for a theme
 
@@ -103,14 +109,18 @@ Returns cluster headings plus representative tree-shaken snippets, using embeddi
 ```bash
 sensegrep detect-duplicates \
   --cross-file-only    # only report duplicates in different files
+  --language typescript # optional language filter
   --only-exported      # focus on public API surface
   --show-code          # include actual code in output
   --threshold 0.85     # 0.7 = loose similarity, 0.9 = near-identical only
   --min-complexity 3   # skip trivial helpers (getters, guards)
+  --max-candidates 1500 # cap broad scans; raise for deeper audits
   --ignore-tests       # exclude test files
 ```
 
 `--threshold` guide: use `0.85` (default) for meaningful duplicates; lower to `0.7` for suspicious similarities; raise to `0.92+` for near-identical copies only.
+
+For broad monorepos, start with `--include`, `--language`, `--min-lines`, or `--min-complexity` before raising `--max-candidates`. If the candidate set is larger than the cap, Sensegrep truncates explicitly and reports `summary.truncated`, `summary.candidates`, and `summary.analyzedCandidates` in JSON.
 
 ### `sensegrep index` — Index a project
 
@@ -152,6 +162,8 @@ Applied at the vector store level, before embedding search:
 - `--min-complexity` / `--max-complexity` — target simple helpers or complex business logic
 - `--include` — file glob include filter (e.g. `packages/core/**/*.ts`). Prefer forward slashes in patterns, especially on Windows.
 - `--exclude` — file glob exclude filter (e.g. `*.md`, `docs/**`)
+
+`--parent` and `--imports` are useful narrowing filters, not proof-grade AST audits. If a query must exhaustively prove every import or parent relationship, combine Sensegrep with `rg`, TypeScript tooling, or AST tooling.
 
 ### 2. `--pattern` — ripgrep regex post-filter (after semantic search)
 
@@ -209,8 +221,17 @@ sensegrep cluster "price list commission ncm uf packaging" --language java --inc
 **Find refactoring candidates:**
 ```bash
 sensegrep search "complex business logic" --type function --min-complexity 10 --has-docs false
-sensegrep detect-duplicates --cross-file-only --only-exported --show-code --threshold 0.85
+sensegrep detect-duplicates --cross-file-only --only-exported --show-code --threshold 0.85 --max-candidates 1500
 ```
+
+**Automated consumption:**
+```bash
+sensegrep search "bad signature rate limiting" --type function --json
+sensegrep survey "notifications resend email delivery" --json
+sensegrep cluster "calendar sync webhook retry idempotency" --json
+```
+
+Use `results`, `groups`, or `clusters` from JSON output. `output` remains for humans and backward compatibility.
 
 **Audit async error paths:**
 ```bash

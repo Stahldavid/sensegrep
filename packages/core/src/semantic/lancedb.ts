@@ -90,6 +90,39 @@ export namespace VectorStore {
     return path.join(projectDir(projectPath), "index-meta.json")
   }
 
+  async function resolveProjectPath(projectPath: string): Promise<string> {
+    return fs.realpath(projectPath).catch(() => path.resolve(projectPath))
+  }
+
+  function isSameOrInside(parentPath: string, childPath: string): boolean {
+    const relative = path.relative(parentPath, childPath)
+    return relative === "" || (!!relative && !relative.startsWith("..") && !path.isAbsolute(relative))
+  }
+
+  async function listIndexedProjects(): Promise<Array<{ root: string; meta: IndexMeta; updatedAt: number }>> {
+    const entries = await fs.readdir(BASE_PATH, { withFileTypes: true }).catch(() => [])
+    const projects: Array<{ root: string; meta: IndexMeta; updatedAt: number }> = []
+
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !entry.name.startsWith("project_")) continue
+
+      const metaPath = path.join(BASE_PATH, entry.name, "index-meta.json")
+      const text = await fs.readFile(metaPath, "utf8").catch(() => null)
+      if (!text) continue
+
+      try {
+        const meta = JSON.parse(text) as IndexMeta
+        if (!meta.root || !meta.embeddings) continue
+        const root = await resolveProjectPath(meta.root)
+        projects.push({ root, meta: { ...meta, root }, updatedAt: meta.updatedAt ?? 0 })
+      } catch {
+        continue
+      }
+    }
+
+    return projects
+  }
+
   const dbCache = new Map<string, Promise<LanceDBConnection>>()
   const tableCache = new Map<string, Promise<LanceTable>>()
 
@@ -165,34 +198,52 @@ export namespace VectorStore {
   }
 
   /**
+   * Resolve the indexed project that should back a requested path.
+   *
+   * Exact root matches are preferred. If the requested path is a subdirectory
+   * of an indexed root, reuse the nearest indexed parent and return the
+   * repository-relative subdirectory prefix so callers can scope their query.
+   */
+  export async function resolveIndexedProject(projectPath: string): Promise<{
+    root: string
+    meta: IndexMeta
+    requestedPath: string
+    subdirPrefix?: string
+  } | null> {
+    const requestedPath = await resolveProjectPath(projectPath)
+    const exactMeta = await readIndexMeta(requestedPath)
+    if (exactMeta?.embeddings) {
+      return {
+        root: requestedPath,
+        meta: { ...exactMeta, root: requestedPath },
+        requestedPath,
+      }
+    }
+
+    const candidates = (await listIndexedProjects())
+      .filter((project) => isSameOrInside(project.root, requestedPath))
+      .sort((a, b) => b.root.length - a.root.length || b.updatedAt - a.updatedAt)
+
+    const best = candidates[0]
+    if (!best) return null
+
+    const relative = path.relative(best.root, requestedPath).replace(/\\/g, "/").replace(/\/$/, "")
+    return {
+      root: best.root,
+      meta: best.meta,
+      requestedPath,
+      subdirPrefix: relative || undefined,
+    }
+  }
+
+  /**
    * Find the most recently indexed project
    * Useful when SENSEGREP_ROOT is not set and we need to auto-detect the project
    */
   export async function getMostRecentIndexedProject(): Promise<string | null> {
     try {
-      const entries = await fs.readdir(BASE_PATH, { withFileTypes: true })
-      const projectDirs = entries.filter((e) => e.isDirectory() && e.name.startsWith("project_"))
-
-      let mostRecent: { root: string; updatedAt: number } | null = null
-
-      for (const dir of projectDirs) {
-        const metaPath = path.join(BASE_PATH, dir.name, "index-meta.json")
-        const text = await fs.readFile(metaPath, "utf8").catch(() => null)
-        if (!text) continue
-
-        try {
-          const meta = JSON.parse(text) as IndexMeta
-          if (!meta.root || !meta.updatedAt) continue
-
-          if (!mostRecent || meta.updatedAt > mostRecent.updatedAt) {
-            mostRecent = { root: meta.root, updatedAt: meta.updatedAt }
-          }
-        } catch {
-          continue
-        }
-      }
-
-      return mostRecent?.root || null
+      const mostRecent = (await listIndexedProjects()).sort((a, b) => b.updatedAt - a.updatedAt)[0]
+      return mostRecent?.root ?? null
     } catch {
       return null
     }

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const readIndexMeta = vi.fn()
+const resolveIndexedProject = vi.fn()
 const clearProjectCache = vi.fn()
 const getCollectionUnsafe = vi.fn()
 const search = vi.fn()
@@ -10,6 +11,7 @@ const withConfig = vi.fn(async (_config, run: () => Promise<unknown>) => run())
 vi.mock("../semantic/lancedb.js", () => ({
   VectorStore: {
     readIndexMeta,
+    resolveIndexedProject,
     clearProjectCache,
     getCollectionUnsafe,
     search,
@@ -30,6 +32,7 @@ vi.mock("../semantic/tree-shaker.js", () => ({
 vi.mock("../project/instance.js", () => ({
   Instance: {
     directory: "/repo",
+    provide: async (input: { fn: () => unknown }) => input.fn(),
   },
 }))
 
@@ -49,6 +52,11 @@ describe("SenseGrepClusterTool", () => {
         "backend-api/src/repositories/UfPackagingRuleRepository.java": {},
       },
     })
+    resolveIndexedProject.mockImplementation(async (root: string) => ({
+      root: "/repo",
+      requestedPath: root,
+      meta: await readIndexMeta(root),
+    }))
     getCollectionUnsafe.mockResolvedValue({})
   })
 

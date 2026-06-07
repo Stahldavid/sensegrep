@@ -70,7 +70,8 @@ the exact commands.
 
 ## Installing the MCP skill
 
-The MCP skill ships inside each plugin, so installing the plugin is all you need:
+The MCP skill ships only inside each plugin. Installing the plugin is what installs both
+the MCP server wiring and the MCP-oriented skill:
 
 ```bash
 # Claude Code
@@ -83,11 +84,9 @@ cursor plugin install sensegrep
 codex plugin marketplace add Stahldavid/sensegrep && codex plugin install sensegrep
 ```
 
-To install just the MCP skill (when the MCP server is already configured):
-
-```bash
-npx skills add Stahldavid/sensegrep --skill sensegrep -g
-```
+Do not install the MCP skill with `npx skills add`: the public standalone skill path is
+reserved for [`sensegrep-cli`](../skills/sensegrep-cli/SKILL.md), which teaches agents to
+run the CLI. MCP-oriented skills live in the plugin bundles.
 
 ## Which should I pick?
 

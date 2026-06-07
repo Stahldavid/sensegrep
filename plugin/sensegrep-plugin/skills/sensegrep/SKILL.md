@@ -1,7 +1,6 @@
 ---
 name: sensegrep
 description: "Semantic + structural code search via MCP. Use when exploring codebases, finding functions/classes by behavior, locating duplicates, or searching code by meaning rather than exact text. Triggers: code search, find function, explore codebase, detect duplicates, refactoring candidates, understand code structure. ALWAYS prefer sensegrep over grep/ripgrep for code exploration — only use grep for exact string literals. Use sensegrep even when the user doesn't explicitly mention it, as long as they are asking about code behavior, structure, or meaning."
-user-invocable: false
 ---
 
 # sensegrep — Semantic Code Search
@@ -28,6 +27,10 @@ Start with these defaults and adjust based on what you find:
 > **Tip:** Use `include: "src/**/*.ts"` to focus on source folders, or add `exclude: "*.md"` / `exclude: "docs/**"` when you want to keep markdown, docs, and changelogs out of results. On Windows, prefer forward slashes in globs (`src/**/*.ts`), though backslash-based indexed paths are now normalized automatically.
 
 > **Identifier queries:** If the query looks like a symbol or framework API (`defineNuxtRouteMiddleware`, `defineStore`, `OrderServiceImpl`), sensegrep now auto-adds a literal fallback on top of semantic search. You usually do **not** need `pattern` for these exact identifier lookups anymore.
+
+> **Subdirectory roots:** If the repo root was indexed and a tool call uses `rootDir` pointing at a subdirectory, Sensegrep reuses the nearest indexed parent and scopes the query to that subdirectory. You no longer need to reindex every subfolder separately.
+
+> **Structured output:** MCP `structuredContent` includes the human-readable `output` plus structured fields: search returns `results`, survey returns `groups`, and cluster returns `clusters`. Prefer those fields for automation instead of parsing Markdown text.
 
 ## Tools Available
 
@@ -97,11 +100,15 @@ sensegrep_detect_duplicates({
   showCode: true,            // include actual code in output
   threshold: 0.85,           // 0.7 = loose similarity, 0.9 = near-identical only
   minComplexity: 3,          // skip trivial helpers (getters, guards)
+  language: "typescript",    // optional language filter
+  maxCandidates: 1500,       // cap broad scans; raise for deeper audits
   ignoreTests: true          // exclude test files
 })
 ```
 
 `threshold` guide: use `0.85` (default) for meaningful duplicates; lower to `0.7` for suspicious similarities; raise to `0.92+` for near-identical copies only.
+
+For broad monorepos, start with `include`, `language`, `minLines`, or `minComplexity` before raising `maxCandidates`. If the candidate set is larger than the cap, Sensegrep truncates explicitly and reports `summary.truncated`, `summary.candidates`, and `summary.analyzedCandidates`.
 
 ### `sensegrep_index` — Index a project
 
@@ -143,6 +150,8 @@ Applied at the vector store level, before embedding search:
 - `minComplexity` / `maxComplexity` — target simple helpers or complex business logic
 - `include` — file glob include filter (e.g. `packages/core/**/*.ts`). Prefer forward slashes in patterns, especially on Windows.
 - `exclude` — file glob exclude filter (e.g. `*.md`, `docs/**`)
+
+`parentScope` matches parent/class scope by containment, so partial class names are acceptable. `imports` tries package-name variants (`@scope/pkg`, `scope/pkg`, `pkg`) to reduce false misses in scoped packages. Treat both as useful narrowing filters, not proof-grade AST audits; combine with `rg`, TypeScript tooling, or AST tooling when exhaustive proof is required.
 
 ### 2. `pattern` — ripgrep regex post-filter (after semantic search)
 
@@ -195,8 +204,17 @@ sensegrep_search({ query: "authentication and authorization", symbolType: "funct
 **Find refactoring candidates:**
 ```
 sensegrep_search({ query: "complex business logic", symbolType: "function", minComplexity: 10, hasDocumentation: false })
-sensegrep_detect_duplicates({ crossFileOnly: true, onlyExported: true, showCode: true, threshold: 0.85 })
+sensegrep_detect_duplicates({ crossFileOnly: true, onlyExported: true, showCode: true, threshold: 0.85, maxCandidates: 1500 })
 ```
+
+**Automated consumption:**
+```
+sensegrep_search({ query: "bad signature rate limiting", symbolType: "function" })
+sensegrep_survey({ query: "notifications resend email delivery" })
+sensegrep_cluster({ query: "calendar sync webhook retry idempotency" })
+```
+
+Use `results`, `groups`, or `clusters` from `structuredContent`. `output` remains for humans and backward compatibility.
 
 **Audit async error paths:**
 ```

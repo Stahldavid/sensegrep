@@ -1,8 +1,16 @@
 import z from "zod"
 
 export namespace Tool {
-  interface Metadata {
+  export interface Metadata {
     [key: string]: any
+  }
+
+  export type Result<M extends Metadata = Metadata> = {
+    title: string
+    metadata: M
+    output: string
+    attachments?: unknown[]
+    [key: string]: unknown
   }
 
   export type Context<M extends Metadata = Metadata> = {
@@ -22,12 +30,7 @@ export namespace Tool {
       execute(
         args: z.infer<Parameters>,
         ctx: Context,
-      ): Promise<{
-        title: string
-        metadata: M
-        output: string
-        attachments?: unknown[]
-      }>
+      ): Promise<Result<M>>
       formatValidationError?(error: z.ZodError): string
     }>
   }
