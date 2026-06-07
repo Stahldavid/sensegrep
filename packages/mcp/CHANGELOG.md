@@ -1,5 +1,14 @@
 # @sensegrep/mcp
 
+## 1.6.1
+
+### Patch Changes
+
+- Publish the MCP package with `@sensegrep/core@1.6.1`, which fixes TypeScript parent scope metadata used by parent/class filters.
+
+- Updated dependencies []:
+  - @sensegrep/core@1.6.1
+
 ## 1.6.0
 
 ### Minor Changes

@@ -275,10 +275,17 @@ export namespace TreeSitterChunking {
     // Try to find identifier child
     for (let i = 0; i < node.childCount; i++) {
       const child = node.child(i)
-      if (child?.type === "identifier") {
+      if (
+        child?.type === "identifier" ||
+        child?.type === "property_identifier" ||
+        child?.type === "type_identifier"
+      ) {
         return child.text
       }
       // For export statements, look inside the exported declaration
+      if (child?.type === "class_declaration") {
+        return extractNodeName(child)
+      }
       if (child?.type === "internal_module" || child?.type === "module") {
         for (let j = 0; j < child.childCount; j++) {
           const moduleChild = child.child(j)
@@ -289,6 +296,18 @@ export namespace TreeSitterChunking {
       }
     }
     return undefined
+  }
+
+  function getClassDeclarationNode(node: SyntaxNode): SyntaxNode | null {
+    if (node.type === "class_declaration") return node
+    if (node.type !== "export_statement") return null
+
+    for (let i = 0; i < node.childCount; i++) {
+      const child = node.child(i)
+      if (child?.type === "class_declaration") return child
+    }
+
+    return null
   }
 
   /**
@@ -1289,6 +1308,12 @@ ${content}`
 
       // Check if this is a chunk boundary
       if (isChunkBoundary(node)) {
+        const classNode = getClassDeclarationNode(node)
+        if (classNode) {
+          chunks.push(...chunkClass(classNode, lines, filePath))
+          continue
+        }
+
         // Extract content with JSDoc/comments
         const extracted = extractNodeWithContext(node, lines, filePath)
 

@@ -1,6 +1,7 @@
 .vscode-test/
 out/
 node_modules/
+test/
 *.vsix
 .DS_Store
 *.map

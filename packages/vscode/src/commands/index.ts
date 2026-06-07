@@ -1,5 +1,5 @@
 import * as vscode from "vscode"
-import { SensegrepCore, SearchResult, DuplicateGroup } from "../core"
+import { SensegrepCore, SearchResult, DuplicateGroup, ThematicResult } from "../core"
 import type { SearchOptions } from "../core"
 import { ResultsTreeProvider } from "../providers/results-tree"
 import { SearchViewProvider } from "../views/search-view"
@@ -10,8 +10,10 @@ import { StatusBarManager } from "../providers/statusbar"
 import { DuplicateDiagnosticsManager } from "../providers/duplicate-diagnostics"
 import { tryRecoverIndex } from "../providers/index-repair"
 import { getNonce, getSettingsViewHtml } from "../webview/templates"
+import type { SensegrepOutput } from "../providers/log"
 import * as path from "path"
 import fs from "node:fs/promises"
+import os from "node:os"
 
 export function registerCommands(
   context: vscode.ExtensionContext,
@@ -21,7 +23,8 @@ export function registerCommands(
   duplicatesViewProvider: DuplicatesViewProvider,
   duplicateDiagnostics: DuplicateDiagnosticsManager,
   historyProvider: HistoryTreeProvider,
-  statusBar: StatusBarManager
+  statusBar: StatusBarManager,
+  output?: SensegrepOutput
 ): vscode.Disposable[] {
   const disposables: vscode.Disposable[] = []
   let settingsPanel: vscode.WebviewPanel | null = null
@@ -42,15 +45,26 @@ export function registerCommands(
 
     const render = async () => {
       const config = vscode.workspace.getConfiguration("sensegrep")
-      const configuredProvider = config.get<string>("embeddings.provider")
+      const inspected = config.inspect<string>("embeddings.provider")
+      const configuredProvider =
+        inspected?.workspaceFolderValue ??
+        inspected?.workspaceValue ??
+        inspected?.globalValue
       const provider =
         configuredProvider === "gemini" || configuredProvider === "openai" || configuredProvider === "bedrock"
           ? configuredProvider
-          : "gemini"
+          : "config"
+      const embeddingSettings = {
+        model: config.get<string>("embeddings.model") ?? "",
+        dimension: config.get<number>("embeddings.dimension") ?? 0,
+        baseUrl: config.get<string>("embeddings.baseUrl") ?? "",
+        region: config.get<string>("embeddings.region") ?? "",
+        apiKey: config.get<string>("embeddings.apiKey") ?? "",
+      }
 
       const apiKey = await core.getApiKey()
       const nonce = getNonce()
-      panel.webview.html = getSettingsViewHtml(panel.webview, nonce, apiKey, provider)
+      panel.webview.html = getSettingsViewHtml(panel.webview, nonce, apiKey, provider, embeddingSettings)
     }
 
     panel.onDidDispose(() => {
@@ -72,7 +86,12 @@ export function registerCommands(
           await searchViewProvider.refreshApiKeyBanner()
           break
         case "setProvider":
-          if (message.provider === "gemini" || message.provider === "openai" || message.provider === "bedrock") {
+          if (
+            message.provider === "config" ||
+            message.provider === "gemini" ||
+            message.provider === "openai" ||
+            message.provider === "bedrock"
+          ) {
             const cfg = vscode.workspace.getConfiguration("sensegrep")
             await cfg.update(
               "embeddings.provider",
@@ -84,6 +103,40 @@ export function registerCommands(
             await searchViewProvider.refreshApiKeyBanner()
           }
           break
+        case "saveEmbeddingSettings": {
+          const cfg = vscode.workspace.getConfiguration("sensegrep")
+          await cfg.update("embeddings.model", String(message.model ?? ""), vscode.ConfigurationTarget.Workspace)
+          await cfg.update("embeddings.dimension", Number(message.dimension || 0), vscode.ConfigurationTarget.Workspace)
+          await cfg.update("embeddings.baseUrl", String(message.baseUrl ?? ""), vscode.ConfigurationTarget.Workspace)
+          await cfg.update("embeddings.region", String(message.region ?? ""), vscode.ConfigurationTarget.Workspace)
+          await cfg.update("embeddings.apiKey", String(message.apiKey ?? ""), vscode.ConfigurationTarget.Workspace)
+          await core.reloadSettings()
+          panel.webview.postMessage({ type: "embeddingSettingsSaved" })
+          await searchViewProvider.refreshApiKeyBanner()
+          break
+        }
+        case "openConfig": {
+          const configPath = path.join(os.homedir(), ".config", "sensegrep", "config.json")
+          await fs.mkdir(path.dirname(configPath), { recursive: true })
+          try {
+            await fs.access(configPath)
+          } catch {
+            await fs.writeFile(configPath, "{\n  \"provider\": \"openai\"\n}\n", "utf8")
+          }
+          const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(configPath))
+          await vscode.window.showTextDocument(doc, { preview: false })
+          break
+        }
+        case "testEmbeddings": {
+          try {
+            const result = await core.testEmbeddings()
+            panel.webview.postMessage({ type: "embeddingTestResult", result })
+          } catch (err) {
+            output?.error("Embedding test failed", err)
+            panel.webview.postMessage({ type: "embeddingTestError", message: String(err) })
+          }
+          break
+        }
       }
     })
 
@@ -118,6 +171,60 @@ export function registerCommands(
         statusBar,
         request.options
       )
+    })
+  )
+
+  disposables.push(
+    vscode.commands.registerCommand("sensegrep.survey", async (input?: SearchRecord | { query?: string; options?: SearchOptions } | string) => {
+      const request = await promptThematicRequest("Survey", input)
+      if (!request) return
+
+      statusBar.setSearching()
+      try {
+        const result = await runCancellable("Sensegrep: Survey", (signal) =>
+          core.survey(request.query, request.options, signal)
+        )
+        await openMarkdownDocument("Sensegrep Survey", formatThematicMarkdown("Survey", result))
+        statusBar.setReady()
+      } catch (err) {
+        if (
+          await tryRecoverIndex(core, err, statusBar, async () => {
+            await vscode.commands.executeCommand("sensegrep.survey", request)
+          })
+        ) {
+          return
+        }
+        statusBar.setError(String(err))
+        output?.error("Survey failed", err)
+        vscode.window.showErrorMessage(`Survey failed: ${err}`)
+      }
+    })
+  )
+
+  disposables.push(
+    vscode.commands.registerCommand("sensegrep.cluster", async (input?: SearchRecord | { query?: string; options?: SearchOptions } | string) => {
+      const request = await promptThematicRequest("Cluster", input)
+      if (!request) return
+
+      statusBar.setSearching()
+      try {
+        const result = await runCancellable("Sensegrep: Cluster", (signal) =>
+          core.cluster(request.query, request.options, signal)
+        )
+        await openMarkdownDocument("Sensegrep Clusters", formatThematicMarkdown("Clusters", result))
+        statusBar.setReady()
+      } catch (err) {
+        if (
+          await tryRecoverIndex(core, err, statusBar, async () => {
+            await vscode.commands.executeCommand("sensegrep.cluster", request)
+          })
+        ) {
+          return
+        }
+        statusBar.setError(String(err))
+        output?.error("Clustering failed", err)
+        vscode.window.showErrorMessage(`Clustering failed: ${err}`)
+      }
     })
   )
 
@@ -279,9 +386,15 @@ export function registerCommands(
     vscode.commands.registerCommand("sensegrep.setIndexRoot", async () => {
       const config = vscode.workspace.getConfiguration("sensegrep")
       const current = config.get<string>("indexRoot") ?? ""
+      const workspaceFolders = vscode.workspace.workspaceFolders ?? []
 
       const picks: Array<{ label: string; action: string; detail?: string }> = [
         { label: "Use workspace root", action: "workspace" },
+        ...workspaceFolders.map((folder) => ({
+          label: `Use workspace folder: ${folder.name}`,
+          action: "workspaceFolder",
+          detail: folder.uri.fsPath,
+        })),
         { label: "Pick folder...", action: "pick" },
         { label: "Use most recent indexed project", action: "recent" },
       ]
@@ -297,6 +410,12 @@ export function registerCommands(
       if (choice.action === "workspace") {
         await config.update("indexRoot", "", vscode.ConfigurationTarget.Workspace)
         vscode.window.showInformationMessage("Sensegrep: using workspace root for index")
+        return
+      }
+
+      if (choice.action === "workspaceFolder" && choice.detail) {
+        await config.update("indexRoot", choice.detail, vscode.ConfigurationTarget.Workspace)
+        vscode.window.showInformationMessage(`Sensegrep: using index root ${choice.detail}`)
         return
       }
 
@@ -612,36 +731,31 @@ export function registerCommands(
   disposables.push(
     vscode.commands.registerCommand(
       "sensegrep.goToResult",
-      async (payload: SearchResult | { result: SearchResult; query?: string }) => {
-        const { result } = normalizeGoToResultPayload(payload)
-        const filePath = path.isAbsolute(result.file) ? result.file : path.join(core.getRootDir(), result.file)
+      async (payload: SearchResult | { result: SearchResult; query?: string } | unknown) => {
+        const result = resolveSearchResultPayload(payload)
+        if (!result) return
+        await openSearchResult(core, result)
+      }
+    )
+  )
 
-      const uri = vscode.Uri.file(filePath)
-      const doc = await vscode.workspace.openTextDocument(uri)
-      const editor = await vscode.window.showTextDocument(doc)
+  disposables.push(
+    vscode.commands.registerCommand(
+      "sensegrep.openResultToSide",
+      async (payload: SearchResult | { result: SearchResult; query?: string } | unknown) => {
+        const result = resolveSearchResultPayload(payload)
+        if (!result) return
+        await openSearchResult(core, result, vscode.ViewColumn.Beside)
+      }
+    )
+  )
 
-      await applySemanticFolding(core, editor, result)
-
-      const startLine = Math.max(0, result.startLine - 1)
-      const endLine = result.endLine - 1
-
-      const range = new vscode.Range(startLine, 0, endLine, 0)
-      editor.selection = new vscode.Selection(range.start, range.end)
-      editor.revealRange(range, vscode.TextEditorRevealType.InCenter)
-
-      // Highlight the range temporarily
-      const decoration = vscode.window.createTextEditorDecorationType({
-        backgroundColor: new vscode.ThemeColor("editor.findMatchHighlightBackground"),
-        isWholeLine: true,
-      })
-
-      editor.setDecorations(decoration, [range])
-      highlightResultContent(editor, range, result)
-
-      // Remove highlight after 2 seconds
-      setTimeout(() => {
-        decoration.dispose()
-      }, 2000)
+  disposables.push(
+    vscode.commands.registerCommand("sensegrep.copyResultLocation", async (payload: unknown) => {
+      const result = resolveSearchResultPayload(payload)
+      if (!result) return
+      await vscode.env.clipboard.writeText(`${result.file}:${result.startLine}-${result.endLine}`)
+      vscode.window.showInformationMessage("Sensegrep: copied result location")
     })
   )
 
@@ -730,7 +844,9 @@ async function performSearch(
   statusBar.setSearching()
 
   try {
-    const results = await core.search(query, options)
+    const results = await runCancellable("Sensegrep: Searching", (signal) =>
+      core.search(query, options, signal)
+    )
     resultsProvider.setResults(results, query)
     historyProvider.addSearch(query, options)
     await searchViewProvider.syncResults(query, options, results)
@@ -895,6 +1011,43 @@ async function promptAdvancedSearch(): Promise<{
   return { query, options }
 }
 
+async function runCancellable<T>(
+  title: string,
+  task: (signal: AbortSignal) => Promise<T>
+): Promise<T> {
+  return await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title,
+      cancellable: true,
+    },
+    async (_progress, token) => {
+      const controller = new AbortController()
+      token.onCancellationRequested(() => controller.abort())
+      return await task(controller.signal)
+    }
+  )
+}
+
+async function promptThematicRequest(
+  label: "Survey" | "Cluster",
+  input?: SearchRecord | { query?: string; options?: SearchOptions } | string
+): Promise<{ query: string; options?: SearchOptions } | null> {
+  const resolved = resolveRecord(input)
+  if (resolved?.query?.trim()) {
+    return { query: resolved.query.trim(), options: resolved.options }
+  }
+
+  const query = await vscode.window.showInputBox({
+    prompt: `${label} query`,
+    placeHolder: label === "Survey"
+      ? "e.g., notifications resend delivery"
+      : "e.g., auth rate limit invalid signature",
+  })
+  if (!query?.trim()) return null
+  return { query: query.trim(), options: resolved?.options }
+}
+
 async function applySemanticFolding(
   core: SensegrepCore,
   editor: vscode.TextEditor,
@@ -1043,13 +1196,50 @@ async function pickDuplicateInstance(
   return picked?.instance ?? null
 }
 
-function normalizeGoToResultPayload(
-  payload: SearchResult | { result: SearchResult; query?: string }
-): { result: SearchResult; query?: string } {
-  if (payload && typeof payload === "object" && "result" in payload) {
-    return { result: payload.result, query: payload.query }
+function resolveSearchResultPayload(payload: unknown): SearchResult | null {
+  if (!payload || typeof payload !== "object") return null
+  if ("result" in payload && (payload as { result?: SearchResult }).result) {
+    return (payload as { result: SearchResult }).result
   }
-  return { result: payload as SearchResult }
+  if ("results" in payload) {
+    const results = (payload as { results?: SearchResult[] }).results
+    if (Array.isArray(results) && results.length > 0) return results[0]
+  }
+  if ("file" in payload && "startLine" in payload && "endLine" in payload) {
+    return payload as SearchResult
+  }
+  return null
+}
+
+async function openSearchResult(
+  core: SensegrepCore,
+  result: SearchResult,
+  viewColumn?: vscode.ViewColumn
+) {
+  const filePath = path.isAbsolute(result.file) ? result.file : path.join(core.getRootDir(), result.file)
+  const uri = vscode.Uri.file(filePath)
+  const doc = await vscode.workspace.openTextDocument(uri)
+  const editor = await vscode.window.showTextDocument(doc, viewColumn ? { viewColumn, preview: false } : undefined)
+
+  await applySemanticFolding(core, editor, result)
+
+  const startLine = Math.max(0, result.startLine - 1)
+  const endLine = Math.max(startLine, result.endLine - 1)
+  const range = new vscode.Range(startLine, 0, endLine, 0)
+  editor.selection = new vscode.Selection(range.start, range.end)
+  editor.revealRange(range, vscode.TextEditorRevealType.InCenter)
+
+  const decoration = vscode.window.createTextEditorDecorationType({
+    backgroundColor: new vscode.ThemeColor("editor.findMatchHighlightBackground"),
+    isWholeLine: true,
+  })
+
+  editor.setDecorations(decoration, [range])
+  highlightResultContent(editor, range, result)
+
+  setTimeout(() => {
+    decoration.dispose()
+  }, 2000)
 }
 
 function highlightResultContent(
@@ -1156,6 +1346,14 @@ async function openJsonDocument(title: string, payload: unknown) {
   await vscode.window.showTextDocument(doc, { preview: false })
 }
 
+async function openMarkdownDocument(title: string, content: string) {
+  const doc = await vscode.workspace.openTextDocument({
+    language: "markdown",
+    content: `# ${title}\n\n${content}`,
+  })
+  await vscode.window.showTextDocument(doc, { preview: false })
+}
+
 async function promptExportFormat(): Promise<"json" | "markdown" | null> {
   const choice = await vscode.window.showQuickPick(
     [
@@ -1165,6 +1363,56 @@ async function promptExportFormat(): Promise<"json" | "markdown" | null> {
     { placeHolder: "Choose export format" }
   )
   return (choice?.value as "json" | "markdown") ?? null
+}
+
+function formatThematicMarkdown(kind: "Survey" | "Clusters", result: ThematicResult): string {
+  const groups = kind === "Survey" ? result.groups ?? [] : result.clusters ?? []
+  const lines: string[] = []
+  const metadata = result.metadata ?? {}
+
+  lines.push(`Query: ${result.title || "(untitled)"}`)
+  lines.push("")
+  lines.push("## Summary")
+  lines.push(`- ${kind === "Survey" ? "Groups" : "Clusters"}: ${groups.length}`)
+  if (typeof metadata.matches === "number") lines.push(`- Matches: ${metadata.matches}`)
+  if (typeof metadata.files === "number") lines.push(`- Files: ${metadata.files}`)
+  if (typeof metadata.shaked === "boolean") lines.push(`- Tree-shaken: ${metadata.shaked}`)
+  if (typeof metadata.clusterThreshold === "number") lines.push(`- Cluster threshold: ${metadata.clusterThreshold}`)
+
+  if (groups.length > 0) {
+    lines.push("")
+    lines.push(`## ${kind === "Survey" ? "Groups" : "Clusters"}`)
+    for (const group of groups) {
+      lines.push("")
+      lines.push(`### ${group.title}`)
+      lines.push(`- Score: ${group.score.toFixed(3)}`)
+      lines.push(`- Matches: ${group.matches}`)
+      lines.push(`- Files: ${group.files.length}`)
+      if (group.symbolTypes?.length) lines.push(`- Symbol types: ${group.symbolTypes.join(", ")}`)
+      if (group.imports?.length) lines.push(`- Imports: ${group.imports.join(", ")}`)
+      if (group.symbols?.length) lines.push(`- Symbols: ${group.symbols.join(", ")}`)
+      if (group.domains?.length) lines.push(`- Domains: ${group.domains.join(", ")}`)
+
+      const examples = group.results.slice(0, 5)
+      if (examples.length > 0) {
+        lines.push("")
+        lines.push("Examples:")
+        for (const item of examples) {
+          const symbol = [item.symbolType, item.symbolName].filter(Boolean).join(" ")
+          lines.push(`- ${item.file}:${item.startLine}-${item.endLine}${symbol ? ` (${symbol})` : ""}`)
+        }
+      }
+    }
+  }
+
+  if (result.output.trim()) {
+    lines.push("")
+    lines.push("## Tree-Shaken Output")
+    lines.push("")
+    lines.push(result.output)
+  }
+
+  return lines.join("\n")
 }
 
 async function runIndexWithProgress(
@@ -1180,10 +1428,13 @@ async function runIndexWithProgress(
     {
       location: vscode.ProgressLocation.Notification,
       title: full ? "Sensegrep: Full indexing" : "Sensegrep: Indexing",
-      cancellable: false,
+      cancellable: true,
     },
-    async (progress) => {
+    async (progress, token) => {
       progress.report({ message: "Starting..." })
+      token.onCancellationRequested(() => {
+        progress.report({ message: "Cancellation requested..." })
+      })
       try {
         unsubscribe = await core.subscribeIndexProgress((event) => {
           if (event.phase === "scanning") {
@@ -1311,7 +1562,15 @@ function formatSearchMarkdown(payload: {
 }
 
 function formatDuplicateMarkdown(payload: {
-  summary: { totalDuplicates: number; byLevel: Record<string, number>; totalSavings: number; filesAffected: number }
+  summary: {
+    totalDuplicates: number
+    byLevel: Record<string, number>
+    totalSavings: number
+    filesAffected: number
+    candidates?: number
+    analyzedCandidates?: number
+    truncated?: boolean
+  }
   duplicates: DuplicateGroup[]
   acceptableDuplicates?: DuplicateGroup[]
   display?: { limit?: number; showCode?: boolean; fullCode?: boolean }
@@ -1323,6 +1582,12 @@ function formatDuplicateMarkdown(payload: {
   lines.push(`- Total duplicates: ${payload.summary.totalDuplicates}`)
   lines.push(`- Files affected: ${payload.summary.filesAffected}`)
   lines.push(`- Lines savable: ~${payload.summary.totalSavings}`)
+  if (typeof payload.summary.candidates === "number") {
+    lines.push(`- Candidates: ${payload.summary.analyzedCandidates ?? payload.summary.candidates}/${payload.summary.candidates}`)
+  }
+  if (payload.summary.truncated) {
+    lines.push("- Truncated: true")
+  }
   lines.push("")
   lines.push(
     `Levels: exact=${payload.summary.byLevel.exact ?? 0}, high=${payload.summary.byLevel.high ?? 0}, medium=${payload.summary.byLevel.medium ?? 0}, low=${payload.summary.byLevel.low ?? 0}`

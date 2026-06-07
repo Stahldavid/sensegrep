@@ -54,11 +54,35 @@ export interface SearchResult {
   content: string
   symbolName?: string
   symbolType?: string
+  type?: string
+  language?: string
+  imports?: string[]
+  metadata?: Record<string, unknown>
   relevance: number
   rerankScore?: number
   complexity?: number
   isExported?: boolean
   parentScope?: string
+}
+
+export interface ThematicGroup {
+  title: string
+  score: number
+  matches: number
+  files: string[]
+  imports?: string[]
+  symbols?: string[]
+  domains?: string[]
+  symbolTypes?: string[]
+  results: SearchResult[]
+}
+
+export interface ThematicResult {
+  title: string
+  metadata: Record<string, unknown>
+  output: string
+  groups?: ThematicGroup[]
+  clusters?: ThematicGroup[]
 }
 
 export interface SearchOptions {
@@ -128,6 +152,7 @@ export interface DuplicateGroup {
     endLine: number
     complexity?: number
     symbolType?: string
+    language?: string
   }>
   impact: {
     totalLines: number
@@ -241,10 +266,11 @@ export class SensegrepCore {
     const explicitDim = explicitSetting<number>("embeddings.dimension")
     const explicitBaseUrl = explicitSetting<string>("embeddings.baseUrl")
     const explicitApiKey = explicitSetting<string>("embeddings.apiKey")
+    const explicitRegion = explicitSetting<string>("embeddings.region")
 
     // Only push embedding env vars when the user explicitly set them in VS Code.
     // Otherwise ~/.config/sensegrep/config.json is the source of truth (e.g. LM Studio).
-    if (explicitProvider) {
+    if (explicitProvider === "gemini" || explicitProvider === "openai" || explicitProvider === "bedrock") {
       process.env.SENSEGREP_PROVIDER = explicitProvider
     } else {
       delete process.env.SENSEGREP_PROVIDER
@@ -256,7 +282,7 @@ export class SensegrepCore {
       delete process.env.SENSEGREP_EMBED_MODEL
     }
 
-    if (explicitDim !== undefined) {
+    if (explicitDim !== undefined && explicitDim > 0) {
       process.env.SENSEGREP_EMBED_DIM = String(explicitDim)
     } else {
       delete process.env.SENSEGREP_EMBED_DIM
@@ -272,6 +298,12 @@ export class SensegrepCore {
       process.env.SENSEGREP_OPENAI_API_KEY = explicitApiKey
     } else {
       delete process.env.SENSEGREP_OPENAI_API_KEY
+    }
+
+    if (explicitRegion) {
+      process.env.SENSEGREP_BEDROCK_REGION = explicitRegion
+    } else {
+      delete process.env.SENSEGREP_BEDROCK_REGION
     }
 
     // Gemini key only when the user explicitly chose Gemini in settings.
@@ -427,7 +459,7 @@ export class SensegrepCore {
     }
   }
 
-  async search(query: string, options?: SearchOptions): Promise<SearchResult[]> {
+  async search(query: string, options?: SearchOptions, abort?: AbortSignal): Promise<SearchResult[]> {
     await this.ensureInitialized()
 
     try {
@@ -474,13 +506,15 @@ export class SensegrepCore {
               sessionID: "vscode",
               messageID: "search",
               agent: "sensegrep-vscode",
-              abort: new AbortController().signal,
+              abort: abort ?? new AbortController().signal,
               metadata: () => {},
             }
           ),
       })
 
-      let results = this.parseSearchOutput(result.output)
+      let results: SearchResult[] = Array.isArray((result as any).results)
+        ? (result as any).results.map((entry: any) => this.mapStructuredSearchResult(entry))
+        : this.parseSearchOutput(result.output)
 
       if (!options?.symbolType && defaultSymbolTypes.length > 0) {
         const allowed = new Set(defaultSymbolTypes)
@@ -582,12 +616,18 @@ export class SensegrepCore {
     normalizeIdentifiers?: boolean
     rankByImpact?: boolean
     ignoreAcceptablePatterns?: boolean
+    crossLanguage?: boolean
+    language?: string
+    maxCandidates?: number
   }): Promise<{
     summary: {
       totalDuplicates: number
       byLevel: Record<string, number>
       totalSavings: number
       filesAffected: number
+      candidates?: number
+      analyzedCandidates?: number
+      truncated?: boolean
     }
     duplicates: DuplicateGroup[]
     acceptableDuplicates?: DuplicateGroup[]
@@ -627,6 +667,9 @@ export class SensegrepCore {
           normalizeIdentifiers: options?.normalizeIdentifiers ?? true,
           rankByImpact: options?.rankByImpact ?? true,
           ignoreAcceptablePatterns: options?.ignoreAcceptablePatterns ?? false,
+          crossLanguage: options?.crossLanguage ?? false,
+          language: options?.language,
+          maxCandidates: options?.maxCandidates,
         }),
     })
 
@@ -637,6 +680,7 @@ export class SensegrepCore {
     await this.ensureInitialized()
 
     const { Indexer, Instance } = await loadCore()
+    this.applyIndexOptions(Indexer)
     const result = await Instance.provide({
       directory: this.resolveRootDir(),
       fn: () => (full ? Indexer.indexProject() : Indexer.indexProjectIncremental()),
@@ -826,7 +870,8 @@ export class SensegrepCore {
     onError?: (error: unknown) => void
   }): Promise<void> {
     await this.ensureInitialized()
-    const { IndexWatcher } = await loadCore()
+    const { IndexWatcher, Indexer } = await loadCore()
+    this.applyIndexOptions(Indexer)
     if (this.watcherStop) {
       await this.watcherStop()
     }
@@ -837,6 +882,189 @@ export class SensegrepCore {
       onError: options.onError,
     })
     this.watcherStop = handle.stop
+  }
+
+  async testEmbeddings(): Promise<{
+    provider?: string
+    model?: string
+    dimension?: number
+    vectorLength: number
+  }> {
+    await this.ensureInitialized()
+    const { Embeddings } = await loadCore()
+    const vectors = await Embeddings.embed("sensegrep vscode embeddings smoke test", {
+      taskType: "CODE_RETRIEVAL_QUERY",
+    } as any)
+    const config = typeof Embeddings.getConfig === "function" ? Embeddings.getConfig() : undefined
+    return {
+      provider: config?.provider,
+      model: config?.embedModel,
+      dimension: config?.embedDim,
+      vectorLength: vectors[0]?.length ?? 0,
+    }
+  }
+
+  private mapStructuredSearchResult(entry: any): SearchResult {
+    const metadata = entry?.metadata && typeof entry.metadata === "object"
+      ? entry.metadata as Record<string, unknown>
+      : {}
+    const score = typeof entry?.score === "number"
+      ? entry.score
+      : typeof entry?.relevance === "number"
+        ? entry.relevance
+        : 0.5
+    const complexity = typeof metadata.complexity === "number"
+      ? metadata.complexity
+      : typeof entry?.complexity === "number"
+        ? entry.complexity
+        : undefined
+    const isExported = typeof metadata.isExported === "boolean"
+      ? metadata.isExported
+      : typeof entry?.isExported === "boolean"
+        ? entry.isExported
+        : undefined
+
+    return {
+      file: String(entry?.file ?? ""),
+      startLine: Number(entry?.startLine ?? 1),
+      endLine: Number(entry?.endLine ?? entry?.startLine ?? 1),
+      content: String(entry?.content ?? ""),
+      symbolName: entry?.symbolName,
+      symbolType: entry?.symbolType,
+      type: entry?.type,
+      language: entry?.language,
+      imports: Array.isArray(entry?.imports) ? entry.imports.map(String) : undefined,
+      metadata,
+      relevance: score,
+      rerankScore: typeof entry?.rerankScore === "number" ? entry.rerankScore : undefined,
+      complexity,
+      isExported,
+      parentScope: entry?.parentScope,
+    }
+  }
+
+  async survey(
+    query: string,
+    options?: SearchOptions & { rawLimit?: number; perGroup?: number },
+    abort?: AbortSignal
+  ): Promise<ThematicResult> {
+    await this.ensureInitialized()
+    const rootDir = this.resolveRootDir()
+    const { SenseGrepSurveyTool, Instance } = await loadCore()
+    const tool = await SenseGrepSurveyTool.init()
+    const result = await Instance.provide({
+      directory: rootDir,
+      fn: () =>
+        tool.execute(
+          {
+            ...this.toThematicParams(query, options),
+            rawLimit: options?.rawLimit,
+            perGroup: options?.perGroup,
+          },
+          {
+            sessionID: "vscode",
+            messageID: "survey",
+            agent: "sensegrep-vscode",
+            abort: abort ?? new AbortController().signal,
+            metadata: () => {},
+          }
+        ),
+    })
+    return this.mapThematicResult(result, "groups")
+  }
+
+  async cluster(
+    query: string,
+    options?: SearchOptions & {
+      rawLimit?: number
+      perCluster?: number
+      clusterThreshold?: number
+      minClusterSize?: number
+    },
+    abort?: AbortSignal
+  ): Promise<ThematicResult> {
+    await this.ensureInitialized()
+    const rootDir = this.resolveRootDir()
+    const { SenseGrepClusterTool, Instance } = await loadCore()
+    const tool = await SenseGrepClusterTool.init()
+    const result = await Instance.provide({
+      directory: rootDir,
+      fn: () =>
+        tool.execute(
+          {
+            ...this.toThematicParams(query, options),
+            rawLimit: options?.rawLimit,
+            perCluster: options?.perCluster,
+            clusterThreshold: options?.clusterThreshold,
+            minClusterSize: options?.minClusterSize,
+          },
+          {
+            sessionID: "vscode",
+            messageID: "cluster",
+            agent: "sensegrep-vscode",
+            abort: abort ?? new AbortController().signal,
+            metadata: () => {},
+          }
+        ),
+    })
+    return this.mapThematicResult(result, "clusters")
+  }
+
+  private toThematicParams(query: string, options?: SearchOptions) {
+    return {
+      query,
+      pattern: options?.pattern,
+      limit: options?.limit,
+      include: options?.include,
+      exclude: options?.exclude,
+      minScore: options?.minScore,
+      symbol: options?.symbol,
+      symbolType: options?.symbolType,
+      language: options?.language as any,
+      parentScope: options?.parentScope,
+      imports: options?.imports,
+      isExported: options?.isExported,
+      minComplexity: options?.minComplexity,
+      maxComplexity: options?.maxComplexity,
+      hasDocumentation: options?.hasDocumentation,
+      variant: options?.variant,
+      decorator: options?.decorator,
+      isAsync: options?.isAsync,
+      isStatic: options?.isStatic,
+      isAbstract: options?.isAbstract,
+      shake: options?.shakeOutput !== false,
+    }
+  }
+
+  private mapThematicResult(result: any, key: "groups" | "clusters"): ThematicResult {
+    const mapGroup = (group: any): ThematicGroup => ({
+      title: String(group?.title ?? "related code"),
+      score: Number(group?.score ?? 0),
+      matches: Number(group?.matches ?? 0),
+      files: Array.isArray(group?.files) ? group.files.map(String) : [],
+      imports: Array.isArray(group?.imports) ? group.imports.map(String) : undefined,
+      symbols: Array.isArray(group?.symbols) ? group.symbols.map(String) : undefined,
+      domains: Array.isArray(group?.domains) ? group.domains.map(String) : undefined,
+      symbolTypes: Array.isArray(group?.symbolTypes) ? group.symbolTypes.map(String) : undefined,
+      results: Array.isArray(group?.results)
+        ? group.results.map((entry: any) => this.mapStructuredSearchResult(entry))
+        : [],
+    })
+    const mapped = Array.isArray(result?.[key]) ? result[key].map(mapGroup) : []
+    return {
+      title: String(result?.title ?? ""),
+      metadata: result?.metadata && typeof result.metadata === "object" ? result.metadata : {},
+      output: String(result?.output ?? ""),
+      [key]: mapped,
+    }
+  }
+
+  private applyIndexOptions(Indexer: { setIndexOptions?: (options: { includeDocs?: boolean; includeConfig?: boolean }) => void }) {
+    const config = vscode.workspace.getConfiguration("sensegrep")
+    Indexer.setIndexOptions?.({
+      includeDocs: config.get<boolean>("includeDocs") ?? false,
+      includeConfig: config.get<boolean>("includeConfig") ?? false,
+    })
   }
 
   async stopIndexWatcher(): Promise<void> {

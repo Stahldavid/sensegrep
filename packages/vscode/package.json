@@ -3,7 +3,7 @@
   "private": true,
   "displayName": "Sensegrep",
   "description": "Semantic + structural code search with AI-powered duplicate detection",
-  "version": "0.1.24",
+  "version": "0.1.27",
   "publisher": "sensegrep",
   "license": "Apache-2.0",
   "icon": "resources/icon.png",
@@ -40,13 +40,37 @@
     "ai agents"
   ],
   "activationEvents": [
-    "workspaceContains:**/*.ts",
-    "workspaceContains:**/*.tsx",
-    "workspaceContains:**/*.js",
-    "workspaceContains:**/*.jsx",
-    "workspaceContains:**/*.py",
-    "workspaceContains:**/*.java",
-    "workspaceContains:**/*.vue"
+    "onView:sensegrep.search",
+    "onView:sensegrep.results",
+    "onView:sensegrep.duplicates",
+    "onView:sensegrep.history",
+    "onCommand:sensegrep.search",
+    "onCommand:sensegrep.searchAdvanced",
+    "onCommand:sensegrep.survey",
+    "onCommand:sensegrep.cluster",
+    "onCommand:sensegrep.searchSelection",
+    "onCommand:sensegrep.saveSearch",
+    "onCommand:sensegrep.detectDuplicates",
+    "onCommand:sensegrep.indexProject",
+    "onCommand:sensegrep.reindexProject",
+    "onCommand:sensegrep.showStats",
+    "onCommand:sensegrep.verifyIndex",
+    "onCommand:sensegrep.showStatusJson",
+    "onCommand:sensegrep.toggleWatch",
+    "onCommand:sensegrep.openSettings",
+    "onCommand:sensegrep.foldUnrelated",
+    "onCommand:sensegrep.toggleSemanticFolding",
+    "onCommand:sensegrep.setIndexRoot",
+    "onCommand:sensegrep.setApiKey",
+    "onCommand:sensegrep.refreshResults",
+    "onCommand:sensegrep.clearResults",
+    "onCommand:sensegrep.goToResult",
+    "onCommand:sensegrep.openResultToSide",
+    "onCommand:sensegrep.copyResultLocation",
+    "onCommand:sensegrep.exportSearchResults",
+    "onCommand:sensegrep.exportDuplicateResults",
+    "onCommand:sensegrep.editSavedSearchTags",
+    "onCommand:sensegrep.removeSavedSearch"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -62,6 +86,18 @@
         "title": "Semantic Search (Advanced)",
         "category": "Sensegrep",
         "icon": "$(filter)"
+      },
+      {
+        "command": "sensegrep.survey",
+        "title": "Survey Code Domain",
+        "category": "Sensegrep",
+        "icon": "$(map)"
+      },
+      {
+        "command": "sensegrep.cluster",
+        "title": "Cluster Code Theme",
+        "category": "Sensegrep",
+        "icon": "$(type-hierarchy)"
       },
       {
         "command": "sensegrep.searchSelection",
@@ -163,6 +199,16 @@
         "icon": "$(go-to-file)"
       },
       {
+        "command": "sensegrep.openResultToSide",
+        "title": "Open to Side",
+        "icon": "$(split-horizontal)"
+      },
+      {
+        "command": "sensegrep.copyResultLocation",
+        "title": "Copy Location",
+        "icon": "$(copy)"
+      },
+      {
         "command": "sensegrep.exportSearchResults",
         "title": "Export Search Results",
         "category": "Sensegrep",
@@ -226,6 +272,39 @@
         "contents": "No duplicates detected.\n[Detect Duplicates](command:sensegrep.detectDuplicates)"
       }
     ],
+    "walkthroughs": [
+      {
+        "id": "sensegrep.gettingStarted",
+        "title": "Get Started with Sensegrep",
+        "description": "Configure embeddings, index your project, and search code semantically.",
+        "steps": [
+          {
+            "id": "configureEmbeddings",
+            "title": "Configure embeddings",
+            "description": "Use your shared Sensegrep config file or set provider overrides.\n\n[Open Settings](command:sensegrep.openSettings)",
+            "completionEvents": [
+              "onCommand:sensegrep.openSettings"
+            ]
+          },
+          {
+            "id": "indexProject",
+            "title": "Index the project",
+            "description": "Build the semantic index for the selected workspace root.\n\n[Index Project](command:sensegrep.indexProject)",
+            "completionEvents": [
+              "onCommand:sensegrep.indexProject"
+            ]
+          },
+          {
+            "id": "searchCode",
+            "title": "Search semantically",
+            "description": "Find code by behavior, feature, or implementation intent.\n\n[Search Code](command:sensegrep.search)",
+            "completionEvents": [
+              "onCommand:sensegrep.search"
+            ]
+          }
+        ]
+      }
+    ],
     "menus": {
       "view/title": [
         {
@@ -259,7 +338,17 @@
           "group": "navigation"
         }
       ],
-      "view/item": [
+      "view/item/context": [
+        {
+          "command": "sensegrep.openResultToSide",
+          "when": "view == sensegrep.results && viewItem == searchResultItem",
+          "group": "inline"
+        },
+        {
+          "command": "sensegrep.copyResultLocation",
+          "when": "view == sensegrep.results && viewItem == searchResultItem",
+          "group": "inline"
+        },
         {
           "command": "sensegrep.saveSearch",
           "when": "view == sensegrep.history && viewItem == recentSearchItem",
@@ -290,6 +379,14 @@
         },
         {
           "command": "sensegrep.searchAdvanced",
+          "when": "workspaceFolderCount > 0"
+        },
+        {
+          "command": "sensegrep.survey",
+          "when": "workspaceFolderCount > 0"
+        },
+        {
+          "command": "sensegrep.cluster",
           "when": "workspaceFolderCount > 0"
         },
         {
@@ -334,42 +431,43 @@
         }
       ]
     },
-    "keybindings": [
-      {
-        "command": "sensegrep.search",
-        "key": "ctrl+shift+s",
-        "mac": "cmd+shift+s",
-        "when": "workspaceFolderCount > 0"
-      },
-      {
-        "command": "sensegrep.searchSelection",
-        "key": "ctrl+shift+f",
-        "mac": "cmd+shift+f",
-        "when": "editorHasSelection"
-      }
-    ],
     "configuration": {
       "title": "Sensegrep",
       "properties": {
         "sensegrep.autoIndex": {
           "type": "boolean",
-          "default": true,
-          "description": "Automatically index project on startup"
+          "default": false,
+          "scope": "resource",
+          "description": "Automatically index the project when Sensegrep activates"
         },
         "sensegrep.watchMode": {
           "type": "boolean",
           "default": true,
+          "scope": "resource",
           "description": "Watch for file changes and reindex automatically"
         },
         "sensegrep.watchIntervalMs": {
           "type": "number",
           "default": 60000,
+          "scope": "resource",
           "description": "Minimum interval between auto-reindexing (ms)"
+        },
+        "sensegrep.includeDocs": {
+          "type": "boolean",
+          "default": false,
+          "scope": "resource",
+          "description": "Include Markdown and documentation files in the semantic index"
+        },
+        "sensegrep.includeConfig": {
+          "type": "boolean",
+          "default": false,
+          "scope": "resource",
+          "description": "Include JSON, YAML, and TOML config files in the semantic index"
         },
         "sensegrep.showCodeLens": {
           "type": "boolean",
           "default": true,
-          "description": "Show CodeLens with similarity info and complexity"
+          "description": "Show Find Similar CodeLens on functions and methods"
         },
         "sensegrep.showDiagnostics": {
           "type": "boolean",
@@ -386,6 +484,7 @@
           "default": 0.85,
           "minimum": 0.5,
           "maximum": 1,
+          "scope": "resource",
           "description": "Minimum similarity threshold for duplicate detection (0.5-1.0)"
         },
         "sensegrep.defaultSymbolTypes": {
@@ -394,6 +493,7 @@
             "function",
             "method"
           ],
+          "scope": "resource",
           "items": {
             "type": "string"
           },
@@ -406,6 +506,7 @@
             "*.spec.ts",
             "**/__tests__/**"
           ],
+          "scope": "resource",
           "items": {
             "type": "string"
           },
@@ -414,11 +515,13 @@
         "sensegrep.maxResultsPerFile": {
           "type": "number",
           "default": 3,
+          "scope": "resource",
           "description": "Maximum results per file"
         },
         "sensegrep.indexRoot": {
           "type": "string",
           "default": "",
+          "scope": "resource",
           "description": "Override root folder used for indexing/search (share index with CLI/MCP)"
         },
         "sensegrep.logLevel": {
@@ -435,27 +538,39 @@
         "sensegrep.embeddings.provider": {
           "type": "string",
           "enum": [
+            "config",
             "gemini",
             "openai",
             "bedrock"
           ],
-          "default": "gemini",
-          "description": "Remote embeddings provider"
+          "enumDescriptions": [
+            "Read ~/.config/sensegrep/config.json and environment variables.",
+            "Use Gemini embeddings with the Gemini API key stored in VS Code secrets or environment.",
+            "Use an OpenAI-compatible embeddings API such as LM Studio.",
+            "Use Amazon Bedrock embeddings through config or environment credentials."
+          ],
+          "default": "config",
+          "description": "Remote embeddings provider. Use config to read ~/.config/sensegrep/config.json and environment variables"
         },
         "sensegrep.embeddings.model": {
           "type": "string",
-          "default": "gemini-embedding-001",
-          "description": "Embedding model name"
+          "default": "",
+          "description": "Embedding model name. Leave empty to use ~/.config/sensegrep/config.json"
         },
         "sensegrep.embeddings.dimension": {
           "type": "number",
-          "default": 768,
-          "description": "Embedding dimension"
+          "default": 0,
+          "description": "Embedding dimension. Leave 0 to use ~/.config/sensegrep/config.json"
         },
         "sensegrep.embeddings.baseUrl": {
           "type": "string",
           "default": "",
           "description": "OpenAI-compatible API base URL (e.g. http://127.0.0.1:1234/v1 for LM Studio). Leave empty to use ~/.config/sensegrep/config.json"
+        },
+        "sensegrep.embeddings.region": {
+          "type": "string",
+          "default": "",
+          "description": "Amazon Bedrock region. Leave empty to use ~/.config/sensegrep/config.json or environment variables"
         },
         "sensegrep.embeddings.apiKey": {
           "type": "string",
@@ -475,20 +590,25 @@
     "build": "node build.js",
     "dev": "node build.js --watch",
     "package": "vsce package --no-dependencies --skip-license",
+    "package:win32-x64": "vsce package --target win32-x64 --no-dependencies --skip-license",
+    "package:linux-x64": "vsce package --target linux-x64 --no-dependencies --skip-license",
+    "package:darwin-x64": "vsce package --target darwin-x64 --no-dependencies --skip-license",
+    "package:darwin-arm64": "vsce package --target darwin-arm64 --no-dependencies --skip-license",
     "publish": "vsce publish --no-dependencies --skip-license",
     "check": "npm run lint",
     "lint": "tsc --noEmit",
-    "test": "echo \"No tests yet\""
+    "test": "node test/run-tests.cjs"
   },
   "devDependencies": {
     "@types/node": "^20.19.27",
     "@types/vscode": "^1.85.0",
+    "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^2.32.0",
     "esbuild": "^0.27.2",
     "picomatch": "^4.0.4",
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@sensegrep/core": "^1.6.0"
+    "@sensegrep/core": "^1.6.1"
   }
 }

@@ -1,5 +1,11 @@
 # @sensegrep/core
 
+## 1.6.1
+
+### Patch Changes
+
+- Fix TypeScript class chunking so methods inside small and exported classes are indexed with `parentScope` metadata, allowing `--parent` filters to match class methods reliably.
+
 ## 1.6.0
 
 ### Minor Changes

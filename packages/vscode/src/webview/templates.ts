@@ -470,6 +470,12 @@ export function getSearchViewHtml(
       <button id="searchBtn" class="btn btn-primary">
         🔍 Search
       </button>
+      <button id="surveyBtn" class="btn btn-secondary">
+        🗺️ Survey
+      </button>
+      <button id="clusterBtn" class="btn btn-secondary">
+        🧩 Cluster
+      </button>
       <button id="saveSearchBtn" class="btn btn-secondary">
         ⭐ Save
       </button>
@@ -489,10 +495,9 @@ export function getSearchViewHtml(
             <option value="function">Function</option>
             <option value="method">Method</option>
             <option value="class">Class</option>
-            <option value="interface">Interface</option>
-            <option value="type">Type</option>
+            <option value="type">Interface / Type</option>
             <option value="variable">Variable</option>
-            <option value="namespace">Namespace</option>
+            <option value="module">Namespace / Module</option>
             <option value="enum">Enum</option>
           </select>
         </div>
@@ -658,6 +663,8 @@ export function getSearchViewHtml(
     // Elements
     const searchInput = document.getElementById('searchInput');
     const searchBtn = document.getElementById('searchBtn');
+    const surveyBtn = document.getElementById('surveyBtn');
+    const clusterBtn = document.getElementById('clusterBtn');
     const saveSearchBtn = document.getElementById('saveSearchBtn');
     const symbolType = document.getElementById('symbolType');
     const symbolName = document.getElementById('symbolName');
@@ -705,9 +712,41 @@ export function getSearchViewHtml(
       variants: [],
       decorators: []
     };
+    let persistedState = vscode.getState() || {};
     
     // Event Listeners
     searchBtn.addEventListener('click', performSearch);
+    surveyBtn.addEventListener('click', () => performThematic('survey'));
+    clusterBtn.addEventListener('click', () => performThematic('cluster'));
+    [
+      searchInput,
+      symbolType,
+      symbolName,
+      language,
+      parentScope,
+      imports,
+      includePattern,
+      excludePattern,
+      pattern,
+      minScore,
+      maxResults,
+      maxPerFile,
+      maxPerSymbol,
+      minComplexity,
+      maxComplexity,
+      variant,
+      decorator,
+      isAsync,
+      isStatic,
+      isAbstract,
+      exportedOnly,
+      hasDocumentation,
+      enableRerank,
+      shakeOutput
+    ].forEach((element) => {
+      element.addEventListener('input', saveState);
+      element.addEventListener('change', saveState);
+    });
     searchInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') performSearch();
     });
@@ -741,6 +780,7 @@ export function getSearchViewHtml(
       hasDocumentation.checked = false;
       enableRerank.checked = false;
       shakeOutput.checked = false;
+      saveState();
     });
     
     setApiKeyLink.addEventListener('click', (e) => {
@@ -781,6 +821,16 @@ export function getSearchViewHtml(
       });
     }
 
+    function performThematic(type) {
+      const query = searchInput.value.trim();
+      if (!query) return;
+      vscode.postMessage({
+        type,
+        query,
+        options: collectOptions()
+      });
+    }
+
     function collectOptions() {
       return {
         symbolType: symbolType.value || undefined,
@@ -807,6 +857,44 @@ export function getSearchViewHtml(
         rerank: enableRerank.checked,
         shakeOutput: shakeOutput.checked
       };
+    }
+
+    function saveState() {
+      persistedState = {
+        query: searchInput.value,
+        options: collectOptions()
+      };
+      vscode.setState(persistedState);
+    }
+
+    function restoreState() {
+      if (!persistedState) return;
+      const options = persistedState.options || {};
+      if (persistedState.query) searchInput.value = persistedState.query;
+      symbolType.value = options.symbolType || '';
+      symbolName.value = options.symbol || '';
+      language.value = options.language || '';
+      parentScope.value = options.parentScope || '';
+      imports.value = options.imports || '';
+      includePattern.value = options.include || '';
+      excludePattern.value = options.exclude || '';
+      pattern.value = options.pattern || '';
+      maxResults.value = options.limit ? String(options.limit) : '20';
+      minScore.value = options.minScore !== undefined ? String(options.minScore) : '';
+      maxPerFile.value = options.maxPerFile !== undefined ? String(options.maxPerFile) : '';
+      maxPerSymbol.value = options.maxPerSymbol !== undefined ? String(options.maxPerSymbol) : '';
+      minComplexity.value = options.minComplexity !== undefined ? String(options.minComplexity) : '';
+      maxComplexity.value = options.maxComplexity !== undefined ? String(options.maxComplexity) : '';
+      variant.value = options.variant || '';
+      decorator.value = options.decorator || '';
+      isAsync.checked = options.isAsync === true;
+      isStatic.checked = options.isStatic === true;
+      isAbstract.checked = options.isAbstract === true;
+      exportedOnly.checked = options.isExported === true;
+      hasDocumentation.checked = options.hasDocumentation === true;
+      enableRerank.checked = options.rerank === true;
+      shakeOutput.checked = options.shakeOutput === true;
+      updateVariantDecoratorLists();
     }
     
     function showLoading() {
@@ -1005,6 +1093,7 @@ export function getSearchViewHtml(
 
       // Update variant/decorator lists for current language
       updateVariantDecoratorLists();
+      restoreState();
     }
 
     function updateVariantDecoratorLists() {
@@ -1089,6 +1178,7 @@ export function getSearchViewHtml(
     });
     
     // Request language capabilities on load
+    restoreState();
     vscode.postMessage({ type: 'getCapabilities' });
 
     // Expose function globally
@@ -1462,6 +1552,17 @@ export function getDuplicatesViewHtml(
           </select>
         </div>
         <div class="filter-group">
+          <label>Language</label>
+          <select id="dupLanguage">
+            <option value="">All</option>
+            <option value="typescript">TypeScript</option>
+            <option value="javascript">JavaScript</option>
+            <option value="python">Python</option>
+            <option value="java">Java</option>
+            <option value="vue">Vue</option>
+          </select>
+        </div>
+        <div class="filter-group">
           <label>Min Lines</label>
           <input type="number" id="dupMinLines" value="10" min="1">
         </div>
@@ -1477,6 +1578,10 @@ export function getDuplicatesViewHtml(
           <label>Top N</label>
           <input type="number" id="dupLimit" placeholder="all" min="1">
         </div>
+        <div class="filter-group">
+          <label>Max Candidates</label>
+          <input type="number" id="dupMaxCandidates" placeholder="1500" min="50">
+        </div>
         <div class="filter-group filter-checkboxes">
           <label>Options</label>
           <label class="checkbox-item">
@@ -1486,6 +1591,10 @@ export function getDuplicatesViewHtml(
           <label class="checkbox-item">
             <input type="checkbox" id="dupCrossFileOnly">
             Cross-file only
+          </label>
+          <label class="checkbox-item">
+            <input type="checkbox" id="dupCrossLanguage">
+            Cross-language
           </label>
           <label class="checkbox-item">
             <input type="checkbox" id="dupOnlyExported">
@@ -1556,12 +1665,15 @@ export function getDuplicatesViewHtml(
 
     const dupThreshold = document.getElementById('dupThreshold');
     const dupScope = document.getElementById('dupScope');
+    const dupLanguage = document.getElementById('dupLanguage');
     const dupMinLines = document.getElementById('dupMinLines');
     const dupMinComplexity = document.getElementById('dupMinComplexity');       
     const dupExcludePattern = document.getElementById('dupExcludePattern');     
     const dupLimit = document.getElementById('dupLimit');
+    const dupMaxCandidates = document.getElementById('dupMaxCandidates');
     const dupIgnoreTests = document.getElementById('dupIgnoreTests');
     const dupCrossFileOnly = document.getElementById('dupCrossFileOnly');       
+    const dupCrossLanguage = document.getElementById('dupCrossLanguage');
     const dupOnlyExported = document.getElementById('dupOnlyExported');
     const dupNormalizeIdentifiers = document.getElementById('dupNormalizeIdentifiers');
     const dupRankByImpact = document.getElementById('dupRankByImpact');
@@ -1570,16 +1682,44 @@ export function getDuplicatesViewHtml(
     const dupShowCode = document.getElementById('dupShowCode');
     const dupFullCode = document.getElementById('dupFullCode');
     const resetDuplicateFilters = document.getElementById('resetDuplicateFilters');
+    let duplicateState = vscode.getState() || {};
+
+    [
+      dupThreshold,
+      dupScope,
+      dupLanguage,
+      dupMinLines,
+      dupMinComplexity,
+      dupExcludePattern,
+      dupLimit,
+      dupMaxCandidates,
+      dupIgnoreTests,
+      dupCrossFileOnly,
+      dupCrossLanguage,
+      dupOnlyExported,
+      dupNormalizeIdentifiers,
+      dupRankByImpact,
+      dupIgnoreAcceptable,
+      dupShowAcceptable,
+      dupShowCode,
+      dupFullCode
+    ].forEach((element) => {
+      element.addEventListener('input', saveDuplicateState);
+      element.addEventListener('change', saveDuplicateState);
+    });
 
     resetDuplicateFilters.addEventListener('click', () => {
       dupThreshold.value = '0.85';
       dupScope.value = '';
+      dupLanguage.value = '';
       dupMinLines.value = '10';
       dupMinComplexity.value = '0';
       dupExcludePattern.value = '';
       dupLimit.value = '';
+      dupMaxCandidates.value = '';
       dupIgnoreTests.checked = true;
       dupCrossFileOnly.checked = false;
+      dupCrossLanguage.checked = false;
       dupOnlyExported.checked = false;
       dupNormalizeIdentifiers.checked = true;
       dupRankByImpact.checked = true;
@@ -1587,35 +1727,72 @@ export function getDuplicatesViewHtml(
       dupShowAcceptable.checked = true;
       dupShowCode.checked = false;
       dupFullCode.checked = false;
+      saveDuplicateState();
     });
+
+    function collectDuplicateOptions() {
+      const wantsFull = dupFullCode.checked;
+      const wantsCode = wantsFull || dupShowCode.checked;
+      return {
+        threshold: dupThreshold.value ? parseFloat(dupThreshold.value) : undefined,
+        scope: dupScope.value || undefined,
+        language: dupLanguage.value || undefined,
+        minLines: dupMinLines.value ? parseInt(dupMinLines.value) : undefined,
+        minComplexity: dupMinComplexity.value ? parseInt(dupMinComplexity.value) : undefined,
+        excludePattern: dupExcludePattern.value || undefined,
+        limit: dupLimit.value ? parseInt(dupLimit.value) : undefined,
+        maxCandidates: dupMaxCandidates.value ? parseInt(dupMaxCandidates.value) : undefined,
+        ignoreTests: dupIgnoreTests.checked,
+        crossFileOnly: dupCrossFileOnly.checked,
+        crossLanguage: dupCrossLanguage.checked,
+        onlyExported: dupOnlyExported.checked,
+        normalizeIdentifiers: dupNormalizeIdentifiers.checked,
+        rankByImpact: dupRankByImpact.checked,
+        ignoreAcceptablePatterns: dupIgnoreAcceptable.checked,
+        showAcceptable: dupShowAcceptable.checked,
+        showCode: wantsCode,
+        fullCode: wantsFull,
+      };
+    }
+
+    function saveDuplicateState() {
+      duplicateState = { options: collectDuplicateOptions() };
+      vscode.setState(duplicateState);
+    }
+
+    function restoreDuplicateState() {
+      const options = duplicateState.options || {};
+      dupThreshold.value = options.threshold !== undefined ? String(options.threshold) : '0.85';
+      dupScope.value = options.scope || '';
+      dupLanguage.value = options.language || '';
+      dupMinLines.value = options.minLines !== undefined ? String(options.minLines) : '10';
+      dupMinComplexity.value = options.minComplexity !== undefined ? String(options.minComplexity) : '0';
+      dupExcludePattern.value = options.excludePattern || '';
+      dupLimit.value = options.limit !== undefined ? String(options.limit) : '';
+      dupMaxCandidates.value = options.maxCandidates !== undefined ? String(options.maxCandidates) : '';
+      dupIgnoreTests.checked = options.ignoreTests !== false;
+      dupCrossFileOnly.checked = options.crossFileOnly === true;
+      dupCrossLanguage.checked = options.crossLanguage === true;
+      dupOnlyExported.checked = options.onlyExported === true;
+      dupNormalizeIdentifiers.checked = options.normalizeIdentifiers !== false;
+      dupRankByImpact.checked = options.rankByImpact !== false;
+      dupIgnoreAcceptable.checked = options.ignoreAcceptablePatterns === true;
+      dupShowAcceptable.checked = options.showAcceptable !== false;
+      dupShowCode.checked = options.showCode === true;
+      dupFullCode.checked = options.fullCode === true;
+    }
 
     analyzeBtn.addEventListener('click', () => {
       loadingState.classList.remove('hidden');
       emptyState.classList.add('hidden');
       resultsContainer.classList.add('hidden');
-      const wantsFull = dupFullCode.checked;
-      const wantsCode = wantsFull || dupShowCode.checked;
       vscode.postMessage({
         type: 'analyze',
-        options: {
-          threshold: dupThreshold.value ? parseFloat(dupThreshold.value) : undefined,
-          scope: dupScope.value || undefined,
-          minLines: dupMinLines.value ? parseInt(dupMinLines.value) : undefined,
-          minComplexity: dupMinComplexity.value ? parseInt(dupMinComplexity.value) : undefined,
-          excludePattern: dupExcludePattern.value || undefined,
-          limit: dupLimit.value ? parseInt(dupLimit.value) : undefined,
-          ignoreTests: dupIgnoreTests.checked,
-          crossFileOnly: dupCrossFileOnly.checked,
-          onlyExported: dupOnlyExported.checked,
-          normalizeIdentifiers: dupNormalizeIdentifiers.checked,
-          rankByImpact: dupRankByImpact.checked,
-          ignoreAcceptablePatterns: dupIgnoreAcceptable.checked,
-          showAcceptable: dupShowAcceptable.checked,
-          showCode: wantsCode,
-          fullCode: wantsFull,
-        },
+        options: collectDuplicateOptions(),
       });
     });
+
+    restoreDuplicateState();
     
     function showResults(data, options) {
       loadingState.classList.add('hidden');
@@ -1650,11 +1827,14 @@ export function getDuplicatesViewHtml(
         </div>
       \`;
 
+      const notes = [];
       if (data.display && data.display.limit && data.display.total > data.display.shown) {
-        summaryNote.textContent = \`Showing top \${data.display.shown} of \${data.display.total} duplicate groups\`;
-      } else {
-        summaryNote.textContent = '';
+        notes.push(\`Showing top \${data.display.shown} of \${data.display.total} duplicate groups\`);
       }
+      if (data.summary && data.summary.truncated) {
+        notes.push(\`Candidate analysis truncated: \${data.summary.analyzedCandidates || '?'} of \${data.summary.candidates || '?'} candidates analyzed\`);
+      }
+      summaryNote.textContent = notes.join(' · ');
 
       const wantsFull = options && options.fullCode;
       const wantsCode = (options && options.showCode) || wantsFull;
@@ -1744,8 +1924,22 @@ export function getSettingsViewHtml(
   webview: { cspSource: string },
   nonce: string,
   currentApiKey: string | undefined,
-  provider: string
+  provider: string,
+  settings: {
+    model?: string
+    dimension?: number
+    baseUrl?: string
+    region?: string
+    apiKey?: string
+  } = {}
 ): string {
+  const attr = (value: unknown) =>
+    String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1919,11 +2113,45 @@ export function getSettingsViewHtml(
     <div class="field">
       <label>Provider</label>
       <select id="provider">
+        <option value="config" ${provider === 'config' ? 'selected' : ''}>Config file / environment</option>
         <option value="gemini" ${provider === 'gemini' ? 'selected' : ''}>Gemini (cloud)</option>
-        <option value="openai" ${provider === 'openai' ? 'selected' : ''}>OpenAI-compatible (cloud)</option>
-        <option value="bedrock" ${provider === 'bedrock' ? 'selected' : ''}>Amazon Bedrock (AWS)</option>
+        <option value="openai" ${provider === 'openai' ? 'selected' : ''}>OpenAI-compatible</option>
+        <option value="bedrock" ${provider === 'bedrock' ? 'selected' : ''}>Amazon Bedrock</option>
       </select>
-      <div class="hint">Use a remote embeddings API. Gemini has built-in key management here; OpenAI-compatible uses environment variables; Bedrock uses your AWS credentials and region configuration.</div>
+      <div class="hint">Use Config file / environment for ~/.config/sensegrep/config.json, LM Studio, Bedrock API keys, or environment variables. Gemini has built-in key management here.</div>
+    </div>
+
+    <div class="field">
+      <label>Embedding Model</label>
+      <input type="text" id="embeddingModel" placeholder="e.g. text-embedding-jina-embeddings-v2-base-code" value="${attr(settings.model)}">
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label>Dimension</label>
+        <input type="number" id="embeddingDimension" min="0" placeholder="0 = config default" value="${settings.dimension ? attr(settings.dimension) : ''}">
+      </div>
+      <div class="field">
+        <label>Bedrock Region</label>
+        <input type="text" id="embeddingRegion" placeholder="us-east-1" value="${attr(settings.region)}">
+      </div>
+    </div>
+
+    <div class="field">
+      <label>OpenAI-compatible Base URL</label>
+      <input type="text" id="embeddingBaseUrl" placeholder="http://127.0.0.1:1234/v1" value="${attr(settings.baseUrl)}">
+    </div>
+
+    <div class="field">
+      <label>Provider API Key</label>
+      <input type="password" id="embeddingApiKey" placeholder="Optional; config/env preferred" value="${attr(settings.apiKey)}">
+      <div class="hint">For long-lived credentials, prefer ~/.config/sensegrep/config.json or environment variables.</div>
+    </div>
+
+    <div class="btn-group">
+      <button id="saveEmbeddingSettings" class="btn btn-primary">💾 Save Embeddings</button>
+      <button id="openConfig" class="btn">📄 Open config.json</button>
+      <button id="testEmbeddings" class="btn">🧪 Test Embeddings</button>
     </div>
   </div>
   
@@ -1935,6 +2163,14 @@ export function getSettingsViewHtml(
     const clearApiKeyBtn = document.getElementById('clearApiKey');
     const apiKeyStatus = document.getElementById('apiKeyStatus');
     const providerSelect = document.getElementById('provider');
+    const embeddingModel = document.getElementById('embeddingModel');
+    const embeddingDimension = document.getElementById('embeddingDimension');
+    const embeddingRegion = document.getElementById('embeddingRegion');
+    const embeddingBaseUrl = document.getElementById('embeddingBaseUrl');
+    const embeddingApiKey = document.getElementById('embeddingApiKey');
+    const saveEmbeddingSettingsBtn = document.getElementById('saveEmbeddingSettings');
+    const openConfigBtn = document.getElementById('openConfig');
+    const testEmbeddingsBtn = document.getElementById('testEmbeddings');
     
     saveApiKeyBtn.addEventListener('click', () => {
       const key = apiKeyInput.value.trim();
@@ -1951,6 +2187,26 @@ export function getSettingsViewHtml(
     
     providerSelect.addEventListener('change', () => {
       vscode.postMessage({ type: 'setProvider', provider: providerSelect.value });
+    });
+
+    saveEmbeddingSettingsBtn.addEventListener('click', () => {
+      vscode.postMessage({
+        type: 'saveEmbeddingSettings',
+        model: embeddingModel.value.trim(),
+        dimension: embeddingDimension.value ? parseInt(embeddingDimension.value, 10) : 0,
+        region: embeddingRegion.value.trim(),
+        baseUrl: embeddingBaseUrl.value.trim(),
+        apiKey: embeddingApiKey.value.trim(),
+      });
+    });
+
+    openConfigBtn.addEventListener('click', () => {
+      vscode.postMessage({ type: 'openConfig' });
+    });
+
+    testEmbeddingsBtn.addEventListener('click', () => {
+      showStatus('Testing embeddings...', 'warning');
+      vscode.postMessage({ type: 'testEmbeddings' });
     });
     
     function showStatus(message, type) {
@@ -1975,6 +2231,23 @@ export function getSettingsViewHtml(
           break;
         case 'providerChanged':
           showStatus('Provider changed to ' + message.provider, 'success');
+          break;
+        case 'embeddingSettingsSaved':
+          showStatus('Embedding settings saved', 'success');
+          break;
+        case 'embeddingTestResult':
+          showStatus(
+            'Embedding test OK: ' +
+              (message.result.provider || 'provider') +
+              ' / ' +
+              (message.result.model || 'model') +
+              ' / vector ' +
+              message.result.vectorLength,
+            'success'
+          );
+          break;
+        case 'embeddingTestError':
+          showStatus('Embedding test failed: ' + message.message, 'warning');
           break;
       }
     });

@@ -47,6 +47,18 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
         case "search":
           await this.performSearch(message.query, message.options ?? message.filters ?? {})
           break
+        case "survey":
+          await vscode.commands.executeCommand("sensegrep.survey", {
+            query: message.query,
+            options: message.options ?? message.filters ?? {},
+          })
+          break
+        case "cluster":
+          await vscode.commands.executeCommand("sensegrep.cluster", {
+            query: message.query,
+            options: message.options ?? message.filters ?? {},
+          })
+          break
         case "saveSearch":
           await this.saveSearch(message.query, message.options ?? {})
           break
@@ -140,7 +152,7 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
         symbolType: parseSymbolType(filters.symbolType),
       }
 
-      const results = await this.core.search(query, {
+      const searchOptions: SearchOptions = {
         symbolType: normalizedFilters.symbolType,
         symbol: normalizedFilters.symbol,
         language: normalizedFilters.language,
@@ -159,13 +171,24 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
         maxComplexity: normalizedFilters.maxComplexity,
         rerank: normalizedFilters.rerank,
         shakeOutput: normalizedFilters.shakeOutput,
-        // Multilingual support fields
         variant: normalizedFilters.variant,
         decorator: normalizedFilters.decorator,
         isAsync: normalizedFilters.isAsync,
         isStatic: normalizedFilters.isStatic,
         isAbstract: normalizedFilters.isAbstract,
-      })
+      }
+      const results = await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: "Sensegrep: Searching",
+          cancellable: true,
+        },
+        async (_progress, token) => {
+          const controller = new AbortController()
+          token.onCancellationRequested(() => controller.abort())
+          return await this.core.search(query, searchOptions, controller.signal)
+        }
+      )
 
       this.resultsProvider.setResults(results, query)
       this.historyProvider.addSearch(query, {

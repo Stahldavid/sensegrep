@@ -11,7 +11,15 @@ export class DuplicatesViewProvider implements vscode.WebviewViewProvider {
   private lastDuplicates: DuplicateGroup[] = []
   private lastAcceptable: DuplicateGroup[] = []
   private lastSummary:
-    | { totalDuplicates: number; byLevel: Record<string, number>; totalSavings: number; filesAffected: number }
+    | {
+      totalDuplicates: number
+      byLevel: Record<string, number>
+      totalSavings: number
+      filesAffected: number
+      candidates?: number
+      analyzedCandidates?: number
+      truncated?: boolean
+    }
     | null = null
   private lastDisplayOptions: {
     limit?: number
@@ -69,6 +77,9 @@ export class DuplicatesViewProvider implements vscode.WebviewViewProvider {
     normalizeIdentifiers?: boolean
     rankByImpact?: boolean
     ignoreAcceptablePatterns?: boolean
+    crossLanguage?: boolean
+    language?: string
+    maxCandidates?: number
     limit?: number
     showCode?: boolean
     fullCode?: boolean
@@ -128,7 +139,15 @@ export class DuplicatesViewProvider implements vscode.WebviewViewProvider {
 
   async showResults(
     duplicates: DuplicateGroup[],
-    summary: { totalDuplicates: number; byLevel: Record<string, number>; totalSavings: number; filesAffected: number },
+    summary: {
+      totalDuplicates: number
+      byLevel: Record<string, number>
+      totalSavings: number
+      filesAffected: number
+      candidates?: number
+      analyzedCandidates?: number
+      truncated?: boolean
+    },
     acceptableDuplicates: DuplicateGroup[] = []
   ) {
     this.lastDuplicates = duplicates

@@ -6,14 +6,16 @@ Search your codebase by meaning, not just text. Sensegrep uses AI embeddings and
 
 ## Features
 
-- **Semantic Search** - Natural language queries to find relevant code (`Ctrl+Shift+S`)
-- **Find Similar Code** - Select code and find similar patterns across your project (`Ctrl+Shift+F`)
+- **Semantic Search** - Natural language queries to find relevant code
+- **Survey & Cluster** - Map a code domain or split a broad theme into related subtopics
+- **Find Similar Code** - Select code and find similar patterns across your project
 - **Duplicate Detection** - AI-powered detection of logical duplicates with impact scoring
 - **Structural Filters** - Filter by symbol type, exports, async, complexity, language, decorators, and more
 - **Tree-Shaking** - Results collapse irrelevant code, showing only what matters
-- **Code Lens** - Inline similarity and complexity info
+- **Code Lens** - Inline Find Similar actions
 - **Auto-Indexing** - Automatic incremental index updates on file changes
 - **Semantic Folding** - Collapse unrelated code when navigating to results
+- **Config-first Embeddings** - Share `~/.config/sensegrep/config.json` with CLI and MCP
 
 ## Supported Languages
 
@@ -26,9 +28,11 @@ Search your codebase by meaning, not just text. Sensegrep uses AI embeddings and
 
 | Command | Shortcut | Description |
 |---------|----------|-------------|
-| Sensegrep: Semantic Search | `Ctrl+Shift+S` | Open semantic search |
-| Sensegrep: Find Similar Code | `Ctrl+Shift+F` | Find code similar to selection |
+| Sensegrep: Semantic Search | - | Open semantic search |
+| Sensegrep: Find Similar Code | - | Find code similar to selection |
 | Sensegrep: Semantic Search (Advanced) | - | Search with all filter options |
+| Sensegrep: Survey Code Domain | - | Group semantically related hits into reading domains |
+| Sensegrep: Cluster Code Theme | - | Decompose a broad query into coherent subthemes |
 | Sensegrep: Detect Duplicates | - | Analyze project for logical duplicates |
 | Sensegrep: Index Project | - | Incremental index update |
 | Sensegrep: Reindex Project (Full) | - | Full reindex from scratch |
@@ -42,27 +46,54 @@ Search your codebase by meaning, not just text. Sensegrep uses AI embeddings and
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `sensegrep.autoIndex` | `true` | Index project on startup |
+| `sensegrep.autoIndex` | `false` | Index project when Sensegrep activates |
 | `sensegrep.watchMode` | `true` | Auto-reindex on file changes |
 | `sensegrep.watchIntervalMs` | `60000` | Min interval between reindexing (ms) |
-| `sensegrep.showCodeLens` | `true` | Show inline similarity/complexity info |
+| `sensegrep.includeDocs` | `false` | Include Markdown/documentation files in the index |
+| `sensegrep.includeConfig` | `false` | Include JSON/YAML/TOML config files in the index |
+| `sensegrep.showCodeLens` | `true` | Show inline Find Similar actions |
 | `sensegrep.showDiagnostics` | `true` | Show duplicate warnings in Problems panel |
 | `sensegrep.semanticFolding` | `true` | Collapse unrelated code on navigation |
 | `sensegrep.duplicateThreshold` | `0.85` | Similarity threshold for duplicates |
-| `sensegrep.embeddings.provider` | `gemini` | `gemini`, `openai`, or `bedrock` |
-| `sensegrep.embeddings.model` | `gemini-embedding-001` | Embedding model |
+| `sensegrep.embeddings.provider` | `config` | `config`, `gemini`, `openai`, or `bedrock` |
+| `sensegrep.embeddings.model` | empty | Embedding model override |
 
-### Using Gemini Embeddings
+### Embeddings Configuration
 
-For cloud-based embeddings (recommended):
+By default, the extension uses the same configuration as the CLI/MCP:
 
-1. Get an API key from [Google AI Studio](https://aistudio.google.com/apikey)
-2. Run **Sensegrep: Set Gemini API Key** or set the `GEMINI_API_KEY` env variable
-3. Set `sensegrep.embeddings.provider` to `"gemini"`
+```json
+{
+  "provider": "bedrock",
+  "embedModel": "cohere.embed-v4:0",
+  "embedDim": 1536,
+  "region": "us-east-1"
+}
+```
 
-Why recommended: Gemini generally gives better semantic search quality and handles much larger token contexts than most remote embedding defaults.
+Store it at `~/.config/sensegrep/config.json`, or configure equivalent environment variables.
 
-For Amazon Bedrock, set `sensegrep.embeddings.provider` to `"bedrock"` and configure your AWS credentials plus region through the standard AWS SDK environment/profile flow.
+For LM Studio or another OpenAI-compatible embeddings server, set `provider` to `openai`, `baseUrl` to the server `/v1` endpoint, and `embedModel`/`embedDim` to the running embedding model.
+
+For Gemini, set `sensegrep.embeddings.provider` to `"gemini"` and run **Sensegrep: Set Gemini API Key** or set `GEMINI_API_KEY`.
+
+For Amazon Bedrock, set `provider` to `bedrock` in `config.json` or set `sensegrep.embeddings.provider` to `"bedrock"` and configure credentials/region through the standard Bedrock setup.
+
+## Development
+
+```bash
+npm run check --workspace sensegrep
+npm run build --workspace sensegrep
+npm test --workspace sensegrep
+```
+
+Package a platform-specific VSIX with one of:
+
+```bash
+npm run package:win32-x64 --workspace sensegrep
+npm run package:linux-x64 --workspace sensegrep
+npm run package:darwin-arm64 --workspace sensegrep
+```
 
 ## Requirements
 

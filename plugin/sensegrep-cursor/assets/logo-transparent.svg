@@ -1,0 +1,28 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>Sensegrep logo</title>
+  <g stroke-linecap="butt" stroke-linejoin="round">
+    <path d="M284 106A432 432 0 0 1 534 82" stroke="#8EA7B4" stroke-width="56"/>
+    <path d="M604 95A432 432 0 0 1 822 244" stroke="#A9B9C1" stroke-width="56"/>
+    <path d="M880 332A432 432 0 0 1 876 602" stroke="#8EA7B4" stroke-width="56"/>
+    <path d="M835 692A432 432 0 0 1 620 878" stroke="#6F8DA0" stroke-width="56"/>
+    <path d="M532 918A432 432 0 0 1 260 842" stroke="#8EA7B4" stroke-width="56"/>
+    <path d="M174 772A432 432 0 0 1 88 520" stroke="#A9B9C1" stroke-width="56"/>
+    <path d="M104 424A432 432 0 0 1 220 190" stroke="#8EA7B4" stroke-width="56"/>
+
+    <path d="M294 212A336 336 0 0 1 566 176" stroke="#7898AA" stroke-width="44"/>
+    <path d="M636 202A336 336 0 0 1 800 418" stroke="#C0CDD2" stroke-width="44"/>
+    <path d="M814 496A336 336 0 0 1 690 748" stroke="#7898AA" stroke-width="44"/>
+    <path d="M612 792A336 336 0 0 1 334 760" stroke="#B7C5CB" stroke-width="44"/>
+    <path d="M258 710A336 336 0 0 1 192 438" stroke="#7898AA" stroke-width="44"/>
+
+    <path d="M362 276A260 260 0 0 1 584 258" stroke="#5F7E92" stroke-width="36"/>
+    <path d="M655 296A260 260 0 0 1 750 512" stroke="#9FB4BE" stroke-width="36"/>
+    <path d="M726 604A260 260 0 0 1 520 770" stroke="#5F7E92" stroke-width="36"/>
+    <path d="M426 754A260 260 0 0 1 276 548" stroke="#9FB4BE" stroke-width="36"/>
+
+    <path d="M408 300A176 176 0 0 1 594 312" stroke="#F4AA27" stroke-width="56"/>
+    <path d="M650 368A176 176 0 0 1 660 584" stroke="#F4AA27" stroke-width="56"/>
+    <path d="M602 654A176 176 0 0 1 398 650" stroke="#F4AA27" stroke-width="56"/>
+    <path d="M350 592A176 176 0 0 1 358 380" stroke="#F4AA27" stroke-width="56"/>
+  </g>
+</svg>

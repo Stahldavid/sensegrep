@@ -100,11 +100,13 @@ class ResultItem extends vscode.TreeItem {
         title: "Go to Result",
         arguments: [{ result, query: this.query }],
       }
+      this.contextValue = "searchResultItem"
     } else {
       // File node
       this.description = `${results.length} match${results.length > 1 ? "es" : ""}`
       this.iconPath = vscode.ThemeIcon.File
       this.resourceUri = vscode.Uri.file(results[0]?.file ?? "")
+      this.contextValue = "searchResultFile"
     }
   }
 

@@ -35,12 +35,21 @@ export class SensegrepCodeLensProvider implements vscode.CodeLensProvider {
         ) {
           const range = new vscode.Range(symbol.range.start, symbol.range.start)
 
-          // "Find Similar" CodeLens
+          const symbolType = getSearchSymbolType(symbol.kind)
+          const language = normalizeLanguage(document.languageId)
           codeLenses.push(
             new vscode.CodeLens(range, {
               title: "$(search) Find Similar",
-              command: "sensegrep.searchSelection",
+              command: "sensegrep.executeSearch",
               tooltip: "Find semantically similar code",
+              arguments: [{
+                query: `similar to ${symbol.name}`,
+                options: {
+                  symbol: symbol.name,
+                  symbolType,
+                  language,
+                },
+              }],
             })
           )
         }
@@ -59,5 +68,40 @@ export class SensegrepCodeLensProvider implements vscode.CodeLensProvider {
 
   refresh() {
     this._onDidChangeCodeLenses.fire()
+  }
+}
+
+function getSearchSymbolType(kind: vscode.SymbolKind): string | undefined {
+  switch (kind) {
+    case vscode.SymbolKind.Function:
+      return "function"
+    case vscode.SymbolKind.Method:
+      return "method"
+    case vscode.SymbolKind.Class:
+      return "class"
+    case vscode.SymbolKind.Interface:
+      return "type"
+    case vscode.SymbolKind.Variable:
+    case vscode.SymbolKind.Constant:
+      return "variable"
+    default:
+      return undefined
+  }
+}
+
+function normalizeLanguage(languageId: string): string | undefined {
+  switch (languageId) {
+    case "typescript":
+    case "typescriptreact":
+      return "typescript"
+    case "javascript":
+    case "javascriptreact":
+      return "javascript"
+    case "python":
+    case "java":
+    case "vue":
+      return languageId
+    default:
+      return undefined
   }
 }

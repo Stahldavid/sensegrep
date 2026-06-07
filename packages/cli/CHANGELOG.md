@@ -1,5 +1,14 @@
 # @sensegrep/cli
 
+## 1.6.1
+
+### Patch Changes
+
+- Publish the CLI with `@sensegrep/core@1.6.1`, which fixes TypeScript `--parent` searches for methods inside small and exported classes.
+
+- Updated dependencies []:
+  - @sensegrep/core@1.6.1
+
 ## 1.6.0
 
 ### Minor Changes
