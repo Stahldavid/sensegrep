@@ -16,7 +16,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
-    "prepublishOnly": "node ../../build.js"
+    "prepublishOnly": "npm run build",
+    "postbuild": "node -e \"const fs = require('fs'); const p='dist/server.js'; const s='#!/usr/bin/env node\\n'; const c=fs.readFileSync(p,'utf8'); if (c.startsWith('#!')) { fs.writeFileSync(p, s + c.split(/\\r?\\n/).slice(1).join('\\n')); } else { fs.writeFileSync(p, s + c); }\""
   },
   "engines": {
     "node": ">=18"
@@ -32,7 +33,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Stahldavid/sensegrep.git"
+    "url": "git+https://github.com/Stahldavid/sensegrep.git"
   },
   "homepage": "https://github.com/Stahldavid/sensegrep",
   "bugs": {
