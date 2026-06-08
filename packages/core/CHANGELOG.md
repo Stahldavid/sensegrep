@@ -1,5 +1,11 @@
 # @sensegrep/core
 
+## 1.6.2
+
+### Patch Changes
+
+- Fix TypeScript async metadata in indexed chunks and allow regex pattern fallback to preserve structural filters such as parent scope.
+
 ## 1.6.1
 
 ### Patch Changes

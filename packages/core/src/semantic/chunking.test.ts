@@ -52,5 +52,16 @@ export class GoogleCalendarModel {
       expect.arrayContaining(["syncWebhook", "refreshWatchChannel", "loadChannel"]),
     )
     expect(methodChunks.every((chunk) => chunk.parentScope === "GoogleCalendarModel")).toBe(true)
+    expect(methodChunks.find((chunk) => chunk.symbolName === "syncWebhook")).toMatchObject({
+      isAsync: true,
+      variant: "async",
+    })
+    expect(methodChunks.find((chunk) => chunk.symbolName === "loadChannel")).toMatchObject({
+      isAsync: true,
+      variant: "async",
+    })
+    expect(methodChunks.find((chunk) => chunk.symbolName === "refreshWatchChannel")).toMatchObject({
+      isAsync: false,
+    })
   })
 })

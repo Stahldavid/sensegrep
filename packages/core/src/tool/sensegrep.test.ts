@@ -348,6 +348,89 @@ describe("SenseGrepTool file glob filters", () => {
     expect(result.output).toContain("defineNuxtRouteMiddleware")
   })
 
+  it("falls back to pattern matches while preserving structural filters", async () => {
+    readIndexMeta.mockResolvedValue({
+      embeddings: {
+        provider: "gemini",
+        model: "test-model",
+        dimension: 3,
+      },
+      files: {
+        "convex/model/notification_delivery.ts": {},
+      },
+    })
+
+    search.mockResolvedValue([])
+    spawn.mockImplementationOnce((_command, args: string[]) => {
+      const proc = new EventEmitter() as EventEmitter & {
+        stdout: EventEmitter
+        stderr: EventEmitter
+      }
+      proc.stdout = new EventEmitter()
+      proc.stderr = new EventEmitter()
+
+      queueMicrotask(() => {
+        expect(args).toEqual(expect.arrayContaining(["--regexp", "idempotencyKey|getResend"]))
+        proc.stdout.emit(
+          "data",
+          Buffer.from("convex/model/notification_delivery.ts:8:const idempotencyKey = getResendKey()"),
+        )
+        proc.emit("close", 0)
+      })
+
+      return proc
+    })
+    listDocuments.mockImplementation(async (_collection, options) => {
+      expect(options.filters?.all).toEqual(
+        expect.arrayContaining([
+          { key: "parentScope", operator: "contains", value: "NotificationDeliveryModel" },
+        ]),
+      )
+      const fileFilter = options.filters?.all?.findLast((filter: any) => filter.key === "file")
+      expect(fileFilter?.value).toEqual(expect.arrayContaining(["convex/model/notification_delivery.ts"]))
+
+      return [
+        {
+          id: "convex/model/notification_delivery.ts:sendEmailNotification",
+          content: "async sendEmailNotification() {\n  const idempotencyKey = getResendKey()\n}",
+          metadata: {
+            file: "convex/model/notification_delivery.ts",
+            startLine: 1,
+            endLine: 12,
+            symbolName: "sendEmailNotification",
+            symbolType: "method",
+            parentScope: "NotificationDeliveryModel",
+          },
+          distance: 0,
+        },
+      ]
+    })
+
+    const { SenseGrepTool } = await import("./sensegrep.js")
+    const tool = await SenseGrepTool.init()
+    const result = await tool.execute(
+      {
+        query: "email notification",
+        parentScope: "NotificationDeliveryModel",
+        pattern: "idempotencyKey|getResend",
+        limit: 3,
+        shake: false,
+      },
+      {
+        sessionID: "test",
+        messageID: "test",
+        agent: "vitest",
+        abort: new AbortController().signal,
+        metadata() {},
+      },
+    )
+
+    expect(search).toHaveBeenCalledTimes(1)
+    expect(listDocuments).toHaveBeenCalledTimes(1)
+    expect(result.output).toContain("convex/model/notification_delivery.ts")
+    expect(result.output).toContain("sendEmailNotification")
+  })
+
   it("batches ripgrep file arguments to avoid command length issues", async () => {
     readIndexMeta.mockResolvedValue({
       embeddings: {

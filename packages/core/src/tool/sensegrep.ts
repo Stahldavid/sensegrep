@@ -266,11 +266,16 @@ function pickBestLiteralDocument(
   })[0]
 }
 
-async function collectLiteralFallbackResults(
-  query: string,
+async function collectRipgrepFallbackResults(
+  pattern: string,
   files: string[],
   collection: Awaited<ReturnType<typeof VectorStore.getCollectionUnsafe>>,
   filters: VectorStore.SearchFilters,
+  options?: {
+    caseSensitive?: boolean
+    fixedStrings?: boolean
+    semanticScore?: number
+  },
 ): Promise<
   {
     id: string
@@ -282,7 +287,10 @@ async function collectLiteralFallbackResults(
     metadata: Record<string, string | number | boolean | string[] | undefined>
   }[]
 > {
-  const rgMatches = await runRipgrepOnFiles(query, files, { caseSensitive: true, fixedStrings: true })
+  const rgMatches = await runRipgrepOnFiles(pattern, files, {
+    caseSensitive: options?.caseSensitive,
+    fixedStrings: options?.fixedStrings,
+  })
   if (rgMatches.length === 0) return []
 
   const byFile = new Map<string, { line: number; text: string }[]>()
@@ -326,7 +334,7 @@ async function collectLiteralFallbackResults(
         content: selected.content,
         startLine: selected.metadata.startLine as number,
         endLine: selected.metadata.endLine as number,
-        semanticScore: 1.05,
+        semanticScore: options?.semanticScore ?? 1.04,
         metadata: selected.metadata,
         isCode: isCodeFile(selected.metadata.file as string),
       })
@@ -340,6 +348,19 @@ async function collectLiteralFallbackResults(
 
   // Return code results first, then non-code results
   return [...codeResults, ...nonCodeResults]
+}
+
+async function collectLiteralFallbackResults(
+  query: string,
+  files: string[],
+  collection: Awaited<ReturnType<typeof VectorStore.getCollectionUnsafe>>,
+  filters: VectorStore.SearchFilters,
+) {
+  return collectRipgrepFallbackResults(query, files, collection, filters, {
+    caseSensitive: true,
+    fixedStrings: true,
+    semanticScore: 1.05,
+  })
 }
 
 function overlapRatio(aStart: number, aEnd: number, bStart: number, bEnd: number): number {
@@ -643,16 +664,18 @@ export const SenseGrepTool = Tool.define("sensegrep", {
 
     const shouldRunLiteralFallback = !params.pattern && queryLooksLikeIdentifier(params.query)
     let literalFallbackResults: WorkingResult[] = []
-    if (shouldRunLiteralFallback) {
-      const lexicalCandidateFiles =
-        candidateFiles ??
-        Object.keys(meta.files ?? {}).filter((file) => {
-          const normalized = canonicalizeProjectFilePath(file)
-          if (includeMatcher && !includeMatcher(normalized)) return false
-          if (excludeMatcher && excludeMatcher(normalized)) return false
-          return true
-        })
+    const lexicalCandidateFiles =
+      shouldRunLiteralFallback || params.pattern
+        ? candidateFiles ??
+          Object.keys(meta.files ?? {}).filter((file) => {
+            if (getScopedFilePath(file, resolved.subdirPrefix) === undefined) return false
+            if (!matchesScopedGlob(file, includeMatcher, resolved.subdirPrefix)) return false
+            if (excludeMatcher && matchesScopedGlob(file, excludeMatcher, resolved.subdirPrefix)) return false
+            return true
+          })
+        : []
 
+    if (shouldRunLiteralFallback) {
       const literalResults = await collectLiteralFallbackResults(params.query, lexicalCandidateFiles, collection, filters)
       literalFallbackResults = literalResults.map((result) => ({
         file: result.file,
@@ -680,6 +703,25 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       })
     }
 
+    let patternFallbackResults: WorkingResult[] = []
+    if (params.pattern) {
+      const patternResults = await collectRipgrepFallbackResults(
+        params.pattern,
+        lexicalCandidateFiles,
+        collection,
+        filters,
+        { semanticScore: 1.04 },
+      )
+      patternFallbackResults = patternResults.map((result) => ({
+        file: result.file,
+        content: result.content,
+        startLine: result.startLine,
+        endLine: result.endLine,
+        semanticScore: result.semanticScore,
+        metadata: result.metadata,
+      }))
+    }
+
     // Convert to working format with semantic score
     type WorkingResult = {
       file: string
@@ -699,7 +741,8 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       metadata: r.metadata,
     }))
 
-    if (literalFallbackResults.length > 0) {
+    const fallbackResults = [...literalFallbackResults, ...patternFallbackResults]
+    if (fallbackResults.length > 0) {
       const merged = new Map<string, WorkingResult>()
 
       for (const result of workingResults) {
@@ -707,7 +750,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
         merged.set(key, result)
       }
 
-      for (const result of literalFallbackResults) {
+      for (const result of fallbackResults) {
         const key = `${result.file}:${result.startLine}:${result.endLine}`
         const existing = merged.get(key)
         if (existing) {

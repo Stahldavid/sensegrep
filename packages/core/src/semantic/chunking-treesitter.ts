@@ -148,6 +148,114 @@ export namespace TreeSitterChunking {
     return false
   }
 
+  function hasAsyncKeyword(node: SyntaxNode): boolean {
+    for (let i = 0; i < node.childCount; i++) {
+      const child = node.child(i)
+      if (child?.type === "async") {
+        return true
+      }
+    }
+
+    if (node.type === "lexical_declaration" || node.type === "variable_declaration") {
+      for (let i = 0; i < node.childCount; i++) {
+        const child = node.child(i)
+        if (child?.type !== "variable_declarator") continue
+        for (let j = 0; j < child.childCount; j++) {
+          const valueNode = child.child(j)
+          if (valueNode?.type !== "arrow_function") continue
+          for (let k = 0; k < valueNode.childCount; k++) {
+            if (valueNode.child(k)?.type === "async") return true
+          }
+        }
+      }
+    }
+
+    return false
+  }
+
+  function hasStaticKeyword(node: SyntaxNode): boolean {
+    if (node.type !== "method_definition") return false
+    for (let i = 0; i < node.childCount; i++) {
+      if (node.child(i)?.type === "static") return true
+    }
+    return false
+  }
+
+  function hasAbstractKeyword(node: SyntaxNode): boolean {
+    for (let i = 0; i < node.childCount; i++) {
+      if (node.child(i)?.type === "abstract") return true
+    }
+    return false
+  }
+
+  function getAccessorType(node: SyntaxNode): "get" | "set" | undefined {
+    if (node.type !== "method_definition") return undefined
+    for (let i = 0; i < node.childCount; i++) {
+      const child = node.child(i)
+      if (child?.type === "get") return "get"
+      if (child?.type === "set") return "set"
+    }
+    return undefined
+  }
+
+  function sameNode(a: SyntaxNode | null, b: SyntaxNode | null): boolean {
+    if (!a || !b) return false
+    return (
+      a.type === b.type &&
+      a.startPosition.row === b.startPosition.row &&
+      a.startPosition.column === b.startPosition.column &&
+      a.endPosition.row === b.endPosition.row &&
+      a.endPosition.column === b.endPosition.column
+    )
+  }
+
+  function extractDecorators(node: SyntaxNode): string[] {
+    const decorators: string[] = []
+    const parent = node.parent
+    if (!parent) return decorators
+
+    for (let i = 0; i < parent.childCount; i++) {
+      const sibling = parent.child(i)
+      if (!sibling) continue
+      if (sameNode(sibling, node)) break
+      if (sibling.type === "decorator") decorators.push(sibling.text)
+    }
+
+    return decorators
+  }
+
+  function getNodeVariant(node: SyntaxNode, symbolType?: string): string | undefined {
+    switch (symbolType) {
+      case "function":
+        if (hasAsyncKeyword(node)) return "async"
+        if (isArrowFunctionDeclaration(node)) return "arrow"
+        return undefined
+      case "class":
+        if (hasAbstractKeyword(node)) return "abstract"
+        return undefined
+      case "method":
+        if (hasAsyncKeyword(node)) return "async"
+        if (hasStaticKeyword(node)) return "static"
+        if (getAccessorType(node)) return "property"
+        if (hasAbstractKeyword(node)) return "abstract"
+        return undefined
+      case "interface":
+        return "interface"
+      case "type":
+        return "alias"
+      case "variable": {
+        for (let i = 0; i < node.childCount; i++) {
+          if (node.child(i)?.type !== "const") continue
+          const name = extractNodeName(node)
+          if (name && /^[A-Z][A-Z0-9_]*$/.test(name)) return "constant"
+        }
+        return undefined
+      }
+      default:
+        return undefined
+    }
+  }
+
   /**
    * Node types that define chunk boundaries
    */
@@ -595,6 +703,11 @@ ${content}`
     // Check for JSDoc/documentation
     const nodeText = node.text
     const hasDocumentation = /\/\*\*/.test(nodeText) || /^\/\//.test(nodeText)
+    const isAsync = hasAsyncKeyword(node)
+    const isStatic = hasStaticKeyword(node)
+    const isAbstract = hasAbstractKeyword(node)
+    const decorators = extractDecorators(node)
+    const variant = getNodeVariant(node, symbolType)
 
     // Calculate scope depth (how many parents until we hit program)
     let scopeDepth = 0
@@ -617,9 +730,14 @@ ${content}`
       symbolType,
       complexity,
       isExported,
+      variant,
       parentScope,
       scopeDepth,
       hasDocumentation,
+      isAsync,
+      isStatic,
+      isAbstract,
+      decorators,
       language,
     }
   }

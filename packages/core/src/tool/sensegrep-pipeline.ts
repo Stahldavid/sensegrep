@@ -512,13 +512,21 @@ function pickBestLiteralDocument(
   })[0]
 }
 
-async function collectLiteralFallbackResults(
-  query: string,
+async function collectRipgrepFallbackResults(
+  pattern: string,
   files: string[],
   collection: Awaited<ReturnType<typeof VectorStore.getCollectionUnsafe>>,
   filters: VectorStore.SearchFilters,
+  options?: {
+    caseSensitive?: boolean
+    fixedStrings?: boolean
+    semanticScore?: number
+  },
 ): Promise<WorkingResult[]> {
-  const rgMatches = await runRipgrepOnFiles(query, files, { caseSensitive: true, fixedStrings: true })
+  const rgMatches = await runRipgrepOnFiles(pattern, files, {
+    caseSensitive: options?.caseSensitive,
+    fixedStrings: options?.fixedStrings,
+  })
   if (rgMatches.length === 0) return []
 
   const byFile = new Map<string, { line: number }[]>()
@@ -548,13 +556,26 @@ async function collectLiteralFallbackResults(
         content: selected.content,
         startLine: selected.metadata.startLine as number,
         endLine: selected.metadata.endLine as number,
-        semanticScore: 1.05,
+        semanticScore: options?.semanticScore ?? 1.04,
         metadata: selected.metadata,
       })
     }
   }
 
   return [...results.values()]
+}
+
+async function collectLiteralFallbackResults(
+  query: string,
+  files: string[],
+  collection: Awaited<ReturnType<typeof VectorStore.getCollectionUnsafe>>,
+  filters: VectorStore.SearchFilters,
+): Promise<WorkingResult[]> {
+  return collectRipgrepFallbackResults(query, files, collection, filters, {
+    caseSensitive: true,
+    fixedStrings: true,
+    semanticScore: 1.05,
+  })
 }
 
 function overlapRatio(aStart: number, aEnd: number, bStart: number, bEnd: number): number {
@@ -685,16 +706,18 @@ export async function collectWorkingResults(
 
   const shouldRunLiteralFallback = !params.pattern && queryLooksLikeIdentifier(params.query)
   let literalFallbackResults: WorkingResult[] = []
-  if (shouldRunLiteralFallback) {
-    const lexicalCandidateFiles =
-      fileFiltering.candidateFiles ??
-      Object.keys(resources.meta.files ?? {}).filter((file) => {
-        if (getScopedFilePath(file, resources.subdirPrefix) === undefined) return false
-        if (!matchesScopedGlob(file, fileFiltering.includeMatcher, resources.subdirPrefix)) return false
-        if (fileFiltering.excludeMatcher && matchesScopedGlob(file, fileFiltering.excludeMatcher, resources.subdirPrefix)) return false
-        return true
-      })
+  const lexicalCandidateFiles =
+    shouldRunLiteralFallback || params.pattern
+      ? fileFiltering.candidateFiles ??
+        Object.keys(resources.meta.files ?? {}).filter((file) => {
+          if (getScopedFilePath(file, resources.subdirPrefix) === undefined) return false
+          if (!matchesScopedGlob(file, fileFiltering.includeMatcher, resources.subdirPrefix)) return false
+          if (fileFiltering.excludeMatcher && matchesScopedGlob(file, fileFiltering.excludeMatcher, resources.subdirPrefix)) return false
+          return true
+        })
+      : []
 
+  if (shouldRunLiteralFallback) {
     literalFallbackResults = await collectLiteralFallbackResults(
       params.query,
       lexicalCandidateFiles,
@@ -716,6 +739,17 @@ export async function collectWorkingResults(
     })
   }
 
+  let patternFallbackResults: WorkingResult[] = []
+  if (params.pattern) {
+    patternFallbackResults = await collectRipgrepFallbackResults(
+      params.pattern,
+      lexicalCandidateFiles,
+      resources.collection,
+      filters,
+      { semanticScore: 1.04 },
+    )
+  }
+
   let workingResults: WorkingResult[] = filteredResults.map((result) => ({
     id: result.id,
     file: result.metadata.file as string,
@@ -726,12 +760,13 @@ export async function collectWorkingResults(
     metadata: result.metadata,
   }))
 
-  if (literalFallbackResults.length > 0) {
+  const fallbackResults = [...literalFallbackResults, ...patternFallbackResults]
+  if (fallbackResults.length > 0) {
     const merged = new Map<string, WorkingResult>()
     for (const result of workingResults) {
       merged.set(`${result.file}:${result.startLine}:${result.endLine}`, result)
     }
-    for (const result of literalFallbackResults) {
+    for (const result of fallbackResults) {
       const key = `${result.file}:${result.startLine}:${result.endLine}`
       const existing = merged.get(key)
       if (existing) {
