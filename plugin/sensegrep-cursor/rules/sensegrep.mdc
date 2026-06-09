@@ -23,6 +23,8 @@ When exploring code, searching for functions, classes, patterns, or understandin
 ## Available sensegrep tools
 
 - `sensegrep_search` — Semantic + structural code search (primary tool)
+- `sensegrep_survey` — Group a theme into reading domains
+- `sensegrep_cluster` — Break a broad topic into coherent subthemes
 - `sensegrep_detect_duplicates` — Find logical code duplicates across files
 - `sensegrep_index` — Create/update the semantic index or fetch index stats (`action: "index" | "stats"`)
 
@@ -33,3 +35,4 @@ When exploring code, searching for functions, classes, patterns, or understandin
 - Use `include` to scope to specific directories
 - Use `pattern` for regex post-filtering when semantic results are too broad
 - Start broad, then add filters incrementally
+- For duplicate scans in large repos, scope with `include`, `exclude`, `language`, `minLines`, or `minComplexity` before raising `maxCandidates`

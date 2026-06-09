@@ -335,6 +335,8 @@ async function generateTools(): Promise<Tool[]> {
           threshold: { type: "number", description: "Minimum similarity 0.0-1.0 (default: 0.85)" },
           scope: { type: "string", description: "Scope: function, method, all (or comma-separated)" },
           language: { type: "string", description: "Filter by language (comma-separated)" },
+          include: { type: "string", description: "Include only matching indexed file paths (e.g., 'convex/**/*.ts')" },
+          exclude: { type: "string", description: "Exclude matching indexed file paths (e.g., '*.test.ts')" },
           crossLanguage: { type: "boolean", description: "Detect duplicates across languages (default: off)" },
           ignoreTests: { type: "boolean", description: "Ignore test files" },
           crossFileOnly: { type: "boolean", description: "Only report cross-file duplicates" },
@@ -382,7 +384,7 @@ async function generateTools(): Promise<Tool[]> {
 const server = new Server(
   {
     name: "sensegrep",
-    version: "1.6.10",
+    version: "1.6.11",
   },
   {
     capabilities: {
@@ -595,6 +597,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           typeof (args as any)?.minComplexity === "number" ? Number((args as any).minComplexity) : 0,
         maxCandidates:
           typeof (args as any)?.maxCandidates === "number" ? Number((args as any).maxCandidates) : undefined,
+        include: (args as any)?.include ? String((args as any).include) : undefined,
+        exclude: (args as any)?.exclude ? String((args as any).exclude) : undefined,
         ignoreAcceptablePatterns: Boolean((args as any)?.ignoreAcceptablePatterns),
         normalizeIdentifiers,
         rankByImpact,
@@ -625,6 +629,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         lines.push(`Scope: ${scopeFilter?.join(", ") || "all"}`);
         if (options.crossFileOnly) lines.push("Filter: cross-file only");
         if (options.onlyExported) lines.push("Filter: exported only");
+        if (options.include) lines.push(`Filter: include ${options.include}`);
+        if (options.exclude) lines.push(`Filter: exclude ${options.exclude}`);
         if (options.excludePattern) lines.push(`Filter: exclude pattern /${options.excludePattern}/`);
         lines.push("");
         lines.push("━".repeat(80));

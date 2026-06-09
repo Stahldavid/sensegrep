@@ -1,5 +1,11 @@
 # @sensegrep/mcp
 
+## 1.6.11
+
+### Patch Changes
+
+- Expose duplicate-detection include/exclude filters over MCP and align plugin instructions with the current MCP tool surface.
+
 ## 1.6.8
 
 ### Patch Changes

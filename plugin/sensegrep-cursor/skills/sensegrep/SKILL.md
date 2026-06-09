@@ -104,6 +104,8 @@ sensegrep_detect_duplicates({
   showCode: true,            // include actual code in output
   threshold: 0.85,           // 0.7 = loose similarity, 0.9 = near-identical only
   minComplexity: 3,          // skip trivial helpers (getters, guards)
+  include: "src/**/*.ts",    // optional file glob include filter
+  exclude: "*.test.ts",      // optional file glob exclude filter
   language: "typescript",    // optional language filter
   maxCandidates: 1500,       // cap broad scans; raise for deeper audits
   ignoreTests: true          // exclude test files
@@ -123,6 +125,8 @@ sensegrep_index({ action: "index", mode: "incremental" })  // fast, only changed
 sensegrep_index({ action: "index", mode: "full" })         // rebuild from scratch — only if index is corrupted or stale
 sensegrep_index({ action: "stats" })                        // check index health without reindexing
 ```
+
+Language inventory and variant listing are intentionally CLI-only to keep the MCP tool list small. If a user explicitly needs that inventory, suggest `sensegrep languages --detect` or `sensegrep languages --variants`.
 
 ## How the Search Pipeline Works
 
