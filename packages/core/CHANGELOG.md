@@ -1,5 +1,11 @@
 # @sensegrep/core
 
+## 1.6.3
+
+### Patch Changes
+
+- Add index freshness warnings/checks, framework-aware semantic kinds, result confidence explanations, filter match metadata, and more auditable survey/cluster/duplicate outputs.
+
 ## 1.6.2
 
 ### Patch Changes

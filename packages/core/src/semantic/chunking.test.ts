@@ -64,4 +64,38 @@ export class GoogleCalendarModel {
       isAsync: false,
     })
   })
+
+  it("infers framework-aware semantic kind metadata for TypeScript wrappers", async () => {
+    const content = `
+import { internalMutation, httpAction } from "./_generated/server"
+
+export const sendEmailNotification = internalMutation({
+  handler: async (ctx, args) => {
+    return { ok: true }
+  },
+})
+
+export const webhook = httpAction(async (ctx, request) => {
+  return new Response("ok")
+})
+
+export function useCalendarSync() {
+  return { enabled: true }
+}
+`
+
+    const chunks = await Chunking.chunkAsync(content, "convex/model/notification_delivery.ts")
+    expect(chunks.find((chunk) => chunk.symbolName === "sendEmailNotification")).toMatchObject({
+      semanticKind: "convexInternalMutation",
+      framework: "convex",
+    })
+    expect(chunks.find((chunk) => chunk.symbolName === "webhook")).toMatchObject({
+      semanticKind: "convexHttpAction",
+      framework: "convex",
+    })
+    expect(chunks.find((chunk) => chunk.symbolName === "useCalendarSync")).toMatchObject({
+      semanticKind: "reactHook",
+      framework: "react",
+    })
+  })
 })

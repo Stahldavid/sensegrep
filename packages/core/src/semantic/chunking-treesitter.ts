@@ -256,6 +256,52 @@ export namespace TreeSitterChunking {
     }
   }
 
+  function inferSemanticKind(
+    node: SyntaxNode,
+    symbolName: string | undefined,
+    symbolType: string | undefined,
+  ): { semanticKind?: string; framework?: string } {
+    const text = node.text
+    const name = symbolName ?? ""
+
+    const convexWrappers: Array<[RegExp, string]> = [
+      [/\binternalMutation\s*\(/, "convexInternalMutation"],
+      [/\binternalAction\s*\(/, "convexInternalAction"],
+      [/\binternalQuery\s*\(/, "convexInternalQuery"],
+      [/\bhttpAction\s*\(/, "convexHttpAction"],
+      [/\bmutation\s*\(/, "convexMutation"],
+      [/\baction\s*\(/, "convexAction"],
+      [/\bquery\s*\(/, "convexQuery"],
+    ]
+    for (const [pattern, semanticKind] of convexWrappers) {
+      if (pattern.test(text)) return { semanticKind, framework: "convex" }
+    }
+
+    if (/^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)$/.test(name) && (node.parent?.type === "export_statement" || text.includes("export"))) {
+      return { semanticKind: "routeHandler", framework: "web" }
+    }
+
+    if (/^use[A-Z0-9]/.test(name) && (symbolType === "function" || symbolType === "variable")) {
+      return { semanticKind: "reactHook", framework: "react" }
+    }
+
+    const looksLikeComponentName = /^[A-Z][A-Za-z0-9]*$/.test(name)
+    const returnsJsx = /return\s*\(?\s*</.test(text) || /=>\s*\(?\s*</.test(text)
+    if (looksLikeComponentName && returnsJsx && (symbolType === "function" || symbolType === "variable")) {
+      return { semanticKind: "reactComponent", framework: "react" }
+    }
+
+    if ((symbolType === "function" || symbolType === "variable") && /\b[A-Za-z_$][\w$]*\s*\(/.test(text)) {
+      const isWrapper =
+        node.type === "lexical_declaration" &&
+        /=\s*[A-Za-z_$][\w$]*\s*\(/.test(text) &&
+        !/=>/.test(text.split("=")[0] ?? "")
+      if (isWrapper) return { semanticKind: "wrappedFunction" }
+    }
+
+    return {}
+  }
+
   /**
    * Node types that define chunk boundaries
    */
@@ -391,8 +437,19 @@ export namespace TreeSitterChunking {
         return child.text
       }
       // For export statements, look inside the exported declaration
-      if (child?.type === "class_declaration") {
+      if (
+        child?.type === "class_declaration" ||
+        child?.type === "function_declaration" ||
+        child?.type === "lexical_declaration" ||
+        child?.type === "variable_declaration"
+      ) {
         return extractNodeName(child)
+      }
+      if (child?.type === "variable_declarator") {
+        for (let j = 0; j < child.childCount; j++) {
+          const declaratorChild = child.child(j)
+          if (declaratorChild?.type === "identifier") return declaratorChild.text
+        }
       }
       if (child?.type === "internal_module" || child?.type === "module") {
         for (let j = 0; j < child.childCount; j++) {
@@ -708,6 +765,7 @@ ${content}`
     const isAbstract = hasAbstractKeyword(node)
     const decorators = extractDecorators(node)
     const variant = getNodeVariant(node, symbolType)
+    const { semanticKind, framework } = inferSemanticKind(node, nodeName, symbolType)
 
     // Calculate scope depth (how many parents until we hit program)
     let scopeDepth = 0
@@ -732,6 +790,8 @@ ${content}`
       isExported,
       variant,
       parentScope,
+      semanticKind,
+      framework,
       scopeDepth,
       hasDocumentation,
       isAsync,

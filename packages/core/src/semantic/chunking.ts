@@ -125,6 +125,8 @@ export namespace Chunking {
     isAbstract?: boolean // Whether this is abstract
     decorators?: string[] // List of decorators (e.g., ["@property", "@staticmethod"])
     parentScope?: string // Parent context, e.g., "MyClass" for methods
+    semanticKind?: string // Framework-aware kind, e.g. "convexMutation", "reactComponent"
+    framework?: string // Framework/library inferred from code shape, e.g. "convex", "react"
     scopeDepth?: number // Nesting level
     hasDocumentation?: boolean // Whether JSDoc/comments are present
     language?: string // "typescript" | "javascript" | "python" etc

@@ -11,7 +11,12 @@ import { Ripgrep } from "../file/ripgrep.js"
 import { TreeShaker } from "../semantic/tree-shaker.js"
 import { Log } from "../util/log.js"
 import path from "path"
-import { toStructuredSearchResult } from "./sensegrep-pipeline.js"
+import {
+  annotateWorkingResults,
+  getFreshnessSummary,
+  prependFreshnessWarning,
+  toStructuredSearchResult,
+} from "./sensegrep-pipeline.js"
 
 const DESCRIPTION = readFileSync(new URL("./sensegrep.txt", import.meta.url), "utf8")
 const log = Log.create({ service: "tool.sensegrep" })
@@ -503,6 +508,10 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       .describe('Filter by programming language'),
     parentScope: z.string().optional().describe('Filter by parent scope/class (e.g. "VectorStore")'),
     imports: z.string().optional().describe('Filter by imported module name (e.g. "react")'),
+    semanticKind: z.string().optional().describe('Filter by framework-aware kind (e.g. "convexMutation", "reactComponent", "routeHandler")'),
+    explainFilters: z.boolean().optional().describe("Include deterministic filter match explanations in JSON results"),
+    strictParent: z.boolean().optional().describe("Require strict parent metadata when filtering by parent"),
+    strictImports: z.boolean().optional().describe("Require strict import metadata when filtering by imports"),
     shake: z.boolean().default(true).describe("Enable semantic tree-shaking to show full file context with irrelevant regions collapsed (default: true)"),
   }),
   async execute(params, _ctx): Promise<Tool.Result<Record<string, unknown>>> {
@@ -530,6 +539,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     const run = async () => {
     // Clear any cached tables that might have wrong dimension expectations
     VectorStore.clearProjectCache(resolved.root)
+    const freshness = await getFreshnessSummary()
 
     const limit = params.limit ?? 10
     const shouldRerank = params.rerank === true
@@ -588,6 +598,9 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     if (params.parentScope) {
       filters.all!.push({ key: "parentScope", operator: "contains", value: params.parentScope })
     }
+    if ((params as any).semanticKind) {
+      filters.all!.push({ key: "semanticKind", operator: "equals", value: (params as any).semanticKind })
+    }
     if (params.imports) {
       const importValues = expandImportFilterValues(params.imports)
       if (importValues.length === 1) {
@@ -629,9 +642,13 @@ export const SenseGrepTool = Tool.define("sensegrep", {
           .join(", ")
         return {
           title: params.query,
-          metadata: { matches: 0, indexed: true },
+          metadata: { matches: 0, indexed: true, freshness },
+          freshness,
           results: [],
-          output: `No indexed files matched the file filters${filterLabel ? ` (${filterLabel})` : ""}.`,
+          output: prependFreshnessWarning(
+            `No indexed files matched the file filters${filterLabel ? ` (${filterLabel})` : ""}.`,
+            freshness,
+          ),
         }
       }
 
@@ -731,6 +748,10 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       semanticScore: number
       metadata: Record<string, string | number | boolean | string[] | undefined>
       rerankScore?: number
+      confidence?: "high" | "medium" | "low"
+      isWeakMatch?: boolean
+      whyMatched?: string[]
+      filterMatches?: Record<string, unknown>
     }
     let workingResults: WorkingResult[] = filteredResults.map((r) => ({
       file: r.metadata.file as string,
@@ -766,6 +787,8 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       workingResults = [...merged.values()]
     }
 
+    workingResults = annotateWorkingResults(workingResults, params as any)
+
     // Sort by semantic score initially
     workingResults.sort((a, b) => b.semanticScore - a.semanticScore)
 
@@ -794,9 +817,10 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     if (finalResults.length === 0) {
       return {
         title: params.query,
-        metadata: { matches: 0, indexed: true },
+        metadata: { matches: 0, indexed: true, freshness },
+        freshness,
         results: [],
-        output: "No matching results found for your query.",
+        output: prependFreshnessWarning("No matching results found for your query.", freshness),
       }
     }
 
@@ -846,7 +870,8 @@ export const SenseGrepTool = Tool.define("sensegrep", {
         for (const result of shaked.originalResults) {
           const meta = result.metadata
           const symbolInfo = [meta.symbolName, meta.symbolType].filter(Boolean).join(" ")
-          if (symbolInfo) metaParts.push(symbolInfo)
+          const kindInfo = typeof meta.semanticKind === "string" && meta.semanticKind ? ` (${meta.semanticKind})` : ""
+          if (symbolInfo) metaParts.push(`${symbolInfo}${kindInfo}`)
         }
         if (metaParts.length > 0) {
           outputLines.push(`Matches: ${metaParts.join(", ")}`)
@@ -874,9 +899,11 @@ export const SenseGrepTool = Tool.define("sensegrep", {
           files: shakedResults.length,
           indexed: true,
           shaked: true,
+          freshness,
         },
+        freshness,
         results: finalResults.map(toStructuredSearchResult),
-        output: outputLines.join("\n"),
+        output: prependFreshnessWarning(outputLines.join("\n"), freshness),
       }
     }
 
@@ -903,6 +930,9 @@ export const SenseGrepTool = Tool.define("sensegrep", {
 
       // Always show relevance score
       metaParts.push(`Relevance: ${(result.semanticScore * 100).toFixed(1)}%`)
+      if (result.confidence) {
+        metaParts.push(`Confidence: ${result.confidence}`)
+      }
       if (result.rerankScore !== undefined) {
         metaParts.push(`Rerank: ${result.rerankScore.toFixed(3)}`)
       }
@@ -915,6 +945,12 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       // Show if it's a method (has parent scope)
       if (meta.parentScope && typeof meta.parentScope === "string") {
         metaParts.push(`in ${meta.parentScope}`)
+      }
+      if (meta.semanticKind && typeof meta.semanticKind === "string") {
+        metaParts.push(`Kind: ${meta.semanticKind}`)
+      }
+      if ((params as any).explainFilters && result.whyMatched?.length) {
+        metaParts.push(`Why: ${result.whyMatched.join("; ")}`)
       }
 
       if (metaParts.length > 0) {
@@ -941,9 +977,11 @@ export const SenseGrepTool = Tool.define("sensegrep", {
         metadata: {
           matches: finalResults.length,
           indexed: true,
+          freshness,
         },
+        freshness,
         results: finalResults.map(toStructuredSearchResult),
-        output: outputLines.join("\n"),
+        output: prependFreshnessWarning(outputLines.join("\n"), freshness),
       }
     }
 

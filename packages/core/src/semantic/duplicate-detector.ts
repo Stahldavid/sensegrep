@@ -38,6 +38,12 @@ export namespace DuplicateDetector {
       score: number
     }
     category?: string
+    duplicateType?: "nearCopy" | "sameAlgorithm" | "sameWrapper" | "sameValidationShape" | "testFactoryNoise"
+    structuralSummary?: string
+    refactorHint?: {
+      suggestedName: string
+      confidence: "high" | "medium" | "low"
+    }
     isLikelyOk: boolean
   }
 
@@ -583,6 +589,54 @@ export namespace DuplicateDetector {
     return true
   }
 
+  function commonPrefix(values: string[]): string {
+    if (values.length === 0) return ""
+    let prefix = values[0]
+    for (const value of values.slice(1)) {
+      while (prefix && !value.startsWith(prefix)) {
+        prefix = prefix.slice(0, -1)
+      }
+    }
+    return prefix.replace(/[_-]+$/g, "")
+  }
+
+  function classifyDuplicate(group: DuplicateGroup): DuplicateGroup["duplicateType"] {
+    const symbols = group.instances.map((instance) => instance.symbol)
+    const contents = group.instances.map((instance) => instance.content)
+    const files = group.instances.map((instance) => instance.file.toLowerCase())
+    if (files.every((file) => /test|spec|fixture|factory/.test(file))) return "testFactoryNoise"
+    if (group.similarity >= 0.97) return "nearCopy"
+    if (symbols.every((symbol) => /^(validate|check|is|has)/i.test(symbol))) return "sameValidationShape"
+    if (contents.every((content) => /=\s*[A-Za-z_$][\w$]*\s*\(/.test(content))) return "sameWrapper"
+    return "sameAlgorithm"
+  }
+
+  function suggestRefactor(group: DuplicateGroup): NonNullable<DuplicateGroup["refactorHint"]> {
+    const symbols = group.instances.map((instance) => instance.symbol).filter(Boolean)
+    const prefix = commonPrefix(symbols)
+    const suggestedName =
+      prefix.length >= 4
+        ? prefix.replace(/^[A-Z]/, (value) => value.toLowerCase())
+        : group.duplicateType === "sameValidationShape"
+          ? "validateSharedInput"
+          : group.duplicateType === "sameWrapper"
+            ? "createSharedWrapper"
+            : "extractSharedLogic"
+    const confidence = group.level === DuplicateLevel.EXACT || group.level === DuplicateLevel.HIGH ? "high" : group.level === DuplicateLevel.MEDIUM ? "medium" : "low"
+    return { suggestedName, confidence }
+  }
+
+  function enrichDuplicate(group: DuplicateGroup): DuplicateGroup {
+    const duplicateType = classifyDuplicate(group)
+    const totalLines = group.instances.reduce((sum, instance) => sum + Math.max(0, instance.endLine - instance.startLine + 1), 0)
+    return {
+      ...group,
+      duplicateType,
+      structuralSummary: `${duplicateType} across ${group.instances.length} symbols in ${new Set(group.instances.map((instance) => instance.file)).size} files (${totalLines} lines)`,
+      refactorHint: suggestRefactor({ ...group, duplicateType }),
+    }
+  }
+
   /**
    * Detectar duplicatas lógicas
    */
@@ -905,6 +959,7 @@ export namespace DuplicateDetector {
     for (const dup of duplicates) {
       dup.impact = calculateImpact(dup)
     }
+    duplicates = duplicates.map(enrichDuplicate)
 
     // Filter acceptable patterns
     let acceptableDuplicates: DuplicateGroup[] = []

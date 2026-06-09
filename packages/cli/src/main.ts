@@ -29,7 +29,7 @@ function usage() {
 sensegrep (CLI)
 
 Usage:
-  sensegrep index [--root <dir>] [--full|--incremental] [--verify] [--no-watch] [--include-docs] [--include-config]
+  sensegrep index [--root <dir>] [--full|--incremental] [--verify|--check] [--no-watch] [--include-docs] [--include-config]
   sensegrep verify [--root <dir>]
   sensegrep status [--root <dir>]
   sensegrep search <query...> [options]
@@ -67,6 +67,11 @@ Search options:
   --embed-model <name>      Override remote embedding model
   --embed-dim <n>           Override embedding dimension
   --provider <name>         gemini|openai|bedrock
+  --semantic-kind <kind>    Framework-aware kind (convexMutation, reactComponent, routeHandler, etc.)
+  --explain-filters         Include deterministic filter match explanations
+  --strict-parent           Mark parent filter as strict indexed-metadata validation
+  --strict-imports          Mark import filter as strict AST-metadata validation
+  --ensure-fresh <mode>     check|incremental|full before search/survey/cluster/duplicates
   --root <dir>              Root directory (default: cwd)
   --watch                   Keep running; reindex on changes (default: on)
   --no-watch                Exit after indexing (for CI/scripts)
@@ -112,6 +117,11 @@ Language management:
   sensegrep languages                 List supported languages
   sensegrep languages --detect        Detect project languages
   sensegrep languages --variants      Show all variants by language
+
+Index health:
+  sensegrep status --verbose          Include changed/missing/removed file lists
+  sensegrep index --check             Exit non-zero if index is stale
+  sensegrep index --check --max-changed 5 --max-missing 0
 `)
 }
 
@@ -189,6 +199,57 @@ function formatIndexResult(result: IndexResult): string {
   return `Indexed ${result.files} files (${result.chunks} chunks) in ${duration}s`
 }
 
+function isIndexStale(
+  verify: Awaited<ReturnType<CoreModule["Indexer"]["verifyIndex"]>>,
+  thresholds?: { maxChanged?: number; maxMissing?: number; maxRemoved?: number },
+) {
+  const maxChanged = thresholds?.maxChanged ?? 0
+  const maxMissing = thresholds?.maxMissing ?? 0
+  const maxRemoved = thresholds?.maxRemoved ?? 0
+  return (
+    !verify.indexed ||
+    verify.changed > maxChanged ||
+    verify.missing > maxMissing ||
+    verify.removed > maxRemoved ||
+    (verify as any).chunkMismatch === true
+  )
+}
+
+function formatVerifySummary(verify: Awaited<ReturnType<CoreModule["Indexer"]["verifyIndex"]>>) {
+  return `indexed=${verify.indexed} changed=${verify.changed} missing=${verify.missing} removed=${verify.removed} chunkMismatch=${(verify as any).chunkMismatch === true ? `${(verify as any).actualChunks}/${(verify as any).expectedChunks}` : "false"}`
+}
+
+async function ensureFreshIfRequested(
+  flags: Flags,
+  rootDir: string,
+  Instance: CoreModule["Instance"],
+  Indexer: CoreModule["Indexer"],
+) {
+  const raw = flags["ensure-fresh"] ?? flags.ensureFresh
+  if (raw === undefined) return
+
+  const mode = raw === true ? "check" : String(raw).toLowerCase()
+  if (!["check", "incremental", "full"].includes(mode)) {
+    throw new Error('--ensure-fresh must be one of "check", "incremental", or "full"')
+  }
+
+  const verify = await Instance.provide({
+    directory: rootDir,
+    fn: () => Indexer.verifyIndex(),
+  })
+  if (!isIndexStale(verify)) return
+
+  if (mode === "check") {
+    throw new Error(`Index is stale: ${formatVerifySummary(verify)}. Run sensegrep index --no-watch or use --ensure-fresh incremental.`)
+  }
+
+  const result = await Instance.provide({
+    directory: rootDir,
+    fn: () => (mode === "full" ? Indexer.indexProject() : Indexer.indexProjectIncremental()),
+  })
+  console.error(`Refreshed stale index before query: ${formatIndexResult(result)}`)
+}
+
 async function run() {
   const {
     SenseGrepTool,
@@ -220,6 +281,7 @@ async function run() {
 
   if (command === "index") {
     const full = flags.full === true
+    const checkOnly = flags.check === true
     const noWatch = flags["no-watch"] === true
     const watch = noWatch ? false : (toBool(flags.watch) ?? true)
     const includeDocs = flags["include-docs"] === true
@@ -228,6 +290,33 @@ async function run() {
     // Configure index options
     const { Indexer } = await loadCore()
     Indexer.setIndexOptions({ includeDocs, includeConfig })
+
+    if (checkOnly) {
+      const verify = await Instance.provide({
+        directory: rootDir,
+        fn: () => Indexer.verifyIndex(),
+      })
+      const maxChanged = flags["max-changed"] !== undefined ? Number(flags["max-changed"]) : undefined
+      const maxMissing = flags["max-missing"] !== undefined ? Number(flags["max-missing"]) : undefined
+      const maxRemoved = flags["max-removed"] !== undefined ? Number(flags["max-removed"]) : undefined
+      const stale = isIndexStale(verify, { maxChanged, maxMissing, maxRemoved })
+      const payload = {
+        ...verify,
+        isStale: stale,
+        thresholds: {
+          maxChanged: maxChanged ?? 0,
+          maxMissing: maxMissing ?? 0,
+          maxRemoved: maxRemoved ?? 0,
+        },
+      }
+      if (flags.json) {
+        console.log(JSON.stringify(payload, null, 2))
+      } else {
+        console.log(`Index check: ${formatVerifySummary(verify)} stale=${stale}`)
+      }
+      process.exitCode = stale ? 1 : 0
+      return
+    }
 
     // Auto-detect languages if not specified
     const { detectProjectLanguages } = await loadCore()
@@ -243,9 +332,7 @@ async function run() {
         directory: rootDir,
         fn: () => Indexer.verifyIndex(),
       })
-      console.log(
-        `Verify: indexed=${check.indexed} changed=${check.changed} missing=${check.missing} removed=${check.removed} chunkMismatch=${(check as any).chunkMismatch === true ? `${(check as any).actualChunks}/${(check as any).expectedChunks}` : "false"}`,
-      )
+      console.log(`Verify: ${formatVerifySummary(check)}`)
       if (
         check.indexed &&
         check.changed === 0 &&
@@ -295,6 +382,7 @@ async function run() {
   }
 
   if (command === "status") {
+    const verbose = flags.verbose === true
     const [stats, verify] = await Promise.all([
       Instance.provide({
         directory: rootDir,
@@ -305,7 +393,7 @@ async function run() {
         fn: () => Indexer.verifyIndex(),
       }),
     ])
-    console.log(JSON.stringify({
+    const output: Record<string, unknown> = {
       ...stats,
       changed: (verify as any).changed,
       missing: (verify as any).missing,
@@ -313,7 +401,14 @@ async function run() {
       expectedChunks: (verify as any).expectedChunks,
       actualChunks: (verify as any).actualChunks,
       chunkMismatch: (verify as any).chunkMismatch,
-    }, null, 2))
+      isStale: isIndexStale(verify),
+    }
+    if (verbose) {
+      output.changedFiles = (verify as any).changedFiles ?? []
+      output.missingFiles = (verify as any).missingFiles ?? []
+      output.removedFiles = (verify as any).removedFiles ?? []
+    }
+    console.log(JSON.stringify(output, null, 2))
     return
   }
 
@@ -375,6 +470,14 @@ if (flags.pattern) params.pattern = String(flags.pattern)
     if (flags.parent) params.parentScope = String(flags.parent)
     if (flags.parentScope) params.parentScope = String(flags.parentScope)
     if (flags.imports) params.imports = String(flags.imports)
+    if (flags["semantic-kind"]) (params as any).semanticKind = String(flags["semantic-kind"])
+    if (flags.semanticKind) (params as any).semanticKind = String(flags.semanticKind)
+    if (flags["explain-filters"] !== undefined) (params as any).explainFilters = true
+    if (flags.explainFilters !== undefined) (params as any).explainFilters = true
+    if (flags["strict-parent"] !== undefined) (params as any).strictParent = true
+    if (flags.strictParent !== undefined) (params as any).strictParent = true
+    if (flags["strict-imports"] !== undefined) (params as any).strictImports = true
+    if (flags.strictImports !== undefined) (params as any).strictImports = true
     if (flags.symbol) params.symbol = String(flags.symbol)
     if (flags.name) params.symbol = String(flags.name)
     if (flags["min-score"]) params.minScore = Number(flags["min-score"])
@@ -389,6 +492,7 @@ if (flags.pattern) params.pattern = String(flags.pattern)
     }
     if (flags["no-rerank"] !== undefined) params.rerank = false
 
+    await ensureFreshIfRequested(flags, rootDir, Instance, Indexer)
     const tool = await SenseGrepTool.init()
     const res = await Instance.provide({
       directory: rootDir,
@@ -450,11 +554,20 @@ if (flags.pattern) params.pattern = String(flags.pattern)
     if (flags.parent) params.parentScope = String(flags.parent)
     if (flags.parentScope) params.parentScope = String(flags.parentScope)
     if (flags.imports) params.imports = String(flags.imports)
+    if (flags["semantic-kind"]) (params as any).semanticKind = String(flags["semantic-kind"])
+    if (flags.semanticKind) (params as any).semanticKind = String(flags.semanticKind)
+    if (flags["explain-filters"] !== undefined) (params as any).explainFilters = true
+    if (flags.explainFilters !== undefined) (params as any).explainFilters = true
+    if (flags["strict-parent"] !== undefined) (params as any).strictParent = true
+    if (flags.strictParent !== undefined) (params as any).strictParent = true
+    if (flags["strict-imports"] !== undefined) (params as any).strictImports = true
+    if (flags.strictImports !== undefined) (params as any).strictImports = true
     if (flags.symbol) params.symbol = String(flags.symbol)
     if (flags.name) params.symbol = String(flags.name)
     if (flags["min-score"]) params.minScore = Number(flags["min-score"])
     if (flags.minScore) params.minScore = Number(flags.minScore)
 
+    await ensureFreshIfRequested(flags, rootDir, Instance, Indexer)
     const tool = await SenseGrepSurveyTool.init()
     const res = await Instance.provide({
       directory: rootDir,
@@ -520,11 +633,20 @@ if (flags.pattern) params.pattern = String(flags.pattern)
     if (flags.parent) params.parentScope = String(flags.parent)
     if (flags.parentScope) params.parentScope = String(flags.parentScope)
     if (flags.imports) params.imports = String(flags.imports)
+    if (flags["semantic-kind"]) (params as any).semanticKind = String(flags["semantic-kind"])
+    if (flags.semanticKind) (params as any).semanticKind = String(flags.semanticKind)
+    if (flags["explain-filters"] !== undefined) (params as any).explainFilters = true
+    if (flags.explainFilters !== undefined) (params as any).explainFilters = true
+    if (flags["strict-parent"] !== undefined) (params as any).strictParent = true
+    if (flags.strictParent !== undefined) (params as any).strictParent = true
+    if (flags["strict-imports"] !== undefined) (params as any).strictImports = true
+    if (flags.strictImports !== undefined) (params as any).strictImports = true
     if (flags.symbol) params.symbol = String(flags.symbol)
     if (flags.name) params.symbol = String(flags.name)
     if (flags["min-score"]) params.minScore = Number(flags["min-score"])
     if (flags.minScore) params.minScore = Number(flags.minScore)
 
+    await ensureFreshIfRequested(flags, rootDir, Instance, Indexer)
     const tool = await SenseGrepClusterTool.init()
     const res = await Instance.provide({
       directory: rootDir,
@@ -547,6 +669,8 @@ if (flags.pattern) params.pattern = String(flags.pattern)
   }
 
   if (command === "detect-duplicates") {
+    await ensureFreshIfRequested(flags, rootDir, Instance, Indexer)
+
     // Parse threshold
     const minThreshold = flags.threshold ? Number(flags.threshold) : 0.85
 

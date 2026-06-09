@@ -304,6 +304,8 @@ export namespace Indexer {
         ...(chunk.complexity !== undefined && { complexity: chunk.complexity }),
         ...(chunk.isExported !== undefined && { isExported: chunk.isExported }),
         ...(chunk.parentScope && { parentScope: chunk.parentScope }),
+        ...(chunk.semanticKind && { semanticKind: chunk.semanticKind }),
+        ...(chunk.framework && { framework: chunk.framework }),
         ...(chunk.scopeDepth !== undefined && { scopeDepth: chunk.scopeDepth }),
         ...(chunk.hasDocumentation !== undefined && { hasDocumentation: chunk.hasDocumentation }),
         ...(chunk.language && { language: chunk.language }),
@@ -876,6 +878,9 @@ export namespace Indexer {
     changed: number
     missing: number
     removed: number
+    changedFiles?: string[]
+    missingFiles?: string[]
+    removedFiles?: string[]
     expectedChunks?: number
     actualChunks?: number
     chunkMismatch?: boolean
@@ -892,6 +897,8 @@ export namespace Indexer {
     const remaining = new Set(Object.keys(previous))
     let changed = 0
     let missing = 0
+    const changedFiles: string[] = []
+    const missingFiles: string[] = []
 
     for (const file of files) {
       const fullPath = path.join(Instance.directory, file)
@@ -906,6 +913,7 @@ export namespace Indexer {
       const prev = previous[file]
       if (!prev) {
         missing++
+        missingFiles.push(file)
         continue
       }
 
@@ -913,12 +921,14 @@ export namespace Indexer {
       const hash = content.trim() ? hashContent(content) : ""
       if (!hash || prev.hash !== hash) {
         changed++
+        changedFiles.push(file)
       }
 
       remaining.delete(file)
     }
 
     const removed = remaining.size
+    const removedFiles = [...remaining]
 
     // Check for chunk consistency between meta and LanceDB
     let expectedChunks = 0
@@ -939,6 +949,9 @@ export namespace Indexer {
       changed,
       missing,
       removed,
+      changedFiles,
+      missingFiles,
+      removedFiles,
       expectedChunks,
       actualChunks,
       chunkMismatch,

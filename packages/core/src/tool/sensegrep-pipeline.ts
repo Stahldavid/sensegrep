@@ -5,6 +5,7 @@ import picomatch from "picomatch"
 import { VectorStore } from "../semantic/lancedb.js"
 import { Instance } from "../project/instance.js"
 import { Embeddings } from "../semantic/embeddings.js"
+import { Indexer } from "../semantic/indexer.js"
 import { Ripgrep } from "../file/ripgrep.js"
 import { TreeShaker } from "../semantic/tree-shaker.js"
 
@@ -20,6 +21,10 @@ export type WorkingResult = {
   metadata: ResultMetadata
   rerankScore?: number
   vector?: number[]
+  confidence?: "high" | "medium" | "low"
+  isWeakMatch?: boolean
+  whyMatched?: string[]
+  filterMatches?: Record<string, unknown>
 }
 
 export type StructuredSearchResult = {
@@ -33,6 +38,12 @@ export type StructuredSearchResult = {
   language?: string
   parentScope?: string
   imports?: string[]
+  semanticKind?: string
+  framework?: string
+  confidence: "high" | "medium" | "low"
+  isWeakMatch: boolean
+  whyMatched: string[]
+  filterMatches?: Record<string, unknown>
   content: string
   metadata: ResultMetadata
 }
@@ -59,10 +70,26 @@ export type CommonSensegrepParams = {
   language?: "typescript" | "javascript" | "python" | "java" | "vue"
   parentScope?: string
   imports?: string
+  semanticKind?: string
+  explainFilters?: boolean
+  strictParent?: boolean
+  strictImports?: boolean
   shake?: boolean
 }
 
 type IndexMeta = NonNullable<Awaited<ReturnType<typeof VectorStore.readIndexMeta>>>
+
+export type FreshnessSummary = {
+  indexed: boolean
+  isStale: boolean
+  changed: number
+  missing: number
+  removed: number
+  chunkMismatch: boolean
+  expectedChunks?: number
+  actualChunks?: number
+  updatedAt?: number
+}
 
 export type SearchResources = {
   meta: IndexMeta
@@ -70,6 +97,7 @@ export type SearchResources = {
   projectDirectory: string
   requestedDirectory: string
   subdirPrefix?: string
+  freshness: FreshnessSummary
 }
 
 type ToolLikeResult = {
@@ -138,6 +166,54 @@ const TOKEN_STOPWORDS = new Set([
   "handle",
 ])
 
+export function summarizeFreshness(
+  verify: Awaited<ReturnType<typeof Indexer.verifyIndex>>,
+): FreshnessSummary {
+  const chunkMismatch = (verify as any).chunkMismatch === true
+  return {
+    indexed: verify.indexed,
+    isStale: !verify.indexed || verify.changed > 0 || verify.missing > 0 || verify.removed > 0 || chunkMismatch,
+    changed: verify.changed,
+    missing: verify.missing,
+    removed: verify.removed,
+    chunkMismatch,
+    expectedChunks: (verify as any).expectedChunks,
+    actualChunks: (verify as any).actualChunks,
+    updatedAt: (verify as any).updatedAt,
+  }
+}
+
+export async function getFreshnessSummary(): Promise<FreshnessSummary> {
+  try {
+    return summarizeFreshness(await Indexer.verifyIndex())
+  } catch {
+    return {
+      indexed: true,
+      isStale: false,
+      changed: 0,
+      missing: 0,
+      removed: 0,
+      chunkMismatch: false,
+    }
+  }
+}
+
+export function formatFreshnessWarning(freshness: FreshnessSummary): string | undefined {
+  if (!freshness.isStale) return undefined
+  const parts = [
+    `changed=${freshness.changed}`,
+    `missing=${freshness.missing}`,
+    `removed=${freshness.removed}`,
+    `chunkMismatch=${freshness.chunkMismatch}`,
+  ]
+  return `Warning: index may be stale (${parts.join(", ")}). Run \`sensegrep index --no-watch\` or \`sensegrep index --full --no-watch\` for structural metadata changes.`
+}
+
+export function prependFreshnessWarning(output: string, freshness: FreshnessSummary): string {
+  const warning = formatFreshnessWarning(freshness)
+  return warning ? `${warning}\n\n${output}` : output
+}
+
 export async function withIndexedSearchResources<T extends ToolLikeResult>(
   query: string,
   fn: (resources: SearchResources) => Promise<T>,
@@ -164,6 +240,7 @@ export async function withIndexedSearchResources<T extends ToolLikeResult>(
       directory: resolved.root,
       fn: async () => {
         VectorStore.clearProjectCache(resolved.root)
+        const freshness = await getFreshnessSummary()
         const collection = await VectorStore.getCollectionUnsafe(resolved.root, meta.embeddings.dimension)
         return fn({
           meta,
@@ -171,6 +248,7 @@ export async function withIndexedSearchResources<T extends ToolLikeResult>(
           projectDirectory: resolved.root,
           requestedDirectory: resolved.requestedPath,
           subdirPrefix: resolved.subdirPrefix,
+          freshness,
         })
       },
     })
@@ -379,6 +457,9 @@ function buildSearchFilters(params: CommonSensegrepParams): VectorStore.SearchFi
   }
   if (params.parentScope) {
     filters.all!.push({ key: "parentScope", operator: "contains", value: params.parentScope })
+  }
+  if (params.semanticKind) {
+    filters.all!.push({ key: "semanticKind", operator: "equals", value: params.semanticKind })
   }
   if (params.imports) {
     const importValues = expandImportFilterValues(params.imports)
@@ -782,6 +863,7 @@ export async function collectWorkingResults(
     workingResults = [...merged.values()]
   }
 
+  workingResults = annotateWorkingResults(workingResults, params)
   workingResults.sort((a, b) => b.semanticScore - a.semanticScore)
 
   const minScore = typeof params.minScore === "number" ? params.minScore : undefined
@@ -824,6 +906,8 @@ export async function hydrateResultsWithVectors(
         "vector",
         "imports",
         "parentScope",
+        "semanticKind",
+        "framework",
         "language",
         "symbolName",
         "symbolType",
@@ -893,6 +977,106 @@ export function getQueryTokens(query: string): string[] {
 export function getSymbolTokens(metadata: ResultMetadata): string[] {
   const symbolName = typeof metadata.symbolName === "string" ? metadata.symbolName : ""
   return splitIdentifier(symbolName).filter((token) => !TOKEN_STOPWORDS.has(token))
+}
+
+function scoreToConfidence(score: number): "high" | "medium" | "low" {
+  if (score >= 0.55) return "high"
+  if (score >= 0.25) return "medium"
+  return "low"
+}
+
+function safeRegexMatch(pattern: string, content: string): boolean {
+  try {
+    return new RegExp(pattern, "i").test(content)
+  } catch {
+    return content.toLowerCase().includes(pattern.toLowerCase())
+  }
+}
+
+export function annotateWorkingResults(results: WorkingResult[], params: CommonSensegrepParams): WorkingResult[] {
+  const queryTokens = getQueryTokens(params.query)
+  const importFilters = params.imports ? expandImportFilterValues(params.imports) : []
+  const symbolQuery = params.symbol ?? params.name
+
+  return results.map((result) => {
+    const metadata = result.metadata
+    const score = result.rerankScore ?? result.semanticScore
+    const whyMatched = new Set<string>(["semantic similarity"])
+    const filterMatches: Record<string, unknown> = {}
+
+    const symbolName = typeof metadata.symbolName === "string" ? metadata.symbolName : ""
+    const symbolTokens = getSymbolTokens(metadata)
+    for (const token of queryTokens) {
+      if (symbolTokens.includes(token)) whyMatched.add(`symbol token matched query: ${token}`)
+    }
+
+    const pathSegments = getMeaningfulPathSegments(result.file).map((segment) => segment.toLowerCase())
+    for (const token of queryTokens) {
+      if (pathSegments.some((segment) => segment.includes(token))) {
+        whyMatched.add(`path matched query token: ${token}`)
+      }
+    }
+
+    if (params.pattern && safeRegexMatch(params.pattern, result.content)) {
+      whyMatched.add(`pattern matched: ${params.pattern}`)
+      filterMatches.pattern = { matched: true, mode: "ripgrep", value: params.pattern }
+    }
+
+    if (params.parentScope) {
+      const parentScope = typeof metadata.parentScope === "string" ? metadata.parentScope : ""
+      const matched = parentScope.toLowerCase().includes(params.parentScope.toLowerCase())
+      if (matched) whyMatched.add(`parent matched: ${parentScope}`)
+      filterMatches.parent = {
+        matched,
+        mode: params.strictParent ? "metadata-strict" : "metadata",
+        value: parentScope || params.parentScope,
+      }
+    }
+
+    if (params.imports) {
+      const imports = splitListField(metadata.imports)
+      const matched = importFilters.filter((value) => imports.some((item) => item.includes(value)))
+      if (matched.length > 0) whyMatched.add(`import matched: ${matched.join(", ")}`)
+      filterMatches.imports = {
+        matched: matched.length > 0,
+        mode: params.strictImports ? "ast-metadata-strict" : "metadata",
+        value: matched.length > 0 ? matched : importFilters,
+      }
+    }
+
+    if (params.semanticKind) {
+      const semanticKind = typeof metadata.semanticKind === "string" ? metadata.semanticKind : ""
+      const matched = semanticKind === params.semanticKind
+      if (matched) whyMatched.add(`semantic kind matched: ${semanticKind}`)
+      filterMatches.semanticKind = {
+        matched,
+        mode: "metadata",
+        value: semanticKind || params.semanticKind,
+      }
+    }
+
+    if (symbolQuery) {
+      const matched = symbolName.toLowerCase().includes(symbolQuery.toLowerCase())
+      if (matched) whyMatched.add(`symbol name matched: ${symbolName}`)
+      filterMatches.symbol = { matched, mode: "metadata", value: symbolName || symbolQuery }
+    }
+
+    if (params.isAsync !== undefined) {
+      filterMatches.async = { matched: metadata.isAsync === params.isAsync, mode: "metadata", value: metadata.isAsync }
+    }
+
+    if (metadata.semanticKind) whyMatched.add(`semantic kind: ${metadata.semanticKind}`)
+    if (metadata.framework) whyMatched.add(`framework: ${metadata.framework}`)
+    if (score <= 0) whyMatched.add("weak semantic score")
+
+    return {
+      ...result,
+      confidence: scoreToConfidence(score),
+      isWeakMatch: score <= 0 || score < 0.25,
+      whyMatched: [...whyMatched],
+      filterMatches: Object.keys(filterMatches).length > 0 ? filterMatches : undefined,
+    }
+  })
 }
 
 export function getMeaningfulPathSegments(file: string): string[] {
@@ -1033,6 +1217,12 @@ export function toStructuredSearchResult(result: WorkingResult): StructuredSearc
     language: typeof metadata.language === "string" && metadata.language ? metadata.language : undefined,
     parentScope: typeof metadata.parentScope === "string" && metadata.parentScope ? metadata.parentScope : undefined,
     imports: splitListField(metadata.imports),
+    semanticKind: typeof metadata.semanticKind === "string" && metadata.semanticKind ? metadata.semanticKind : undefined,
+    framework: typeof metadata.framework === "string" && metadata.framework ? metadata.framework : undefined,
+    confidence: result.confidence ?? scoreToConfidence(result.rerankScore ?? result.semanticScore),
+    isWeakMatch: result.isWeakMatch ?? (result.rerankScore ?? result.semanticScore) < 0.25,
+    whyMatched: result.whyMatched ?? [],
+    filterMatches: result.filterMatches,
     content: result.content,
     metadata,
   }

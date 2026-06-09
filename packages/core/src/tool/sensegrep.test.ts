@@ -400,6 +400,8 @@ describe("SenseGrepTool file glob filters", () => {
             symbolName: "sendEmailNotification",
             symbolType: "method",
             parentScope: "NotificationDeliveryModel",
+            semanticKind: "convexInternalMutation",
+            framework: "convex",
           },
           distance: 0,
         },
@@ -429,6 +431,24 @@ describe("SenseGrepTool file glob filters", () => {
     expect(listDocuments).toHaveBeenCalledTimes(1)
     expect(result.output).toContain("convex/model/notification_delivery.ts")
     expect(result.output).toContain("sendEmailNotification")
+    expect(result.results?.[0]).toMatchObject({
+      confidence: "high",
+      isWeakMatch: false,
+      semanticKind: "convexInternalMutation",
+      framework: "convex",
+      whyMatched: expect.arrayContaining([
+        "semantic similarity",
+        "pattern matched: idempotencyKey|getResend",
+        "parent matched: NotificationDeliveryModel",
+      ]),
+      filterMatches: {
+        parent: {
+          matched: true,
+          mode: "metadata",
+          value: "NotificationDeliveryModel",
+        },
+      },
+    })
   })
 
   it("batches ripgrep file arguments to avoid command length issues", async () => {

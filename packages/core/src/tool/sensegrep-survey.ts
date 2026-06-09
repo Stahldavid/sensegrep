@@ -7,6 +7,7 @@ import {
   collectWorkingResults,
   deriveDomainLabel,
   formatCodeFence,
+  prependFreshnessWarning,
   getImportHints,
   getQueryTokens,
   getSymbolTokens,
@@ -47,6 +48,10 @@ const commonSearchShape = {
   language: z.enum(["typescript", "javascript", "python", "java", "vue"]).optional().describe("Filter by language"),
   parentScope: z.string().optional().describe("Filter by parent scope/class"),
   imports: z.string().optional().describe("Filter by imported module name"),
+  semanticKind: z.string().optional().describe('Filter by framework-aware kind (e.g. "convexMutation", "reactComponent")'),
+  explainFilters: z.boolean().optional().describe("Include deterministic filter match explanations in JSON results"),
+  strictParent: z.boolean().optional().describe("Require strict parent metadata when filtering by parent"),
+  strictImports: z.boolean().optional().describe("Require strict import metadata when filtering by imports"),
   shake: z.boolean().default(true).describe("Enable tree-shaken representative snippets"),
 } as const
 
@@ -102,6 +107,22 @@ function buildSurveyGroups(results: WorkingResult[], query: string): SurveyGroup
   })
 }
 
+function getRepresentativeTerms(group: SurveyGroup): string[] {
+  return topCounts([...group.importHints, ...group.symbolHints, ...group.dominantSymbolTypes], 8)
+}
+
+function getSurveyWhyGrouped(group: SurveyGroup): string[] {
+  const reasons: string[] = []
+  const imports = topCounts(group.importHints, 3)
+  const symbols = topCounts(group.symbolHints, 3)
+  const symbolTypes = topCounts(group.dominantSymbolTypes, 2)
+  if (imports.length > 0) reasons.push(`shared imports/signals: ${imports.join(", ")}`)
+  if (symbols.length > 0) reasons.push(`shared symbol terms: ${symbols.join(", ")}`)
+  if (symbolTypes.length > 0) reasons.push(`dominant symbol types: ${symbolTypes.join(", ")}`)
+  if (reasons.length === 0) reasons.push(`shared domain label: ${group.title}`)
+  return reasons
+}
+
 async function formatSurveyGroup(
   resources: SearchResources,
   group: SurveyGroup,
@@ -120,6 +141,7 @@ async function formatSurveyGroup(
   if (importHints.length > 0) metaParts.push(`Imports: ${importHints.join(", ")}`)
   if (symbolHints.length > 0) metaParts.push(`Signals: ${symbolHints.join(", ")}`)
   lines.push(metaParts.join(" | "))
+  lines.push(`Why grouped: ${getSurveyWhyGrouped(group).join(" | ")}`)
 
   if (shake) {
     const shaked = await shakeRepresentativeResults(resources, representatives)
@@ -167,8 +189,9 @@ async function runSurvey(params: SurveyParams) {
     if (rawResults.length === 0) {
       return {
         title: params.query,
-        metadata: { matches: 0, indexed: true, groups: 0 },
-        output: "No matching results found for your query.",
+        metadata: { matches: 0, indexed: true, groups: 0, freshness: resources.freshness },
+        freshness: resources.freshness,
+        output: prependFreshnessWarning("No matching results found for your query.", resources.freshness),
       }
     }
 
@@ -192,7 +215,9 @@ async function runSurvey(params: SurveyParams) {
         matches: rawResults.length,
         files: new Set(rawResults.map((result) => result.file)).size,
         shaked: params.shake !== false,
+        freshness: resources.freshness,
       },
+      freshness: resources.freshness,
       groups: groups.map((group) => ({
         title: group.title,
         score: Number(group.score.toFixed(6)),
@@ -201,9 +226,15 @@ async function runSurvey(params: SurveyParams) {
         imports: topCounts(group.importHints, 10),
         symbols: topCounts(group.symbolHints, 10),
         symbolTypes: topCounts(group.dominantSymbolTypes, 10),
+        representativeTerms: getRepresentativeTerms(group),
+        whyGrouped: getSurveyWhyGrouped(group),
+        coverage: {
+          files: group.files.size,
+          symbols: new Set(group.members.map((member) => member.metadata.symbolName).filter(Boolean)).size,
+        },
         results: group.members.map(toStructuredSearchResult),
       })),
-      output: outputLines.join("\n"),
+      output: prependFreshnessWarning(outputLines.join("\n"), resources.freshness),
     }
   })
 }
