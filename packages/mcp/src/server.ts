@@ -192,7 +192,11 @@ async function generateTools(): Promise<Tool[]> {
           },
           parentScope: { type: "string", description: "Parent scope/class name" },
           imports: { type: "string", description: "Filter by imported module name" },
-          semanticKind: { type: "string", description: "Framework-aware kind (convexMutation, convexAction, reactComponent, reactHook, routeHandler, etc.)" },
+          semanticKind: {
+            type: "string",
+            enum: caps.semanticKinds.map((kind: any) => kind.name),
+            description: "Framework-aware kind (convexMutation, convexAction, reactComponent, reactHook, routeHandler, etc.)",
+          },
           explainFilters: { type: "boolean", description: "Include deterministic filter match explanations in JSON results" },
           strictParent: { type: "boolean", description: "Require strict parent metadata when filtering by parent" },
           strictImports: { type: "boolean", description: "Require strict import metadata when filtering by imports" },
@@ -248,7 +252,11 @@ async function generateTools(): Promise<Tool[]> {
           },
           parentScope: { type: "string", description: "Parent scope/class name" },
           imports: { type: "string", description: "Filter by imported module name" },
-          semanticKind: { type: "string", description: "Framework-aware kind (convexMutation, convexAction, reactComponent, reactHook, routeHandler, etc.)" },
+          semanticKind: {
+            type: "string",
+            enum: caps.semanticKinds.map((kind: any) => kind.name),
+            description: "Framework-aware kind (convexMutation, convexAction, reactComponent, reactHook, routeHandler, etc.)",
+          },
           explainFilters: { type: "boolean", description: "Include deterministic filter match explanations in JSON results" },
           strictParent: { type: "boolean", description: "Require strict parent metadata when filtering by parent" },
           strictImports: { type: "boolean", description: "Require strict import metadata when filtering by imports" },
@@ -303,7 +311,11 @@ async function generateTools(): Promise<Tool[]> {
           },
           parentScope: { type: "string", description: "Parent scope/class name" },
           imports: { type: "string", description: "Filter by imported module name" },
-          semanticKind: { type: "string", description: "Framework-aware kind (convexMutation, convexAction, reactComponent, reactHook, routeHandler, etc.)" },
+          semanticKind: {
+            type: "string",
+            enum: caps.semanticKinds.map((kind: any) => kind.name),
+            description: "Framework-aware kind (convexMutation, convexAction, reactComponent, reactHook, routeHandler, etc.)",
+          },
           explainFilters: { type: "boolean", description: "Include deterministic filter match explanations in JSON results" },
           strictParent: { type: "boolean", description: "Require strict parent metadata when filtering by parent" },
           strictImports: { type: "boolean", description: "Require strict import metadata when filtering by imports" },
@@ -370,7 +382,7 @@ async function generateTools(): Promise<Tool[]> {
 const server = new Server(
   {
     name: "sensegrep",
-    version: "1.6.4",
+    version: "1.6.5",
   },
   {
     capabilities: {

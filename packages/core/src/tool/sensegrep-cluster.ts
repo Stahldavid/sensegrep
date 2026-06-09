@@ -8,6 +8,7 @@ import {
   cosineSimilarity,
   deriveDomainLabel,
   formatCodeFence,
+  getDominantSymbolPhrases,
   getImportHints,
   getQueryTokens,
   getSymbolTokens,
@@ -87,6 +88,8 @@ type ClusterGroup = {
   domainHints: string[]
   dominantSymbolTypes: string[]
 }
+
+const GENERIC_TITLE_SIGNALS = new Set(["api", "client", "clients", "service", "services", "types", "contracts", "model", "models"])
 
 class UnionFind {
   private parent = new Map<number, number>()
@@ -215,7 +218,11 @@ function chooseClusterTitle(cluster: ClusterNode[], query: string): string {
   const strongestDomain = domainHints.find((value) => value !== "related code")
   const importHints = topCounts(cluster.flatMap((member) => member.importHints), 2)
   const symbolHints = topCounts(cluster.flatMap((member) => member.symbolHints), 3, queryTokenSet)
-  const strongestSignal = importHints[0] ?? symbolHints[0]
+  const symbolPhrases = getDominantSymbolPhrases(cluster, query, 2, false)
+  const importSignal = importHints.find((hint) => !GENERIC_TITLE_SIGNALS.has(hint)) ?? importHints[0]
+  const strongestSignal = importSignal && !GENERIC_TITLE_SIGNALS.has(importSignal)
+    ? importSignal
+    : symbolPhrases[0] ?? symbolHints[0] ?? importSignal
 
   if (strongestDomain && !strongestDomain.startsWith("domain /")) {
     if (strongestSignal) return `${strongestDomain} / ${strongestSignal}`
@@ -224,13 +231,11 @@ function chooseClusterTitle(cluster: ClusterNode[], query: string): string {
 
   if (strongestDomain?.startsWith("domain /")) {
     const suffix = strongestDomain.slice("domain / ".length)
-    if (importHints.length > 0) return `${suffix} / ${importHints[0]}`
-    if (symbolHints.length > 0) return `${suffix} / ${symbolHints[0]}`
+    if (strongestSignal) return `${suffix} / ${strongestSignal}`
     return strongestDomain
   }
 
-  if (importHints.length > 0) return `cluster / ${importHints.join(" / ")}`
-  if (symbolHints.length > 0) return `cluster / ${symbolHints.join(" / ")}`
+  if (strongestSignal) return `cluster / ${strongestSignal}`
   return strongestDomain ?? "related code"
 }
 

@@ -25,6 +25,7 @@ export {
   type SupportedLanguage,
   type LanguageCapabilities,
   type VariantInfo,
+  type SemanticKindInfo,
   type DetectedLanguage,
   // Registry
   getLanguageForFile,
@@ -36,6 +37,7 @@ export {
   getVariantsGroupedByLanguage,
   getAvailableVariants,
   getAvailableDecorators,
+  getAvailableSemanticKinds,
   validateVariant,
   validateDecorator,
   // Autodetection

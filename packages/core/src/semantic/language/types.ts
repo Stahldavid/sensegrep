@@ -321,6 +321,20 @@ export interface VariantInfo {
 }
 
 /**
+ * Framework-aware semantic kind discovered from common wrappers/conventions.
+ */
+export interface SemanticKindInfo {
+  /** Semantic kind value used by --semantic-kind */
+  readonly name: string
+
+  /** Framework or ecosystem that owns the convention, when known */
+  readonly framework?: string
+
+  /** Human-readable description */
+  readonly description: string
+}
+
+/**
  * Aggregated capabilities across all loaded languages.
  * Used for dynamic CLI help and MCP schema generation.
  */
@@ -339,6 +353,9 @@ export interface LanguageCapabilities {
 
   /** All available decorators across languages */
   readonly decorators: readonly string[]
+
+  /** Framework-aware semantic kinds inferred from common wrappers/conventions */
+  readonly semanticKinds: readonly SemanticKindInfo[]
 }
 
 /**

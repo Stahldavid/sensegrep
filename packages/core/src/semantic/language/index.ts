@@ -15,6 +15,7 @@ export type {
   LanguageVariantDef,
   LanguageCapabilities,
   VariantInfo,
+  SemanticKindInfo,
 } from "./types.js"
 
 // Registry
@@ -33,6 +34,7 @@ export {
   getVariantsGroupedByLanguage,
   getAvailableVariants,
   getAvailableDecorators,
+  getAvailableSemanticKinds,
   validateVariant,
   validateDecorator,
   validateSymbolType,

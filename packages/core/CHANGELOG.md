@@ -1,5 +1,11 @@
 # @sensegrep/core
 
+## 1.6.5
+
+### Patch Changes
+
+- Keep CLI JSON stdout parseable, remove Windows language-detection shell noise, calibrate confidence for exact structural matches, improve thematic group titles, and expose framework-aware semantic kinds.
+
 ## 1.6.4
 
 ### Patch Changes

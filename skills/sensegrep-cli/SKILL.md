@@ -20,8 +20,9 @@ npm install -g @sensegrep/cli
 sensegrep index            # builds the semantic index for the current directory
 ```
 
-Add `--json` to any `search` or `detect-duplicates` command to get machine-readable output
-that is easy to parse programmatically.
+Add `--json` to any `search`, `survey`, `cluster`, or `detect-duplicates` command to get
+machine-readable output that is easy to parse programmatically. When `--json` is active,
+stdout is reserved for JSON; human progress and warnings go to stderr.
 
 ## When to Use
 
@@ -65,6 +66,10 @@ sensegrep search "error handling and retry logic" \
   --decorator "@route"     # filter by decorator
   --parent "UserService"   # scope to class/parent
   --imports express        # filter by imported module
+  --semantic-kind convexMutation # framework-aware kind; run sensegrep semantic-kinds
+  --explain-filters        # include whyMatched/filterMatches in JSON
+  --strict-parent          # strict indexed parent metadata validation
+  --strict-imports         # strict AST import metadata validation
   --has-docs true          # require docs
   --min-score 0.5          # relevance threshold
   --max-per-file 2         # dedup per file (default: 2)
@@ -121,6 +126,20 @@ sensegrep detect-duplicates \
 `--threshold` guide: use `0.85` (default) for meaningful duplicates; lower to `0.7` for suspicious similarities; raise to `0.92+` for near-identical copies only.
 
 For broad monorepos, start with `--include`, `--language`, `--min-lines`, or `--min-complexity` before raising `--max-candidates`. If the candidate set is larger than the cap, Sensegrep truncates explicitly and reports `summary.truncated`, `summary.candidates`, and `summary.analyzedCandidates` in JSON.
+
+With `--json`, parse stdout directly. Use `--quiet --json` only when you also want to suppress stderr progress in interactive logs.
+
+### `sensegrep semantic-kinds` — List framework-aware kinds
+
+```bash
+sensegrep semantic-kinds
+sensegrep semantic-kinds --json
+```
+
+Common values include `convexQuery`, `convexMutation`, `convexAction`,
+`convexInternalQuery`, `convexInternalMutation`, `convexInternalAction`,
+`convexHttpAction`, `routeHandler`, `reactComponent`, `reactHook`, and
+`wrappedFunction`.
 
 ### `sensegrep index` — Index a project
 

@@ -16,7 +16,10 @@ sensegrep search "error handling and retry logic"
 sensegrep survey "authentication login token" --limit 4
 sensegrep cluster "checkout payment order cart" --limit 4
 sensegrep detect-duplicates --cross-file-only
+sensegrep semantic-kinds --json
 ```
+
+`--json` writes parseable JSON to stdout; progress and warnings are written to stderr.
 
 ## Documentation
 

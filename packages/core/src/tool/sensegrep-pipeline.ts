@@ -999,10 +999,81 @@ export function getSymbolTokens(metadata: ResultMetadata): string[] {
   return splitIdentifier(symbolName).filter((token) => !TOKEN_STOPWORDS.has(token))
 }
 
+export function getDominantSymbolPhrases(
+  results: WorkingResult[],
+  query: string,
+  maxItems = 3,
+  excludeQueryTokens = true,
+): string[] {
+  const queryTokens = new Set(getQueryTokens(query))
+  const counts = new Map<string, number>()
+
+  for (const result of results) {
+    const tokens = getSymbolTokens(result.metadata)
+      .filter((token) => !excludeQueryTokens || !queryTokens.has(token))
+      .slice(0, 4)
+    if (tokens.length < 2) continue
+    const phrase = tokens.join(" ")
+    counts.set(phrase, (counts.get(phrase) ?? 0) + 1)
+  }
+
+  return [...counts.entries()]
+    .sort((a, b) => {
+      if (b[1] !== a[1]) return b[1] - a[1]
+      return a[0].localeCompare(b[0])
+    })
+    .slice(0, maxItems)
+    .map(([phrase]) => phrase)
+}
+
 function scoreToConfidence(score: number): "high" | "medium" | "low" {
   if (score >= 0.55) return "high"
   if (score >= 0.25) return "medium"
   return "low"
+}
+
+function raiseConfidence(
+  current: "high" | "medium" | "low",
+  floor: "high" | "medium" | "low",
+): "high" | "medium" | "low" {
+  const rank = { low: 0, medium: 1, high: 2 } as const
+  return rank[floor] > rank[current] ? floor : current
+}
+
+function calibratedConfidence(
+  score: number,
+  signals: {
+    exactSymbolMatch: boolean
+    symbolFilterMatch: boolean
+    symbolTokenMatches: number
+    patternMatch: boolean
+    semanticKindMatch: boolean
+    structuralMatches: number
+    strictStructuralMatches: number
+  },
+): "high" | "medium" | "low" {
+  if (signals.exactSymbolMatch) return "high"
+
+  let confidence = scoreToConfidence(score)
+
+  if (
+    signals.strictStructuralMatches >= 2 ||
+    (signals.patternMatch && signals.structuralMatches >= 1) ||
+    (signals.semanticKindMatch && (signals.patternMatch || signals.symbolFilterMatch))
+  ) {
+    confidence = raiseConfidence(confidence, "high")
+  } else if (
+    signals.symbolFilterMatch ||
+    signals.patternMatch ||
+    signals.semanticKindMatch ||
+    signals.strictStructuralMatches > 0
+  ) {
+    confidence = raiseConfidence(confidence, "medium")
+  } else if (signals.symbolTokenMatches > 0 && score > -0.1) {
+    confidence = raiseConfidence(confidence, "medium")
+  }
+
+  return confidence
 }
 
 function safeRegexMatch(pattern: string, content: string): boolean {
@@ -1023,11 +1094,23 @@ export function annotateWorkingResults(results: WorkingResult[], params: CommonS
     const score = result.rerankScore ?? result.semanticScore
     const whyMatched = new Set<string>(["semantic similarity"])
     const filterMatches: Record<string, unknown> = {}
+    const signals = {
+      exactSymbolMatch: false,
+      symbolFilterMatch: false,
+      symbolTokenMatches: 0,
+      patternMatch: false,
+      semanticKindMatch: false,
+      structuralMatches: 0,
+      strictStructuralMatches: 0,
+    }
 
     const symbolName = typeof metadata.symbolName === "string" ? metadata.symbolName : ""
     const symbolTokens = getSymbolTokens(metadata)
     for (const token of queryTokens) {
-      if (symbolTokens.includes(token)) whyMatched.add(`symbol token matched query: ${token}`)
+      if (symbolTokens.includes(token)) {
+        whyMatched.add(`symbol token matched query: ${token}`)
+        signals.symbolTokenMatches += 1
+      }
     }
 
     const pathSegments = getMeaningfulPathSegments(result.file).map((segment) => segment.toLowerCase())
@@ -1040,12 +1123,18 @@ export function annotateWorkingResults(results: WorkingResult[], params: CommonS
     if (params.pattern && safeRegexMatch(params.pattern, result.content)) {
       whyMatched.add(`pattern matched: ${params.pattern}`)
       filterMatches.pattern = { matched: true, mode: "ripgrep", value: params.pattern }
+      signals.patternMatch = true
+      signals.structuralMatches += 1
     }
 
     if (params.parentScope) {
       const parentScope = typeof metadata.parentScope === "string" ? metadata.parentScope : ""
       const matched = parentScope.toLowerCase().includes(params.parentScope.toLowerCase())
       if (matched) whyMatched.add(`parent matched: ${parentScope}`)
+      if (matched) {
+        signals.structuralMatches += 1
+        if (params.strictParent) signals.strictStructuralMatches += 1
+      }
       filterMatches.parent = {
         matched,
         mode: params.strictParent ? "metadata-strict" : "metadata",
@@ -1057,6 +1146,10 @@ export function annotateWorkingResults(results: WorkingResult[], params: CommonS
       const imports = splitListField(metadata.imports)
       const matched = importFilters.filter((value) => imports.some((item) => item.includes(value)))
       if (matched.length > 0) whyMatched.add(`import matched: ${matched.join(", ")}`)
+      if (matched.length > 0) {
+        signals.structuralMatches += 1
+        if (params.strictImports) signals.strictStructuralMatches += 1
+      }
       filterMatches.imports = {
         matched: matched.length > 0,
         mode: params.strictImports ? "ast-metadata-strict" : "metadata",
@@ -1068,6 +1161,10 @@ export function annotateWorkingResults(results: WorkingResult[], params: CommonS
       const semanticKind = typeof metadata.semanticKind === "string" ? metadata.semanticKind : ""
       const matched = semanticKind === params.semanticKind
       if (matched) whyMatched.add(`semantic kind matched: ${semanticKind}`)
+      if (matched) {
+        signals.semanticKindMatch = true
+        signals.structuralMatches += 1
+      }
       filterMatches.semanticKind = {
         matched,
         mode: "metadata",
@@ -1078,6 +1175,11 @@ export function annotateWorkingResults(results: WorkingResult[], params: CommonS
     if (symbolQuery) {
       const matched = symbolName.toLowerCase().includes(symbolQuery.toLowerCase())
       if (matched) whyMatched.add(`symbol name matched: ${symbolName}`)
+      if (matched) {
+        signals.symbolFilterMatch = true
+        signals.structuralMatches += 1
+        signals.exactSymbolMatch = symbolName.toLowerCase() === symbolQuery.toLowerCase()
+      }
       filterMatches.symbol = { matched, mode: "metadata", value: symbolName || symbolQuery }
     }
 
@@ -1089,10 +1191,12 @@ export function annotateWorkingResults(results: WorkingResult[], params: CommonS
     if (metadata.framework) whyMatched.add(`framework: ${metadata.framework}`)
     if (score <= 0) whyMatched.add("weak semantic score")
 
+    const confidence = calibratedConfidence(score, signals)
+
     return {
       ...result,
-      confidence: scoreToConfidence(score),
-      isWeakMatch: score <= 0 || score < 0.25,
+      confidence,
+      isWeakMatch: confidence === "low" && (score <= 0 || score < 0.25),
       whyMatched: [...whyMatched],
       filterMatches: Object.keys(filterMatches).length > 0 ? filterMatches : undefined,
     }

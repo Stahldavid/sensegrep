@@ -8,6 +8,7 @@
 import { getAllLanguages, getLanguageById } from "./registry.js"
 import type {
   LanguageCapabilities,
+  SemanticKindInfo,
   VariantInfo,
   SupportedLanguage,
   SemanticSymbolType,
@@ -26,6 +27,63 @@ const SEMANTIC_SYMBOL_TYPES: readonly SemanticSymbolType[] = [
   "variable",
   "enum",
   "module",
+] as const
+
+const SEMANTIC_KINDS: readonly SemanticKindInfo[] = [
+  {
+    name: "convexQuery",
+    framework: "convex",
+    description: "Convex public query declared through query(...)",
+  },
+  {
+    name: "convexMutation",
+    framework: "convex",
+    description: "Convex public mutation declared through mutation(...)",
+  },
+  {
+    name: "convexAction",
+    framework: "convex",
+    description: "Convex public action declared through action(...)",
+  },
+  {
+    name: "convexInternalQuery",
+    framework: "convex",
+    description: "Convex internal query declared through internalQuery(...)",
+  },
+  {
+    name: "convexInternalMutation",
+    framework: "convex",
+    description: "Convex internal mutation declared through internalMutation(...)",
+  },
+  {
+    name: "convexInternalAction",
+    framework: "convex",
+    description: "Convex internal action declared through internalAction(...)",
+  },
+  {
+    name: "convexHttpAction",
+    framework: "convex",
+    description: "Convex HTTP action declared through httpAction(...)",
+  },
+  {
+    name: "routeHandler",
+    framework: "web",
+    description: "HTTP route handler exported as GET, POST, PUT, PATCH, DELETE, HEAD, or OPTIONS",
+  },
+  {
+    name: "reactComponent",
+    framework: "react",
+    description: "React component inferred from PascalCase JSX-returning function/variable",
+  },
+  {
+    name: "reactHook",
+    framework: "react",
+    description: "React hook inferred from useX function/variable naming",
+  },
+  {
+    name: "wrappedFunction",
+    description: "Function-like export declared through a generic wrapper call",
+  },
 ] as const
 
 // ============================================================================
@@ -76,7 +134,12 @@ export function getLanguageCapabilities(): LanguageCapabilities {
       a.name.localeCompare(b.name)
     ),
     decorators: [...decorators].sort(),
+    semanticKinds: [...SEMANTIC_KINDS],
   }
+}
+
+export function getAvailableSemanticKinds(): readonly SemanticKindInfo[] {
+  return [...SEMANTIC_KINDS]
 }
 
 /**

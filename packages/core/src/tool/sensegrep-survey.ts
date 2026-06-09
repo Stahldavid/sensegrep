@@ -7,6 +7,7 @@ import {
   collectWorkingResults,
   deriveDomainLabel,
   formatCodeFence,
+  getDominantSymbolPhrases,
   prependFreshnessWarning,
   getImportHints,
   getQueryTokens,
@@ -74,6 +75,8 @@ type SurveyGroup = {
   dominantSymbolTypes: string[]
 }
 
+const GENERIC_TITLE_SIGNALS = new Set(["api", "client", "clients", "service", "services", "types", "contracts", "model", "models"])
+
 function buildSurveyGroups(results: WorkingResult[], query: string): SurveyGroup[] {
   const queryTokenSet = new Set(getQueryTokens(query))
   const groups = new Map<string, SurveyGroup>()
@@ -123,9 +126,30 @@ function getSurveyWhyGrouped(group: SurveyGroup): string[] {
   return reasons
 }
 
+function chooseSurveyTitle(group: SurveyGroup, query: string): string {
+  const symbolPhrases = getDominantSymbolPhrases(group.members, query, 2, false)
+  const symbolHints = topCounts(group.symbolHints, 2, new Set(getQueryTokens(query)))
+  const importHints = topCounts(group.importHints, 2)
+  const importSignal = importHints.find((hint) => !GENERIC_TITLE_SIGNALS.has(hint)) ?? importHints[0]
+  const strongestSignal = importSignal && !GENERIC_TITLE_SIGNALS.has(importSignal)
+    ? importSignal
+    : symbolPhrases[0] ?? symbolHints[0] ?? importSignal
+
+  if (!strongestSignal) return group.title
+  if (group.title.includes(strongestSignal)) return group.title
+
+  if (group.title === "related code" || group.title.startsWith("domain /")) {
+    const base = group.title.startsWith("domain / ") ? group.title.slice("domain / ".length) : "related"
+    return `${base} / ${strongestSignal}`
+  }
+
+  return `${group.title} / ${strongestSignal}`
+}
+
 async function formatSurveyGroup(
   resources: SearchResources,
   group: SurveyGroup,
+  query: string,
   perGroup: number,
   shake: boolean,
 ): Promise<string[]> {
@@ -135,7 +159,7 @@ async function formatSurveyGroup(
   const symbolHints = topCounts(group.symbolHints, 3)
   const symbolTypes = topCounts(group.dominantSymbolTypes, 3)
 
-  lines.push(`## ${group.title}`)
+  lines.push(`## ${chooseSurveyTitle(group, query)}`)
   const metaParts = [`Hits: ${group.members.length}`, `Files: ${group.files.size}`]
   if (symbolTypes.length > 0) metaParts.push(`Symbols: ${symbolTypes.join(", ")}`)
   if (importHints.length > 0) metaParts.push(`Imports: ${importHints.join(", ")}`)
@@ -204,7 +228,7 @@ async function runSurvey(params: SurveyParams) {
     ]
 
     for (const group of groups) {
-      outputLines.push(...(await formatSurveyGroup(resources, group, perGroup, params.shake !== false)))
+      outputLines.push(...(await formatSurveyGroup(resources, group, params.query, perGroup, params.shake !== false)))
     }
 
     return {
@@ -219,7 +243,7 @@ async function runSurvey(params: SurveyParams) {
       },
       freshness: resources.freshness,
       groups: groups.map((group) => ({
-        title: group.title,
+        title: chooseSurveyTitle(group, params.query),
         score: Number(group.score.toFixed(6)),
         matches: group.members.length,
         files: [...group.files],

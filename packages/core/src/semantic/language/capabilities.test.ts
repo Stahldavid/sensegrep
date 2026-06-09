@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest"
 import {
   getLanguageCapabilities,
+  getAvailableSemanticKinds,
   validateVariant,
   validateDecorator,
   validateSymbolType,
@@ -15,6 +16,26 @@ describe("language capabilities", () => {
     )
     expect(capabilities.symbolTypes).toContain("function")
     expect(capabilities.symbolTypes).toContain("class")
+    expect(capabilities.semanticKinds.map((kind) => kind.name)).toEqual(
+      expect.arrayContaining(["convexMutation", "convexHttpAction", "reactComponent", "reactHook"]),
+    )
+  })
+
+  it("exposes framework-aware semantic kind filters", () => {
+    const semanticKinds = getAvailableSemanticKinds()
+
+    expect(semanticKinds).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "convexInternalMutation",
+          framework: "convex",
+        }),
+        expect.objectContaining({
+          name: "routeHandler",
+          framework: "web",
+        }),
+      ]),
+    )
   })
 
   it("validates known variants and suggests close matches", () => {

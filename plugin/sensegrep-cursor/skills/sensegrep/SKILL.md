@@ -50,6 +50,10 @@ sensegrep_search({
   decorator: "@route",          // filter by decorator
   parentScope: "UserService",   // scope to class/parent
   imports: "express",           // filter by imported module
+  semanticKind: "convexMutation", // framework-aware kind (Convex, React, route handlers)
+  explainFilters: true,         // include whyMatched/filterMatches in structured output
+  strictParent: true,           // strict indexed parent metadata validation
+  strictImports: true,          // strict AST import metadata validation
   hasDocumentation: true,       // require docs
   minScore: 0.5,                // relevance threshold
   maxPerFile: 2,                // dedup per file (default: 2)

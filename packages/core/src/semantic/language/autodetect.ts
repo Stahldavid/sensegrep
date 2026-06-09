@@ -5,9 +5,9 @@
  * by scanning file extensions.
  */
 
-import { execSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as path from "node:path"
+import { Ripgrep } from "../../file/ripgrep.js"
 import type { SupportedLanguage } from "./types.js"
 import { getAllLanguages } from "./registry.js"
 
@@ -86,14 +86,7 @@ async function collectExtensions(
 
   try {
     // Try ripgrep first (fastest)
-    const output = execSync(`rg --files "${rootDir}" 2>/dev/null`, {
-      encoding: "utf-8",
-      maxBuffer: 50 * 1024 * 1024, // 50MB
-      timeout: 30000, // 30s timeout
-    })
-
-    for (const line of output.split("\n")) {
-      if (!line) continue
+    for await (const line of Ripgrep.files({ cwd: rootDir })) {
       const ext = path.extname(line).toLowerCase()
       if (ext) {
         counts.set(ext, (counts.get(ext) ?? 0) + 1)

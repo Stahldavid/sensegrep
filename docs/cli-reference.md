@@ -59,6 +59,10 @@ sensegrep search <query> [options]
 | `--language <lang>` | `typescript`, `javascript`, `python` (comma-separated) |
 | `--parent <name>` | Parent scope/class name |
 | `--imports <name>` | Filter by imported module |
+| `--semantic-kind <kind>` | Framework-aware kind (`convexMutation`, `convexAction`, `reactComponent`, etc.) |
+| `--explain-filters` | Include `whyMatched` and `filterMatches` in JSON results |
+| `--strict-parent` | Mark parent filtering as strict indexed metadata validation |
+| `--strict-imports` | Mark import filtering as strict AST metadata validation |
 
 **Quality filters:**
 
@@ -108,7 +112,7 @@ sensegrep detect-duplicates [options]
 | `--full-code` | Show full code (no truncation) |
 | `--verbose` | Show detailed output |
 | `--quiet` | Only show summary |
-| `--json` | Output as JSON |
+| `--json` | Output as pure stdout JSON; human progress/warnings are written to stderr |
 
 ### `sensegrep verify`
 
@@ -136,6 +140,20 @@ sensegrep languages --detect     # Detect project languages
 sensegrep languages --variants   # Show all variants by language
 ```
 
+### `sensegrep semantic-kinds`
+
+List framework-aware semantic kind filters.
+
+```bash
+sensegrep semantic-kinds
+sensegrep semantic-kinds --json
+```
+
+Current built-in values include `convexQuery`, `convexMutation`, `convexAction`,
+`convexInternalQuery`, `convexInternalMutation`, `convexInternalAction`,
+`convexHttpAction`, `routeHandler`, `reactComponent`, `reactHook`, and
+`wrappedFunction`.
+
 ## Examples
 
 ```bash
@@ -153,6 +171,9 @@ sensegrep search "database" --pattern "pool|connection"
 
 # Find duplicates, show code, only cross-file
 sensegrep detect-duplicates --cross-file-only --show-code --only-exported
+
+# List framework-aware semantic kinds
+sensegrep semantic-kinds --json
 
 # Index and keep watching
 sensegrep index --root . --watch

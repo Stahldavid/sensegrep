@@ -37,6 +37,7 @@ Usage:
   sensegrep cluster <query...> [options]
   sensegrep detect-duplicates [--root <dir>] [options]
   sensegrep languages [--detect] [--variants]
+  sensegrep semantic-kinds [--json]
 
 Search options:
   --query <text>            Query text (if not provided as positional)
@@ -117,6 +118,7 @@ Language management:
   sensegrep languages                 List supported languages
   sensegrep languages --detect        Detect project languages
   sensegrep languages --variants      Show all variants by language
+  sensegrep semantic-kinds            List framework-aware semanticKind filters
 
 Index health:
   sensegrep status --verbose          Include changed/missing/removed file lists
@@ -433,6 +435,11 @@ if (command === "verify") {
     return
   }
 
+  if (command === "semantic-kinds") {
+    await runSemanticKindsCommand(flags)
+    return
+  }
+
   if (command === "search") {
     const query = (flags.query as string | undefined) || positional.join(" ")
     if (!query) {
@@ -737,15 +744,17 @@ if (flags.pattern) params.pattern = String(flags.pattern)
       ...(options.thresholds ?? {}),
     }
 
+    const humanLog = flags.json ? console.error : console.log
+
     if (!quiet) {
-      console.log("Detecting logical duplicates...")
-      console.log(`Path: ${rootDir}`)
-      console.log(`Threshold: ${minThreshold}`)
-      console.log(`Scope: ${scopeFilter?.join(", ") || "all"}`)
-      if (options.crossFileOnly) console.log("Filter: cross-file only")
-      if (options.onlyExported) console.log("Filter: exported only")
-      if (options.excludePattern) console.log(`Filter: exclude pattern /${options.excludePattern}/`)
-      console.log("")
+      humanLog("Detecting logical duplicates...")
+      humanLog(`Path: ${rootDir}`)
+      humanLog(`Threshold: ${minThreshold}`)
+      humanLog(`Scope: ${scopeFilter?.join(", ") || "all"}`)
+      if (options.crossFileOnly) humanLog("Filter: cross-file only")
+      if (options.onlyExported) humanLog("Filter: exported only")
+      if (options.excludePattern) humanLog(`Filter: exclude pattern /${options.excludePattern}/`)
+      humanLog("")
     }
 
     const result = await DuplicateDetector.detect(options)
@@ -934,6 +943,23 @@ async function runLanguagesCommand(flags: Flags, rootDir: string) {
   console.log(`Decorators: ${caps.decorators.length} total`)
   console.log(`\nUse 'sensegrep languages --variants' to see all variants`)
   console.log("Use 'sensegrep languages --detect' to detect project languages")
+}
+
+async function runSemanticKindsCommand(flags: Flags) {
+  const { getAvailableSemanticKinds } = await loadCore()
+  const semanticKinds = getAvailableSemanticKinds()
+
+  if (flags.json) {
+    console.log(JSON.stringify({ semanticKinds }, null, 2))
+    return
+  }
+
+  console.log("Framework-aware semantic kinds:\n")
+  for (const kind of semanticKinds) {
+    const framework = kind.framework ? ` (${kind.framework})` : ""
+    console.log(`  - ${kind.name}${framework}: ${kind.description}`)
+  }
+  console.log("\nUse with: sensegrep search \"...\" --semantic-kind <kind>")
 }
 
 run().catch((error) => {
