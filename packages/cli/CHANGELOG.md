@@ -1,5 +1,11 @@
 # @sensegrep/cli
 
+## 1.6.9
+
+### Patch Changes
+
+- Fix `sensegrep status --root <subdir>` so stats and verification run under one project context. This prevents stale `removed` counts caused by concurrent context restoration when a subdirectory reuses a parent index.
+
 ## 1.6.8
 
 ### Patch Changes

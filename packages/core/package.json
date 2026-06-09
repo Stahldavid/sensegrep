@@ -1,6 +1,6 @@
 {
   "name": "@sensegrep/core",
-  "version": "1.6.8",
+  "version": "1.6.9",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -26,9 +26,9 @@
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.1048.0",
     "@lancedb/lancedb": "^0.23.0",
-    "apache-arrow": "18.1.0",
     "@parcel/watcher": "^2.4.1",
     "@zip.js/zip.js": "^2.7.0",
+    "apache-arrow": "18.1.0",
     "picomatch": "^4.0.2",
     "tree-sitter-wasms": "^0.1.5",
     "web-tree-sitter": "^0.21.0",

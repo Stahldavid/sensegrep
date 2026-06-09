@@ -626,16 +626,13 @@ async function run() {
 
   if (command === "status") {
     const verbose = flags.verbose === true
-    const [stats, verify] = await Promise.all([
-      Instance.provide({
-        directory: rootDir,
-        fn: () => Indexer.getStats(),
-      }),
-      Instance.provide({
-        directory: rootDir,
-        fn: () => Indexer.verifyIndex(),
-      }),
-    ])
+    const [stats, verify] = await Instance.provide({
+      directory: rootDir,
+      fn: () => Promise.all([
+        Indexer.getStats(),
+        Indexer.verifyIndex(),
+      ]),
+    })
     const output: Record<string, unknown> = {
       ...stats,
       changed: (verify as any).changed,
