@@ -122,6 +122,8 @@ sensegrep detect-duplicates \
   --threshold 0.85     # 0.7 = loose similarity, 0.9 = near-identical only
   --min-complexity 3   # skip trivial helpers (getters, guards)
   --max-candidates 1500 # cap broad scans; raise for deeper audits
+  --include "src/**/*.ts" # scope duplicate candidates by indexed path
+  --exclude "*.test.ts"   # remove noisy paths
   --ignore-tests       # exclude test files
 ```
 
@@ -130,6 +132,8 @@ sensegrep detect-duplicates \
 For broad monorepos, start with `--include`, `--language`, `--min-lines`, or `--min-complexity` before raising `--max-candidates`. If the candidate set is larger than the cap, Sensegrep truncates explicitly and reports `summary.truncated`, `summary.candidates`, and `summary.analyzedCandidates` in JSON.
 
 With `--json`, parse stdout directly. Use `--quiet --json` only when you also want to suppress stderr progress in interactive logs.
+
+Unknown flags are rejected by subcommand. If a command exits with `Unknown option`, fix the flag instead of assuming the search ran with that constraint.
 
 ### `sensegrep semantic-kinds` — List framework-aware kinds
 

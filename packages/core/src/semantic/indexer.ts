@@ -1133,6 +1133,43 @@ export namespace Indexer {
     return VectorStore.hasCollection(Instance.directory)
   }
 
+  function scopedMetaEntries(
+    meta: NonNullable<Awaited<ReturnType<typeof VectorStore.readIndexMeta>>>,
+    subdirPrefix?: string,
+  ): Array<[string, FileStat]> {
+    const entries = Object.entries(meta.files || {}) as Array<[string, FileStat]>
+    if (!subdirPrefix) return entries
+    const normalizedPrefix = normalizeIndexedFilePath(subdirPrefix).replace(/\/$/, "")
+    return entries.filter(([file]) => file === normalizedPrefix || file.startsWith(`${normalizedPrefix}/`))
+  }
+
+  function toResolvedMetaPath(file: string, subdirPrefix?: string): string {
+    const normalizedFile = normalizeIndexedFilePath(file)
+    if (!subdirPrefix) return normalizedFile
+    const normalizedPrefix = normalizeIndexedFilePath(subdirPrefix).replace(/\/$/, "")
+    return normalizedFile ? `${normalizedPrefix}/${normalizedFile}` : normalizedPrefix
+  }
+
+  async function countActualChunks(
+    collection: Awaited<ReturnType<typeof VectorStore.getCollectionUnsafe>>,
+    subdirPrefix?: string,
+  ): Promise<number> {
+    if (!subdirPrefix) {
+      return (await VectorStore.getStats(collection)).count
+    }
+    const normalizedPrefix = normalizeIndexedFilePath(subdirPrefix).replace(/\/$/, "")
+    const rows = await VectorStore.listDocuments(collection, {
+      filters: {
+        any: [
+          { key: "file", operator: "equals", value: normalizedPrefix },
+          { key: "file", operator: "starts_with", value: `${normalizedPrefix}/` },
+        ],
+      },
+      columns: ["id", "file"],
+    })
+    return rows.length
+  }
+
   /**
    * Get index stats with chunk consistency check
    */
@@ -1146,36 +1183,33 @@ export namespace Indexer {
     embeddings?: { provider: string; model?: string; dimension: number; device?: string; distanceMetric?: VectorStore.DistanceMetric }
     updatedAt?: number
   }> {
-    const hasIt = await hasIndex()
-    if (!hasIt) return { indexed: false, chunks: 0, files: 0 }
-
-    const meta = await VectorStore.readIndexMeta(Instance.directory)
-    if (!meta) return { indexed: false, chunks: 0, files: 0 }
+    const resolved = await VectorStore.resolveIndexedProject(Instance.directory)
+    if (!resolved?.meta) return { indexed: false, chunks: 0, files: 0 }
 
     // Get chunk count without validating dimension (to allow reading stats before configuring embeddings)
-    const collection = await VectorStore.getCollectionUnsafe(Instance.directory)
-    const stats = await VectorStore.getStats(collection)
+    const collection = await VectorStore.getCollectionUnsafe(resolved.root, resolved.meta.embeddings.dimension)
+    const actualChunks = await countActualChunks(collection, resolved.subdirPrefix)
+    const entries = scopedMetaEntries(resolved.meta, resolved.subdirPrefix)
 
     // Calculate expected chunks from meta
     let expectedChunks = 0
-    for (const fileStat of Object.values(meta.files || {})) {
+    for (const [, fileStat] of entries) {
       if (fileStat.chunks) {
         expectedChunks += fileStat.chunks.length
       }
     }
 
-    const actualChunks = stats.count
     const chunkMismatch = expectedChunks > 0 && actualChunks !== expectedChunks
 
     return {
       indexed: true,
       chunks: actualChunks,
-      files: meta?.files ? Object.keys(meta.files).length : 0,
+      files: entries.length,
       expectedChunks,
       actualChunks,
       chunkMismatch,
-      embeddings: meta?.embeddings,
-      updatedAt: meta?.updatedAt,
+      embeddings: resolved.meta.embeddings,
+      updatedAt: resolved.meta.updatedAt,
     }
   }
 
@@ -1198,13 +1232,14 @@ export namespace Indexer {
     embeddings?: { provider: string; model?: string; dimension: number; device?: string; distanceMetric?: VectorStore.DistanceMetric }
     updatedAt?: number
   }> {
-    const meta = await VectorStore.readIndexMeta(Instance.directory)
-    if (!meta) {
+    const resolved = await VectorStore.resolveIndexedProject(Instance.directory)
+    if (!resolved?.meta) {
       return { indexed: false, files: 0, changed: 0, missing: 0, removed: 0 }
     }
+    const meta = resolved.meta
 
     const files = await getFiles()
-    const previous = meta.files || {}
+    const previous = Object.fromEntries(scopedMetaEntries(meta, resolved.subdirPrefix)) as Record<string, FileStat>
     const remaining = new Set(Object.keys(previous))
     let changed = 0
     let missing = 0
@@ -1217,14 +1252,15 @@ export namespace Indexer {
       if (!stat) continue
       if (stat.size > MAX_FILE_SIZE) {
         // Large files are not indexed; ignore them for verification.
-        remaining.delete(file)
+        remaining.delete(toResolvedMetaPath(file, resolved.subdirPrefix))
         continue
       }
 
-      const prev = previous[file]
+      const metaPath = toResolvedMetaPath(file, resolved.subdirPrefix)
+      const prev = previous[metaPath]
       if (!prev) {
         missing++
-        missingFiles.push(file)
+        missingFiles.push(metaPath)
         continue
       }
 
@@ -1232,10 +1268,10 @@ export namespace Indexer {
       const hash = content.trim() ? hashContent(content) : ""
       if (!hash || prev.hash !== hash) {
         changed++
-        changedFiles.push(file)
+        changedFiles.push(metaPath)
       }
 
-      remaining.delete(file)
+      remaining.delete(metaPath)
     }
 
     const removed = remaining.size
@@ -1243,15 +1279,14 @@ export namespace Indexer {
 
     // Check for chunk consistency between meta and LanceDB
     let expectedChunks = 0
-    for (const fileStat of Object.values(meta.files || {})) {
+    for (const fileStat of Object.values(previous)) {
       if (fileStat.chunks) {
         expectedChunks += fileStat.chunks.length
       }
     }
 
-    const collection = await VectorStore.getCollectionUnsafe(Instance.directory)
-    const stats = await VectorStore.getStats(collection)
-    const actualChunks = stats.count
+    const collection = await VectorStore.getCollectionUnsafe(resolved.root, meta.embeddings.dimension)
+    const actualChunks = await countActualChunks(collection, resolved.subdirPrefix)
     const chunkMismatch = expectedChunks > 0 && actualChunks !== expectedChunks
 
     return {

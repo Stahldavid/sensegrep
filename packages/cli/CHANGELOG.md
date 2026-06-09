@@ -1,5 +1,14 @@
 # @sensegrep/cli
 
+## 1.6.8
+
+### Patch Changes
+
+- Reject unknown CLI flags per subcommand, officially support `detect-duplicates --include/--exclude`, and skip unsupported legacy subdirectory index metadata so subdirectory roots can reuse a compatible parent index instead of failing on old local-provider metadata.
+
+- Updated dependencies []:
+  - @sensegrep/core@1.6.8
+
 ## 1.6.7
 
 ### Patch Changes

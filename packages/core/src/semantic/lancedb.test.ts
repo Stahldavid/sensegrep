@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest"
 import { VectorStore } from "./lancedb.js"
+import fs from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
 
 describe("VectorStore distance scoring", () => {
   it("converts l2 distance between normalized vectors back to cosine similarity", () => {
@@ -12,5 +15,42 @@ describe("VectorStore distance scoring", () => {
   it("uses cosine distance as the default score conversion", () => {
     expect(VectorStore.distanceToSimilarity(0.28)).toBeCloseTo(0.72, 6)
     expect(VectorStore.DEFAULT_DISTANCE_METRIC).toBe("cosine")
+  })
+
+  it("skips unsupported exact subdirectory metadata and reuses a compatible parent index", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "sensegrep-resolve-"))
+    const subdir = path.join(root, "apps", "web")
+    await fs.mkdir(subdir, { recursive: true })
+
+    try {
+      await VectorStore.writeIndexMeta(root, {
+        version: 1,
+        root,
+        embeddings: { provider: "openai", model: "ok", dimension: 3, distanceMetric: "cosine" },
+        files: {
+          "apps/web/a.ts": { size: 1, mtimeMs: 1, hash: "h", chunks: ["c"] },
+        },
+        updatedAt: 2,
+      })
+      await VectorStore.writeIndexMeta(subdir, {
+        version: 1,
+        root: subdir,
+        embeddings: { provider: "local" as any, model: "old", dimension: 384 },
+        files: {
+          "a.ts": { size: 1, mtimeMs: 1, hash: "h", chunks: ["c"] },
+        },
+        updatedAt: 3,
+      })
+
+      const resolved = await VectorStore.resolveIndexedProject(subdir)
+
+      expect(resolved?.root).toBe(root)
+      expect(resolved?.subdirPrefix).toBe("apps/web")
+      expect(resolved?.meta.embeddings.provider).toBe("openai")
+    } finally {
+      await VectorStore.deleteCollection(root).catch(() => {})
+      await VectorStore.deleteCollection(subdir).catch(() => {})
+      await fs.rm(root, { recursive: true, force: true })
+    }
   })
 })

@@ -150,7 +150,7 @@ export namespace VectorStore {
 
       try {
         const meta = JSON.parse(text) as IndexMeta
-        if (!meta.root || !meta.embeddings) continue
+        if (!meta.root || !isSupportedIndexMeta(meta)) continue
         const root = await resolveProjectPath(meta.root)
         projects.push({ root, meta: { ...meta, root }, updatedAt: meta.updatedAt ?? 0 })
       } catch {
@@ -171,6 +171,11 @@ export namespace VectorStore {
   export function getDistanceMetric(meta?: IndexMeta | null): DistanceMetric {
     const metric = meta?.embeddings?.distanceMetric
     return metric === "l2" || metric === "dot" || metric === "cosine" ? metric : DEFAULT_DISTANCE_METRIC
+  }
+
+  export function isSupportedIndexMeta(meta?: IndexMeta | null): meta is IndexMeta {
+    const provider = meta?.embeddings?.provider
+    return provider === "gemini" || provider === "openai" || provider === "bedrock"
   }
 
   export function distanceToSimilarity(distance: number, metric: DistanceMetric = DEFAULT_DISTANCE_METRIC): number {
@@ -269,7 +274,7 @@ export namespace VectorStore {
   } | null> {
     const requestedPath = await resolveProjectPath(projectPath)
     const exactMeta = await readIndexMeta(requestedPath)
-    if (exactMeta?.embeddings) {
+    if (isSupportedIndexMeta(exactMeta)) {
       return {
         root: requestedPath,
         meta: { ...exactMeta, root: requestedPath },

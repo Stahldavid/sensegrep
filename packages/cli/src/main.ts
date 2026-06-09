@@ -108,6 +108,8 @@ Duplicate detection options:
   --threshold <number>      Minimum similarity 0.0-1.0 (default: 0.85)
   --scope <type>            function, method, or all (default: function,method)
   --language <lang>         Filter by language (comma-separated)
+  --include <glob>          Include only matching indexed file paths
+  --exclude <glob>          Exclude matching indexed file paths
   --cross-language          Detect duplicates across languages (default: off)
   --ignore-tests            Ignore test files
   --cross-file-only         Only report cross-file duplicates
@@ -168,6 +170,140 @@ function parseArgs(argv: string[]) {
     i += 1
   }
   return { flags, positional }
+}
+
+const GLOBAL_FLAGS = new Set(["help", "h", "root", "json"])
+const EMBEDDING_FLAGS = new Set(["provider", "embed-model", "embedModel", "embed-dim", "embedDim"])
+const INDEX_RUN_FLAGS = new Set(["timeout", "max-files", "maxFiles", "log-format", "verbose"])
+const SEARCH_FILTER_FLAGS = new Set([
+  "query",
+  "pattern",
+  "limit",
+  "include",
+  "exclude",
+  "type",
+  "symbolType",
+  "variant",
+  "decorator",
+  "symbol",
+  "name",
+  "exported",
+  "async",
+  "static",
+  "abstract",
+  "min-complexity",
+  "minComplexity",
+  "max-complexity",
+  "maxComplexity",
+  "min-score",
+  "minScore",
+  "max-per-file",
+  "maxPerFile",
+  "max-per-symbol",
+  "maxPerSymbol",
+  "has-docs",
+  "hasDocs",
+  "language",
+  "parent",
+  "parentScope",
+  "imports",
+  "rerank",
+  "no-rerank",
+  "semantic-kind",
+  "semanticKind",
+  "explain-filters",
+  "explainFilters",
+  "strict-parent",
+  "strictParent",
+  "strict-imports",
+  "strictImports",
+  "ensure-fresh",
+  "ensureFresh",
+])
+
+const ALLOWED_FLAGS_BY_COMMAND: Record<string, Set<string>> = {
+  index: new Set([
+    ...GLOBAL_FLAGS,
+    ...EMBEDDING_FLAGS,
+    ...INDEX_RUN_FLAGS,
+    "full",
+    "incremental",
+    "verify",
+    "check",
+    "watch",
+    "no-watch",
+    "include-docs",
+    "include-config",
+    "max-changed",
+    "max-missing",
+    "max-removed",
+  ]),
+  verify: new Set([...GLOBAL_FLAGS, "strict"]),
+  status: new Set([...GLOBAL_FLAGS, "verbose"]),
+  search: new Set([...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, ...SEARCH_FILTER_FLAGS]),
+  survey: new Set([
+    ...GLOBAL_FLAGS,
+    ...EMBEDDING_FLAGS,
+    ...INDEX_RUN_FLAGS,
+    ...SEARCH_FILTER_FLAGS,
+    "raw-limit",
+    "rawLimit",
+    "per-group",
+    "perGroup",
+  ]),
+  cluster: new Set([
+    ...GLOBAL_FLAGS,
+    ...EMBEDDING_FLAGS,
+    ...INDEX_RUN_FLAGS,
+    ...SEARCH_FILTER_FLAGS,
+    "raw-limit",
+    "rawLimit",
+    "per-cluster",
+    "perCluster",
+    "cluster-threshold",
+    "clusterThreshold",
+    "min-cluster-size",
+    "minClusterSize",
+  ]),
+  "detect-duplicates": new Set([
+    ...GLOBAL_FLAGS,
+    ...EMBEDDING_FLAGS,
+    ...INDEX_RUN_FLAGS,
+    "ensure-fresh",
+    "ensureFresh",
+    "threshold",
+    "scope",
+    "language",
+    "include",
+    "exclude",
+    "cross-language",
+    "ignore-tests",
+    "cross-file-only",
+    "only-exported",
+    "exclude-pattern",
+    "min-lines",
+    "min-complexity",
+    "max-candidates",
+    "ignore-acceptable-patterns",
+    "normalize-identifiers",
+    "no-normalize-identifiers",
+    "rank-by-impact",
+    "no-rank-by-impact",
+    "limit",
+    "full-code",
+    "show-code",
+    "verbose",
+    "quiet",
+  ]),
+  languages: new Set([...GLOBAL_FLAGS, "detect", "variants"]),
+  "semantic-kinds": new Set(GLOBAL_FLAGS),
+  selftest: new Set([...GLOBAL_FLAGS, "strict", "deep"]),
+}
+
+function validateKnownFlags(command: string, flags: Flags): string | undefined {
+  const allowed = ALLOWED_FLAGS_BY_COMMAND[command]
+  if (!allowed) return undefined
+  return Object.keys(flags).find((key) => !allowed.has(key))
 }
 
 function toBool(value: string | boolean | undefined) {
@@ -344,6 +480,13 @@ async function run() {
 
   if (command === "--version" || command === "-v" || command === "version") {
     console.log(getCliVersion())
+    return
+  }
+
+  const unknownFlag = validateKnownFlags(command, flags)
+  if (unknownFlag) {
+    console.error(`Unknown option for "${command}": --${unknownFlag}`)
+    process.exitCode = 1
     return
   }
 
@@ -850,6 +993,8 @@ if (flags.pattern) params.pattern = String(flags.pattern)
       minLines: flags["min-lines"] ? Number(flags["min-lines"]) : 10,
       minComplexity: flags["min-complexity"] ? Number(flags["min-complexity"]) : 0,
       maxCandidates: flags["max-candidates"] ? Number(flags["max-candidates"]) : undefined,
+      include: flags.include ? String(flags.include) : undefined,
+      exclude: flags.exclude ? String(flags.exclude) : undefined,
       ignoreAcceptablePatterns: toBool(flags["ignore-acceptable-patterns"]) ?? false,
       normalizeIdentifiers,
       rankByImpact,

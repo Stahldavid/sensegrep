@@ -4,6 +4,7 @@ import { getLanguageForFile, isSupported as isLanguageSupported } from "./langua
 import { VectorStore } from "./lancedb.js"
 import * as fs from "fs/promises"
 import * as path from "path"
+import picomatch from "picomatch"
 
 const log = Log.create({ service: "semantic.duplicate-detector" })
 
@@ -67,6 +68,8 @@ export namespace DuplicateDetector {
     language?: string | string[]
     onlyExported?: boolean
     excludePattern?: string
+    include?: string
+    exclude?: string
     maxCandidates?: number
   }
 
@@ -742,6 +745,8 @@ export namespace DuplicateDetector {
     }
 
     const excludeRegex = options.excludePattern ? new RegExp(options.excludePattern) : null
+    const includeMatcher = options.include ? picomatch(options.include, { dot: true }) : null
+    const excludeMatcher = options.exclude ? picomatch(options.exclude, { dot: true }) : null
     let candidates = rows
       .filter((row) => Array.isArray(row.vector) && row.vector.length > 0)
       .map((row) => {
@@ -767,6 +772,9 @@ export namespace DuplicateDetector {
       })
       .filter((c) => {
         if (!isInScopedPath(c.file)) return false
+        const normalizedFile = c.file.replace(/\\/g, "/").replace(/^\.\//, "")
+        if (includeMatcher && !includeMatcher(normalizedFile)) return false
+        if (excludeMatcher && excludeMatcher(normalizedFile)) return false
         if (options.ignoreTests) {
           if (c.file.includes(".test.") || c.file.includes(".spec.") || c.file.includes("__tests__")) {
             return false

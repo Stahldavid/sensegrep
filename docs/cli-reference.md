@@ -117,6 +117,8 @@ sensegrep detect-duplicates [options]
 | `--threshold <n>` | Minimum similarity 0.0-1.0 (default: 0.85) |
 | `--scope <type>` | `function`, `method`, or `all` (default: `function,method`) |
 | `--language <lang>` | Filter by language |
+| `--include <glob>` | Include only matching indexed file paths |
+| `--exclude <glob>` | Exclude matching indexed file paths |
 | `--cross-language` | Detect across languages |
 | `--ignore-tests` | Exclude test files |
 | `--cross-file-only` | Only cross-file duplicates |
@@ -132,6 +134,9 @@ sensegrep detect-duplicates [options]
 | `--verbose` | Show detailed output |
 | `--quiet` | Only show summary |
 | `--json` | Output as pure stdout JSON; human progress/warnings are written to stderr |
+
+Unknown flags are rejected per subcommand. This prevents accidental no-op options
+in automated agent workflows.
 
 ### `sensegrep verify`
 
