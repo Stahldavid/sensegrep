@@ -1,5 +1,14 @@
 # @sensegrep/mcp
 
+## 1.6.4
+
+### Patch Changes
+
+- Make search-time freshness checks best-effort with a short timeout so query tools do not block on filesystem verification.
+
+- Updated dependencies []:
+  - @sensegrep/core@1.6.4
+
 ## 1.6.3
 
 ### Patch Changes

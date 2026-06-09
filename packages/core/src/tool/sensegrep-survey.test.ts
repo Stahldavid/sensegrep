@@ -6,6 +6,7 @@ const clearProjectCache = vi.fn()
 const getCollectionUnsafe = vi.fn()
 const search = vi.fn()
 const withConfig = vi.fn(async (_config, run: () => Promise<unknown>) => run())
+const verifyIndex = vi.fn()
 
 vi.mock("../semantic/lancedb.js", () => ({
   VectorStore: {
@@ -20,6 +21,12 @@ vi.mock("../semantic/lancedb.js", () => ({
 vi.mock("../semantic/embeddings.js", () => ({
   Embeddings: {
     withConfig,
+  },
+}))
+
+vi.mock("../semantic/indexer.js", () => ({
+  Indexer: {
+    verifyIndex,
   },
 }))
 
@@ -56,6 +63,14 @@ describe("SenseGrepSurveyTool", () => {
       meta: await readIndexMeta(root),
     }))
     getCollectionUnsafe.mockResolvedValue({})
+    verifyIndex.mockResolvedValue({
+      indexed: true,
+      files: 4,
+      changed: 0,
+      missing: 0,
+      removed: 0,
+      chunkMismatch: false,
+    })
   })
 
   it("groups broad auth results into readable domain sections", async () => {

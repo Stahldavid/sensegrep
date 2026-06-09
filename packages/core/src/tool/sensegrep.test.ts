@@ -10,6 +10,7 @@ const listDocuments = vi.fn()
 const withConfig = vi.fn(async (_config, run: () => Promise<unknown>) => run())
 const filepath = vi.fn(async () => "rg")
 const spawn = vi.fn()
+const verifyIndex = vi.fn()
 
 vi.mock("../semantic/lancedb.js", () => ({
   VectorStore: {
@@ -25,6 +26,12 @@ vi.mock("../semantic/lancedb.js", () => ({
 vi.mock("../semantic/embeddings.js", () => ({
   Embeddings: {
     withConfig,
+  },
+}))
+
+vi.mock("../semantic/indexer.js", () => ({
+  Indexer: {
+    verifyIndex,
   },
 }))
 
@@ -94,6 +101,14 @@ describe("SenseGrepTool file glob filters", () => {
     }))
     getCollectionUnsafe.mockResolvedValue({})
     listDocuments.mockResolvedValue([])
+    verifyIndex.mockResolvedValue({
+      indexed: true,
+      files: 3,
+      changed: 0,
+      missing: 0,
+      removed: 0,
+      chunkMismatch: false,
+    })
   })
 
   it("applies include before semantic limiting", async () => {

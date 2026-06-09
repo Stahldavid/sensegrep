@@ -184,8 +184,26 @@ export function summarizeFreshness(
 }
 
 export async function getFreshnessSummary(): Promise<FreshnessSummary> {
+  let timeout: ReturnType<typeof setTimeout> | undefined
   try {
-    return summarizeFreshness(await Indexer.verifyIndex())
+    const verify = await Promise.race([
+      Indexer.verifyIndex(),
+      new Promise<undefined>((resolve) => {
+        timeout = setTimeout(() => resolve(undefined), 2_000)
+        timeout.unref?.()
+      }),
+    ])
+    if (!verify) {
+      return {
+        indexed: true,
+        isStale: false,
+        changed: 0,
+        missing: 0,
+        removed: 0,
+        chunkMismatch: false,
+      }
+    }
+    return summarizeFreshness(verify)
   } catch {
     return {
       indexed: true,
@@ -195,6 +213,8 @@ export async function getFreshnessSummary(): Promise<FreshnessSummary> {
       removed: 0,
       chunkMismatch: false,
     }
+  } finally {
+    if (timeout) clearTimeout(timeout)
   }
 }
 
