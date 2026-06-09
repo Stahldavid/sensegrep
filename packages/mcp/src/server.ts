@@ -382,7 +382,7 @@ async function generateTools(): Promise<Tool[]> {
 const server = new Server(
   {
     name: "sensegrep",
-    version: "1.6.9",
+    version: "1.6.10",
   },
   {
     capabilities: {

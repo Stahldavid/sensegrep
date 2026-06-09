@@ -1,5 +1,11 @@
 # @sensegrep/cli
 
+## 1.6.10
+
+### Patch Changes
+
+- Centralize CLI output stream handling so JSON commands keep stdout parseable while human progress and warnings stay on stderr.
+
 ## 1.6.9
 
 ### Patch Changes

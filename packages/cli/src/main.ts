@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import type { Tool as ToolType, DuplicateDetector as DuplicateDetectorType } from "@sensegrep/core"
 import { readFileSync } from "node:fs"
+import { createHumanLogger, writeJson, writeStderrLine, writeStdoutLine } from "./output.js"
 
 type Flags = Record<string, string | boolean>
 
@@ -35,7 +36,7 @@ async function loadCore(): Promise<CoreModule> {
 }
 
 function usage() {
-  console.log(`
+  writeStdoutLine(`
 sensegrep (CLI)
 
 Usage:
@@ -465,7 +466,7 @@ async function ensureFreshIfRequested(
     directory: rootDir,
     fn: () => (mode === "full" ? Indexer.indexProject(createIndexRunOptions(flags)) : Indexer.indexProjectIncremental(createIndexRunOptions(flags))),
   })
-  console.error(`Refreshed stale index before query: ${formatIndexResult(result)}`)
+  writeStderrLine(`Refreshed stale index before query: ${formatIndexResult(result)}`)
 }
 
 async function run() {
@@ -479,13 +480,13 @@ async function run() {
   }
 
   if (command === "--version" || command === "-v" || command === "version") {
-    console.log(getCliVersion())
+    writeStdoutLine(getCliVersion())
     return
   }
 
   const unknownFlag = validateKnownFlags(command, flags)
   if (unknownFlag) {
-    console.error(`Unknown option for "${command}": --${unknownFlag}`)
+    writeStderrLine(`Unknown option for "${command}": --${unknownFlag}`)
     process.exitCode = 1
     return
   }
@@ -516,7 +517,7 @@ async function run() {
     const watch = noWatch || flags.json ? false : (toBool(flags.watch) ?? true)
     const includeDocs = flags["include-docs"] === true
     const includeConfig = flags["include-config"] === true
-    const humanLog = flags.json ? console.error : console.log
+    const humanLog = createHumanLogger({ json: flags.json === true })
     const indexRunOptions = createIndexRunOptions(flags)
 
     // Configure index options
@@ -542,9 +543,9 @@ async function run() {
         },
       }
       if (flags.json) {
-        console.log(JSON.stringify(payload, null, 2))
+        writeJson(payload)
       } else {
-        console.log(`Index check: ${formatVerifySummary(verify)} stale=${stale}`)
+        writeStdoutLine(`Index check: ${formatVerifySummary(verify)} stale=${stale}`)
       }
       process.exitCode = stale ? 1 : 0
       return
@@ -597,20 +598,20 @@ async function run() {
       detectedLanguages: detected,
     }
     if (flags.json) {
-      console.log(JSON.stringify(summary, null, 2))
+      writeJson(summary)
     } else {
-      console.log(
+      writeStdoutLine(
         `Index summary: indexed=${stats.indexed} files=${stats.files} chunks=${stats.chunks} provider=${stats.embeddings?.provider ?? "n/a"}`,
       )
     }
     if (watch) {
-      console.log("Watching for changes (reindex at most once per minute)... Use --no-watch to disable.")
+      writeStdoutLine("Watching for changes (reindex at most once per minute)... Use --no-watch to disable.")
       const handle = await IndexWatcher.start({
         rootDir,
         entrypoint: "cli",
         intervalMs: 60_000,
         onIndex: (result) => {
-          console.log(formatIndexResult(result))
+          writeStdoutLine(formatIndexResult(result))
         },
       })
       const stop = async () => {
@@ -648,7 +649,7 @@ async function run() {
       output.missingFiles = (verify as any).missingFiles ?? []
       output.removedFiles = (verify as any).removedFiles ?? []
     }
-    console.log(JSON.stringify(output, null, 2))
+    writeJson(output)
     return
   }
 
@@ -671,10 +672,10 @@ async function run() {
       stats,
     }
     if (flags.json) {
-      console.log(JSON.stringify(payload, null, 2))
+      writeJson(payload)
     } else {
-      console.log(`Verify: ${formatVerifySummary(result)}${strict ? ` strict=${isStrictHealthy}` : ""}`)
-      console.log(
+      writeStdoutLine(`Verify: ${formatVerifySummary(result)}${strict ? ` strict=${isStrictHealthy}` : ""}`)
+      writeStdoutLine(
         `Index summary: indexed=${stats.indexed} files=${stats.files} chunks=${stats.chunks} provider=${stats.embeddings?.provider ?? "n/a"}${(result as any).chunkMismatch === true ? ` expectedChunks=${(result as any).expectedChunks} actualChunks=${(result as any).actualChunks}` : ""}`,
       )
     }
@@ -707,7 +708,7 @@ async function run() {
   if (command === "search") {
     const query = (flags.query as string | undefined) || positional.join(" ")
     if (!query) {
-      console.error("Missing query")
+      writeStderrLine("Missing query")
       usage()
       process.exitCode = 1
       return
@@ -778,17 +779,17 @@ if (flags.pattern) params.pattern = String(flags.pattern)
     })
 
     if (flags.json) {
-      console.log(JSON.stringify(res, null, 2))
+      writeJson(res)
       return
     }
-    console.log(res.output)
+    writeStdoutLine(res.output)
     return
   }
 
   if (command === "survey") {
     const query = (flags.query as string | undefined) || positional.join(" ")
     if (!query) {
-      console.error("Missing query")
+      writeStderrLine("Missing query")
       usage()
       process.exitCode = 1
       return
@@ -853,17 +854,17 @@ if (flags.pattern) params.pattern = String(flags.pattern)
     })
 
     if (flags.json) {
-      console.log(JSON.stringify(res, null, 2))
+      writeJson(res)
       return
     }
-    console.log(res.output)
+    writeStdoutLine(res.output)
     return
   }
 
   if (command === "cluster") {
     const query = (flags.query as string | undefined) || positional.join(" ")
     if (!query) {
-      console.error("Missing query")
+      writeStderrLine("Missing query")
       usage()
       process.exitCode = 1
       return
@@ -932,10 +933,10 @@ if (flags.pattern) params.pattern = String(flags.pattern)
     })
 
     if (flags.json) {
-      console.log(JSON.stringify(res, null, 2))
+      writeJson(res)
       return
     }
-    console.log(res.output)
+    writeStdoutLine(res.output)
     return
   }
 
@@ -1010,7 +1011,7 @@ if (flags.pattern) params.pattern = String(flags.pattern)
       ...(options.thresholds ?? {}),
     }
 
-    const humanLog = flags.json ? console.error : console.log
+    const humanLog = createHumanLogger({ json: flags.json === true })
 
     if (!quiet) {
       humanLog("Detecting logical duplicates...")
@@ -1026,7 +1027,7 @@ if (flags.pattern) params.pattern = String(flags.pattern)
     const result = await DuplicateDetector.detect(options)
 
     if (flags.json) {
-      console.log(JSON.stringify(result, null, 2))
+      writeJson(result)
       return
     }
 
@@ -1044,10 +1045,10 @@ if (flags.pattern) params.pattern = String(flags.pattern)
 
     // Summary
     if (!quiet) {
-      console.log("━".repeat(80))
-      console.log("DUPLICATE DETECTION RESULTS")
-      console.log("━".repeat(80))
-      console.log(`Total duplicates: ${result.summary.totalDuplicates}`)
+      writeStdoutLine("━".repeat(80))
+      writeStdoutLine("DUPLICATE DETECTION RESULTS")
+      writeStdoutLine("━".repeat(80))
+      writeStdoutLine(`Total duplicates: ${result.summary.totalDuplicates}`)
 
       const critical = result.duplicates.filter(d => d.similarity >= thresholds.exact).length
       const high = result.duplicates.filter(
@@ -1061,34 +1062,34 @@ if (flags.pattern) params.pattern = String(flags.pattern)
       ).length
 
       if (critical > 0) {
-        console.log(
+        writeStdoutLine(
           `  🔥 Critical (≥${formatPct(thresholds.exact)}%): ${critical}  ← Exact duplicates, refactor NOW`,
         )
       }
       if (high > 0) {
-        console.log(
+        writeStdoutLine(
           `  ⚠️  High (${formatPct(thresholds.high)}–${formatPct(thresholds.exact)}%): ${high}   ← Very similar, should review`,
         )
       }
       if (medium > 0) {
-        console.log(
+        writeStdoutLine(
           `  ℹ️  Medium (${formatPct(thresholds.medium)}–${formatPct(thresholds.high)}%): ${medium} ← Similar, investigate`,
         )
       }
       if (low > 0) {
-        console.log(
+        writeStdoutLine(
           `  💡 Low (${formatPct(thresholds.low)}–${formatPct(thresholds.medium)}%): ${low}   ← Somewhat similar`,
         )
       }
 
-      console.log("")
-      console.log(`Files affected: ${result.summary.filesAffected}`)
-      console.log(`Potential savings: ${result.summary.totalSavings} lines`)
-      console.log("")
+      writeStdoutLine()
+      writeStdoutLine(`Files affected: ${result.summary.filesAffected}`)
+      writeStdoutLine(`Potential savings: ${result.summary.totalSavings} lines`)
+      writeStdoutLine()
     }
 
     if (result.duplicates.length === 0) {
-      console.log("✅ No significant duplicates found!")
+      writeStdoutLine("✅ No significant duplicates found!")
       return
     }
 
@@ -1096,34 +1097,34 @@ if (flags.pattern) params.pattern = String(flags.pattern)
 
     // Show top duplicates
     const topDuplicates = result.duplicates.slice(0, limit)
-    console.log(`Top ${topDuplicates.length} duplicates (ranked by impact):`)
-    console.log("")
+    writeStdoutLine(`Top ${topDuplicates.length} duplicates (ranked by impact):`)
+    writeStdoutLine()
 
     for (let i = 0; i < topDuplicates.length; i++) {
       const dup = topDuplicates[i]
       const { emoji, label } = getCategoryInfo(dup.level, dup.similarity)
 
-      console.log(`${emoji} #${i + 1} - ${label} (${(dup.similarity * 100).toFixed(1)}% similar)`)
+      writeStdoutLine(`${emoji} #${i + 1} - ${label} (${(dup.similarity * 100).toFixed(1)}% similar)`)
 
       if (verbose) {
-        console.log(`   Impact: ${dup.impact.totalLines} lines × ${dup.impact.complexity.toFixed(1)} complexity × ${dup.impact.fileCount} files = ${dup.impact.score.toFixed(0)} score`)
-        console.log(`   Potential savings: ${dup.impact.estimatedSavings} lines`)
+        writeStdoutLine(`   Impact: ${dup.impact.totalLines} lines × ${dup.impact.complexity.toFixed(1)} complexity × ${dup.impact.fileCount} files = ${dup.impact.score.toFixed(0)} score`)
+        writeStdoutLine(`   Potential savings: ${dup.impact.estimatedSavings} lines`)
       }
 
       for (const inst of dup.instances) {
         const relPath = inst.file.replace(rootDir, "").replace(/^[/\\]/, "")
         const lines = inst.endLine - inst.startLine + 1
-        console.log(`   ${relPath}:${inst.startLine}-${inst.endLine} (${inst.symbol}, ${lines} lines)`)
+        writeStdoutLine(`   ${relPath}:${inst.startLine}-${inst.endLine} (${inst.symbol}, ${lines} lines)`)
       }
 
       // Show code if requested
       if (showCode || verbose || fullCode) {
-        console.log("")
+        writeStdoutLine()
         for (let j = 0; j < dup.instances.length; j++) {
           const inst = dup.instances[j]
           const relPath = inst.file.replace(rootDir, "").replace(/^[/\\]/, "")
 
-          console.log(`   ┌─ ${String.fromCharCode(65 + j)}: ${relPath}:${inst.startLine}`)
+          writeStdoutLine(`   ┌─ ${String.fromCharCode(65 + j)}: ${relPath}:${inst.startLine}`)
 
           // Truncate code to max 15 lines for readability
           const codeLines = inst.content.split("\n")
@@ -1131,33 +1132,33 @@ if (flags.pattern) params.pattern = String(flags.pattern)
           const displayLines = codeLines.slice(0, maxLines)
 
           for (const line of displayLines) {
-            console.log(`   │ ${line}`)
+            writeStdoutLine(`   │ ${line}`)
           }
 
           if (codeLines.length > maxLines) {
-            console.log(`   │ ... (${codeLines.length - maxLines} more lines)`)
+            writeStdoutLine(`   │ ... (${codeLines.length - maxLines} more lines)`)
           }
-          console.log(`   └─`)
+          writeStdoutLine(`   └─`)
         }
       }
 
-      console.log("")
+      writeStdoutLine()
     }
 
     if (result.duplicates.length > limit) {
-      console.log(`... and ${result.duplicates.length - limit} more duplicates`)
-      console.log(`Use --limit ${result.duplicates.length} to see all`)
-      console.log("")
+      writeStdoutLine(`... and ${result.duplicates.length - limit} more duplicates`)
+      writeStdoutLine(`Use --limit ${result.duplicates.length} to see all`)
+      writeStdoutLine()
     }
 
     if (result.acceptableDuplicates && result.acceptableDuplicates.length > 0) {
-      console.log(`💡 ${result.acceptableDuplicates.length} acceptable duplicates ignored (simple validations, guards, etc.)`)
+      writeStdoutLine(`💡 ${result.acceptableDuplicates.length} acceptable duplicates ignored (simple validations, guards, etc.)`)
     }
 
     return
   }
 
-console.error(`Unknown command: ${command}`)
+writeStderrLine(`Unknown command: ${command}`)
   usage()
   process.exitCode = 1
 }
@@ -1172,26 +1173,26 @@ async function runLanguagesCommand(flags: Flags, rootDir: string) {
   } = await loadCore()
 
   if (flags.detect) {
-    console.log("Detecting languages in project...\n")
+    writeStdoutLine("Detecting languages in project...\n")
     const detected = await detectProjectLanguages(rootDir)
 
     if (detected.length === 0) {
-      console.log("No supported languages detected.")
+      writeStdoutLine("No supported languages detected.")
     } else {
-      console.log(formatDetectedLanguages(detected))
+      writeStdoutLine(formatDetectedLanguages(detected))
     }
     return
   }
 
   if (flags.variants) {
     const variantsByLang = getVariantsGroupedByLanguage()
-    console.log("Variants by language:\n")
+    writeStdoutLine("Variants by language:\n")
     for (const [lang, variants] of variantsByLang) {
-      console.log(`  ${lang}:`)
+      writeStdoutLine(`  ${lang}:`)
       for (const v of variants) {
-        console.log(`    - ${v.name.padEnd(15)} ${v.description}`)
+        writeStdoutLine(`    - ${v.name.padEnd(15)} ${v.description}`)
       }
-      console.log()
+      writeStdoutLine()
     }
     return
   }
@@ -1200,15 +1201,15 @@ async function runLanguagesCommand(flags: Flags, rootDir: string) {
   const all = getAllLanguages()
   const caps = getLanguageCapabilities()
 
-  console.log("Supported languages:\n")
+  writeStdoutLine("Supported languages:\n")
   for (const lang of all) {
-    console.log(`  ✅ ${lang.displayName} (${lang.extensions.join(", ")})`)
+    writeStdoutLine(`  ✅ ${lang.displayName} (${lang.extensions.join(", ")})`)
   }
-  console.log(`\nSymbol types: ${caps.symbolTypes.join(", ")}`)
-  console.log(`Variants: ${caps.variants.length} total`)
-  console.log(`Decorators: ${caps.decorators.length} total`)
-  console.log(`\nUse 'sensegrep languages --variants' to see all variants`)
-  console.log("Use 'sensegrep languages --detect' to detect project languages")
+  writeStdoutLine(`\nSymbol types: ${caps.symbolTypes.join(", ")}`)
+  writeStdoutLine(`Variants: ${caps.variants.length} total`)
+  writeStdoutLine(`Decorators: ${caps.decorators.length} total`)
+  writeStdoutLine(`\nUse 'sensegrep languages --variants' to see all variants`)
+  writeStdoutLine("Use 'sensegrep languages --detect' to detect project languages")
 }
 
 async function runSelftestCommand(
@@ -1346,11 +1347,11 @@ async function runSelftestCommand(
   }
 
   if (flags.json) {
-    console.log(JSON.stringify(payload, null, 2))
+    writeJson(payload)
   } else {
     for (const item of checks) {
       const status = item.skipped ? "SKIP" : item.ok ? "OK" : "FAIL"
-      console.log(`${status.padEnd(4)} ${item.name}${item.message ? ` - ${item.message}` : ""}`)
+      writeStdoutLine(`${status.padEnd(4)} ${item.name}${item.message ? ` - ${item.message}` : ""}`)
     }
   }
 
@@ -1362,23 +1363,23 @@ async function runSemanticKindsCommand(flags: Flags) {
   const semanticKinds = getAvailableSemanticKinds()
 
   if (flags.json) {
-    console.log(JSON.stringify({ semanticKinds }, null, 2))
+    writeJson({ semanticKinds })
     return
   }
 
-  console.log("Framework-aware semantic kinds:\n")
+  writeStdoutLine("Framework-aware semantic kinds:\n")
   for (const kind of semanticKinds) {
     const framework = kind.framework ? ` (${kind.framework})` : ""
     const aliases = Array.isArray((kind as any).aliases) && (kind as any).aliases.length > 0
       ? ` aliases: ${(kind as any).aliases.join(", ")}`
       : ""
-    console.log(`  - ${kind.name}${framework}: ${kind.description}${aliases}`)
+    writeStdoutLine(`  - ${kind.name}${framework}: ${kind.description}${aliases}`)
   }
-  console.log("\nUse with: sensegrep search \"...\" --semantic-kind <kind>")
-  console.log("Wildcards are supported, for example: --semantic-kind convex*")
+  writeStdoutLine("\nUse with: sensegrep search \"...\" --semantic-kind <kind>")
+  writeStdoutLine("Wildcards are supported, for example: --semantic-kind convex*")
 }
 
 run().catch((error) => {
-  console.error(error)
+  writeStderrLine(error instanceof Error ? error.stack ?? error.message : String(error))
   process.exitCode = 1
 })
