@@ -838,7 +838,7 @@ export namespace DuplicateDetector {
         if (options.crossFileOnly && other.file === candidate.file) continue
         if (!options.crossLanguage && candidate.language && other.language && candidate.language !== other.language) continue
 
-        const vectorSimilarity = 1 - neighbor.distance
+        const vectorSimilarity = VectorStore.distanceToSimilarity(neighbor.distance, VectorStore.getDistanceMetric(meta))
         let similarity = vectorSimilarity
         const rawA = candidate.rawContent || candidate.content
         const rawB = other.rawContent || other.content

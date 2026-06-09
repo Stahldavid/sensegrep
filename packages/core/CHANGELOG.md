@@ -1,5 +1,11 @@
 # @sensegrep/core
 
+## 1.6.6
+
+### Patch Changes
+
+- Fix CLI help/version handling, make incremental indexing avoid partial chunk updates, preserve existing indexes until rebuild embeddings are ready, serialize index writes with a lock, and use explicit cosine distance with metric-aware scores.
+
 ## 1.6.5
 
 ### Patch Changes

@@ -24,6 +24,8 @@ export interface CollapsibleRegion {
 export namespace VectorStore {
   const BASE_PATH = path.join(Global.Path.data, ".lancedb")
   const TABLE_NAME = "chunks"
+  export type DistanceMetric = "cosine" | "l2" | "dot"
+  export const DEFAULT_DISTANCE_METRIC: DistanceMetric = "cosine"
 
   export type IndexMeta = {
     version: number
@@ -33,6 +35,7 @@ export namespace VectorStore {
       model?: string
       dimension: number
       device?: string
+      distanceMetric?: DistanceMetric
     }
     files: Record<string, { 
       size: number
@@ -90,6 +93,41 @@ export namespace VectorStore {
     return path.join(projectDir(projectPath), "index-meta.json")
   }
 
+  export type AddDocumentInput = {
+    id: string
+    content: string
+    contentRaw?: string
+    metadata: Record<string, string | number | boolean | null>
+  }
+
+  export type EmbeddedDocumentRow = {
+    id: string
+    content: string
+    content_raw: string
+    vector: number[]
+    file: string
+    startLine: number
+    endLine: number
+    chunkIndex: number
+    type: string
+    symbolName: string
+    symbolType: string
+    complexity: number
+    isExported: boolean
+    parentScope: string
+    semanticKind: string
+    framework: string
+    scopeDepth: number
+    hasDocumentation: boolean
+    language: string
+    imports: string
+    variant: string
+    isAsync: boolean
+    isStatic: boolean
+    isAbstract: boolean
+    decorators: string
+  }
+
   async function resolveProjectPath(projectPath: string): Promise<string> {
     return fs.realpath(projectPath).catch(() => path.resolve(projectPath))
   }
@@ -128,6 +166,25 @@ export namespace VectorStore {
 
   function tableCacheKey(projectPath: string): string {
     return `${projectPath}:${Embeddings.getProvider()}:${Embeddings.getModel()}:${Embeddings.getDimension()}`
+  }
+
+  export function getDistanceMetric(meta?: IndexMeta | null): DistanceMetric {
+    const metric = meta?.embeddings?.distanceMetric
+    return metric === "l2" || metric === "dot" || metric === "cosine" ? metric : DEFAULT_DISTANCE_METRIC
+  }
+
+  export function distanceToSimilarity(distance: number, metric: DistanceMetric = DEFAULT_DISTANCE_METRIC): number {
+    if (!Number.isFinite(distance)) return 0
+    if (metric === "cosine") return 1 - distance
+    if (metric === "l2") return 1 - (distance * distance) / 2
+    return distance
+  }
+
+  function withDistanceMetric<T>(searchBuilder: T, metric: DistanceMetric): T {
+    const builder = searchBuilder as any
+    if (typeof builder.distanceType === "function") return builder.distanceType(metric)
+    if (typeof builder.distance_type === "function") return builder.distance_type(metric)
+    return searchBuilder
   }
 
   async function readVectorDimension(table: LanceTable): Promise<number | undefined> {
@@ -570,16 +627,41 @@ export namespace VectorStore {
     return await ensureTable(db, expectedDim)
   }
 
-  export async function addDocuments(
-    collection: LanceTable,
-    documents: {
-      id: string
-      content: string
-      contentRaw?: string
-      metadata: Record<string, string | number | boolean | null>
-    }[],
-  ): Promise<void> {
-    if (documents.length === 0) return
+  function documentToRow(document: AddDocumentInput, vector: number[]): EmbeddedDocumentRow {
+    const md = document.metadata
+    return {
+      id: document.id,
+      content: document.content,
+      content_raw: document.contentRaw ?? document.content,
+      vector,
+      file: String(md.file ?? ""),
+      startLine: Number(md.startLine ?? 0),
+      endLine: Number(md.endLine ?? 0),
+      chunkIndex: Number(md.chunkIndex ?? 0),
+      type: String(md.type ?? ""),
+      // Semantic metadata (optional fields)
+      symbolName: md.symbolName ? String(md.symbolName) : "",
+      symbolType: md.symbolType ? String(md.symbolType) : "",
+      complexity: md.complexity !== undefined ? Number(md.complexity) : 0,
+      isExported: md.isExported !== undefined ? Boolean(md.isExported) : false,
+      parentScope: md.parentScope ? String(md.parentScope) : "",
+      semanticKind: md.semanticKind ? String(md.semanticKind) : "",
+      framework: md.framework ? String(md.framework) : "",
+      scopeDepth: md.scopeDepth !== undefined ? Number(md.scopeDepth) : 0,
+      hasDocumentation: md.hasDocumentation !== undefined ? Boolean(md.hasDocumentation) : false,
+      language: md.language ? String(md.language) : "",
+      imports: md.imports ? String(md.imports) : "",
+      // Multilingual support fields
+      variant: md.variant ? String(md.variant) : "",
+      isAsync: md.isAsync !== undefined ? Boolean(md.isAsync) : false,
+      isStatic: md.isStatic !== undefined ? Boolean(md.isStatic) : false,
+      isAbstract: md.isAbstract !== undefined ? Boolean(md.isAbstract) : false,
+      decorators: Array.isArray(md.decorators) ? md.decorators.join(",") : (md.decorators ? String(md.decorators) : ""),
+    }
+  }
+
+  export async function embedDocuments(documents: AddDocumentInput[]): Promise<EmbeddedDocumentRow[]> {
+    if (documents.length === 0) return []
 
     const contents = documents.map((d) => d.content)
     const embeddings = await Embeddings.embed(contents, {
@@ -587,42 +669,26 @@ export namespace VectorStore {
       title: documents.map((d) => String(d.metadata.file ?? "")),
     })
 
-    const rows = documents.map((d, i) => {
-      const md = d.metadata
-      return {
-        id: d.id,
-        content: d.content,
-        content_raw: d.contentRaw ?? d.content,
-        vector: embeddings[i],
-        file: String(md.file ?? ""),
-        startLine: Number(md.startLine ?? 0),
-        endLine: Number(md.endLine ?? 0),
-        chunkIndex: Number(md.chunkIndex ?? 0),
-        type: String(md.type ?? ""),
-        // Semantic metadata (optional fields)
-        symbolName: md.symbolName ? String(md.symbolName) : "",
-        symbolType: md.symbolType ? String(md.symbolType) : "",
-        complexity: md.complexity !== undefined ? Number(md.complexity) : 0,
-        isExported: md.isExported !== undefined ? Boolean(md.isExported) : false,
-        parentScope: md.parentScope ? String(md.parentScope) : "",
-        semanticKind: md.semanticKind ? String(md.semanticKind) : "",
-        framework: md.framework ? String(md.framework) : "",
-        scopeDepth: md.scopeDepth !== undefined ? Number(md.scopeDepth) : 0,
-        hasDocumentation: md.hasDocumentation !== undefined ? Boolean(md.hasDocumentation) : false,
-        language: md.language ? String(md.language) : "",
-        imports: md.imports ? String(md.imports) : "",
-        // Multilingual support fields
-        variant: md.variant ? String(md.variant) : "",
-        isAsync: md.isAsync !== undefined ? Boolean(md.isAsync) : false,
-        isStatic: md.isStatic !== undefined ? Boolean(md.isStatic) : false,
-        isAbstract: md.isAbstract !== undefined ? Boolean(md.isAbstract) : false,
-        decorators: Array.isArray(md.decorators) ? md.decorators.join(",") : (md.decorators ? String(md.decorators) : ""),
-      }
-    })
+    return documents.map((document, i) => documentToRow(document, embeddings[i] ?? []))
+  }
+
+  export async function addEmbeddedDocuments(
+    collection: LanceTable,
+    rows: EmbeddedDocumentRow[],
+  ): Promise<void> {
+    if (rows.length === 0) return
 
     log.info("adding documents", { count: rows.length })
     // LanceDB JS uses append-by-default semantics.
     await (collection as any).add(rows)
+  }
+
+  export async function addDocuments(
+    collection: LanceTable,
+    documents: AddDocumentInput[],
+  ): Promise<void> {
+    if (documents.length === 0) return
+    await addEmbeddedDocuments(collection, await embedDocuments(documents))
   }
 
   export async function updateDocuments(
@@ -754,7 +820,7 @@ export namespace VectorStore {
       whereClause = buildWhere(options.where)
     }
 
-    let searchBuilder = (collection as any).vectorSearch(vector).limit(limit)
+    let searchBuilder = withDistanceMetric((collection as any).vectorSearch(vector), DEFAULT_DISTANCE_METRIC).limit(limit)
     if (whereClause) searchBuilder = searchBuilder.where(whereClause)
 
     const rows: any[] = await searchBuilder.toArray()
@@ -789,7 +855,7 @@ export namespace VectorStore {
     }
 
     // LanceDB returns rows with a `_distance` column for vector searches.
-    let searchBuilder = (collection as any).vectorSearch(queryEmbedding).limit(limit)
+    let searchBuilder = withDistanceMetric((collection as any).vectorSearch(queryEmbedding), DEFAULT_DISTANCE_METRIC).limit(limit)
     if (whereClause) searchBuilder = searchBuilder.where(whereClause)
 
     const rows: any[] = await searchBuilder.toArray()

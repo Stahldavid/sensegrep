@@ -18,6 +18,8 @@ export type WorkingResult = {
   startLine: number
   endLine: number
   semanticScore: number
+  rawDistance?: number
+  distanceMetric?: VectorStore.DistanceMetric
   metadata: ResultMetadata
   rerankScore?: number
   vector?: number[]
@@ -32,6 +34,8 @@ export type StructuredSearchResult = {
   startLine: number
   endLine: number
   score: number
+  rawDistance?: number
+  distanceMetric?: VectorStore.DistanceMetric
   symbolName?: string
   symbolType?: string
   type?: string
@@ -857,7 +861,9 @@ export async function collectWorkingResults(
     content: result.content,
     startLine: result.metadata.startLine as number,
     endLine: result.metadata.endLine as number,
-    semanticScore: 1 - result.distance,
+    semanticScore: VectorStore.distanceToSimilarity(result.distance, VectorStore.getDistanceMetric(resources.meta)),
+    rawDistance: result.distance,
+    distanceMetric: VectorStore.getDistanceMetric(resources.meta),
     metadata: result.metadata,
   }))
 
@@ -1335,6 +1341,8 @@ export function toStructuredSearchResult(result: WorkingResult): StructuredSearc
     startLine: result.startLine,
     endLine: result.endLine,
     score: Number((result.rerankScore ?? result.semanticScore).toFixed(6)),
+    rawDistance: typeof result.rawDistance === "number" ? Number(result.rawDistance.toFixed(6)) : undefined,
+    distanceMetric: result.distanceMetric,
     symbolName: typeof metadata.symbolName === "string" && metadata.symbolName ? metadata.symbolName : undefined,
     symbolType: typeof metadata.symbolType === "string" && metadata.symbolType ? metadata.symbolType : undefined,
     type: typeof metadata.type === "string" && metadata.type ? metadata.type : undefined,

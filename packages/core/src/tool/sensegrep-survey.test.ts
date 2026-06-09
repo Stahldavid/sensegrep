@@ -7,6 +7,8 @@ const getCollectionUnsafe = vi.fn()
 const search = vi.fn()
 const withConfig = vi.fn(async (_config, run: () => Promise<unknown>) => run())
 const verifyIndex = vi.fn()
+const getDistanceMetric = vi.fn(() => "cosine")
+const distanceToSimilarity = vi.fn((distance: number) => 1 - distance)
 
 vi.mock("../semantic/lancedb.js", () => ({
   VectorStore: {
@@ -15,6 +17,8 @@ vi.mock("../semantic/lancedb.js", () => ({
     clearProjectCache,
     getCollectionUnsafe,
     search,
+    getDistanceMetric,
+    distanceToSimilarity,
   },
 }))
 

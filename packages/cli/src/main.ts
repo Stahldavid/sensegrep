@@ -1,11 +1,21 @@
 #!/usr/bin/env node
 import type { Tool as ToolType, DuplicateDetector as DuplicateDetectorType } from "@sensegrep/core"
+import { readFileSync } from "node:fs"
 
 type Flags = Record<string, string | boolean>
 
 type CoreModule = typeof import("@sensegrep/core")
 
 let corePromise: Promise<CoreModule> | null = null
+
+function getCliVersion(): string {
+  try {
+    const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"))
+    return typeof pkg.version === "string" ? pkg.version : "unknown"
+  } catch {
+    return "unknown"
+  }
+}
 
 async function loadCore(): Promise<CoreModule> {
   if (!corePromise) {
@@ -253,6 +263,20 @@ async function ensureFreshIfRequested(
 }
 
 async function run() {
+  const argv = process.argv.slice(2)
+  const command = argv[0]
+  const { flags, positional } = parseArgs(argv.slice(1))
+
+  if (!command || command === "--help" || command === "-h" || flags.help || flags.h) {
+    usage()
+    return
+  }
+
+  if (command === "--version" || command === "-v" || command === "version") {
+    console.log(getCliVersion())
+    return
+  }
+
   const {
     SenseGrepTool,
     SenseGrepSurveyTool,
@@ -264,15 +288,6 @@ async function run() {
     DuplicateDetector,
     Log,
   } = await loadCore()
-
-  const argv = process.argv.slice(2)
-  const command = argv[0]
-  const { flags, positional } = parseArgs(argv.slice(1))
-
-  if (!command || flags.help) {
-    usage()
-    return
-  }
 
   // Configure log level: WARN by default, INFO if --verbose
   const logLevel = toBool(flags.verbose) ? "INFO" : "WARN"

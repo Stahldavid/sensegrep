@@ -8,6 +8,13 @@ npm install -g @sensegrep/cli
 
 ## Commands
 
+### Global flags
+
+```bash
+sensegrep --help
+sensegrep --version
+```
+
 ### `sensegrep index`
 
 Build or update the semantic index.
@@ -23,6 +30,7 @@ sensegrep index [options]
 | `--incremental` | Incremental update (default) |
 | `--verify` | Verify index first, skip if up to date |
 | `--watch` | Keep running, reindex on changes (at most once/minute) |
+| `--no-watch` | Exit after indexing; recommended for automation |
 
 ### `sensegrep search`
 
@@ -42,6 +50,9 @@ sensegrep search <query> [options]
 | `--include <glob>` | File glob include filter (e.g. `src/**/*.ts`) |
 | `--exclude <glob>` | File glob exclude filter (e.g. `*.md`, `docs/**`) |
 | `--json` | Output as JSON |
+
+JSON search results include `score`, `rawDistance`, and `distanceMetric`. New indexes use
+cosine distance explicitly for stable scoring across embedding providers.
 
 **Symbol filters:**
 

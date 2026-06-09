@@ -315,6 +315,8 @@ async function collectRipgrepFallbackResults(
       startLine: number
       endLine: number
       semanticScore: number
+      rawDistance?: number
+      distanceMetric?: VectorStore.DistanceMetric
       metadata: Record<string, string | number | boolean | string[] | undefined>
       isCode: boolean
     }
@@ -746,6 +748,8 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       startLine: number
       endLine: number
       semanticScore: number
+      rawDistance?: number
+      distanceMetric?: VectorStore.DistanceMetric
       metadata: Record<string, string | number | boolean | string[] | undefined>
       rerankScore?: number
       confidence?: "high" | "medium" | "low"
@@ -758,7 +762,9 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       content: r.content,
       startLine: r.metadata.startLine as number,
       endLine: r.metadata.endLine as number,
-      semanticScore: 1 - r.distance, // Convert distance to similarity
+      semanticScore: VectorStore.distanceToSimilarity(r.distance, VectorStore.getDistanceMetric(meta)),
+      rawDistance: r.distance,
+      distanceMetric: VectorStore.getDistanceMetric(meta),
       metadata: r.metadata,
     }))
 

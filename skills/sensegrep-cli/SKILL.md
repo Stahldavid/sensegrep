@@ -24,6 +24,8 @@ Add `--json` to any `search`, `survey`, `cluster`, or `detect-duplicates` comman
 machine-readable output that is easy to parse programmatically. When `--json` is active,
 stdout is reserved for JSON; human progress and warnings go to stderr.
 
+Use `sensegrep --version` to confirm the installed CLI version.
+
 ## When to Use
 
 - **sensegrep** (95% of searches): Finding functions/classes by behavior, exploring structure, semantic queries, multi-criteria searches
@@ -148,8 +150,13 @@ Language detection is **automatic** — sensegrep detects TypeScript, JavaScript
 ```bash
 sensegrep index                  # fast, only changed files — use by default (incremental)
 sensegrep index --full           # rebuild from scratch — only if index is corrupted or stale
+sensegrep index --no-watch       # index once and exit — use in automation
 sensegrep status                 # check index health without reindexing
 ```
+
+Search scores are metric-aware. New indexes use cosine distance explicitly and JSON results
+include `score`, `rawDistance`, and `distanceMetric`. After upgrading across scoring/index
+metadata changes, prefer `sensegrep index --full --no-watch`.
 
 ## How the Search Pipeline Works
 

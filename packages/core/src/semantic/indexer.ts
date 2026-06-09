@@ -7,6 +7,7 @@ import { Bus } from "../bus/index.js"
 import { BusEvent } from "../bus/bus-event.js"
 import { Embeddings } from "./embeddings.js"
 import { TreeShaker } from "./tree-shaker.js"
+import { Global } from "../global/index.js"
 import z from "zod"
 import path from "path"
 import { Ripgrep } from "../file/ripgrep.js"
@@ -85,6 +86,73 @@ export namespace Indexer {
   const MAX_FILE_SIZE = 500 * 1024
   // Batch documents to reduce embedding overhead during full indexing
   const ADD_BATCH_SIZE = 256
+  const INDEX_LOCK_TIMEOUT_MS = 10 * 60_000
+  const INDEX_LOCK_STALE_MS = 30 * 60_000
+  let inProcessLockDepth = 0
+
+  function projectLockPath(): string {
+    const hash = crypto.createHash("sha1").update(path.resolve(Instance.directory)).digest("hex").slice(0, 16)
+    return path.join(Global.Path.data, "locks", `index-${hash}.lock`)
+  }
+
+  async function wait(ms: number): Promise<void> {
+    await new Promise<void>((resolve) => setTimeout(resolve, ms))
+  }
+
+  async function acquireIndexLock(): Promise<() => Promise<void>> {
+    if (inProcessLockDepth > 0) {
+      inProcessLockDepth++
+      return async () => {
+        inProcessLockDepth--
+      }
+    }
+
+    const lockPath = projectLockPath()
+    const start = Date.now()
+    await fs.mkdir(path.dirname(lockPath), { recursive: true })
+
+    while (true) {
+      try {
+        const handle = await fs.open(lockPath, "wx")
+        await handle.writeFile(JSON.stringify({
+          pid: process.pid,
+          root: Instance.directory,
+          startedAt: Date.now(),
+        }))
+        await handle.close()
+        inProcessLockDepth = 1
+        return async () => {
+          inProcessLockDepth--
+          if (inProcessLockDepth === 0) {
+            await fs.rm(lockPath, { force: true }).catch(() => {})
+          }
+        }
+      } catch (error: any) {
+        if (error?.code !== "EEXIST") throw error
+
+        const stat = await fs.stat(lockPath).catch(() => null)
+        if (stat && Date.now() - stat.mtimeMs > INDEX_LOCK_STALE_MS) {
+          await fs.rm(lockPath, { force: true }).catch(() => {})
+          continue
+        }
+
+        if (Date.now() - start > INDEX_LOCK_TIMEOUT_MS) {
+          throw new Error(`Timed out waiting for sensegrep index lock for ${Instance.directory}`)
+        }
+
+        await wait(500)
+      }
+    }
+  }
+
+  async function withIndexLock<T>(fn: () => Promise<T>): Promise<T> {
+    const release = await acquireIndexLock()
+    try {
+      return await fn()
+    } finally {
+      await release()
+    }
+  }
 
   function assertEmbeddingsConfigured(): void {
     const config = Embeddings.getConfig()
@@ -354,7 +422,7 @@ export namespace Indexer {
   /**
    * Full index of the project
    */
-  export async function indexProject(): Promise<{
+  async function indexProjectUnlocked(): Promise<{
     files: number
     chunks: number
     duration: number
@@ -375,10 +443,6 @@ export namespace Indexer {
       // Get all files
       const files = await getFiles()
       log.info("found files to index", { count: files.length })
-
-      // Validate provider config before touching the on-disk index.
-      await VectorStore.deleteCollection(Instance.directory).catch(() => {})
-      const freshCollection = await VectorStore.getCollection(Instance.directory)
 
       // --- Pass 1: Parallel file preparation (I/O + parsing + chunking) ---
       let progressCounter = 0
@@ -455,9 +519,19 @@ export namespace Indexer {
         }
       }
 
-      // Flush in large batches for maximum embedding throughput
+      // Prepare embeddings before replacing the old collection. If the provider
+      // hangs or fails, the previous index remains readable.
+      const embeddedRows: VectorStore.EmbeddedDocumentRow[] = []
       for (let i = 0; i < allDocs.length; i += ADD_BATCH_SIZE) {
-        await VectorStore.addDocuments(freshCollection, allDocs.slice(i, i + ADD_BATCH_SIZE))
+        embeddedRows.push(...(await VectorStore.embedDocuments(allDocs.slice(i, i + ADD_BATCH_SIZE))))
+      }
+
+      await VectorStore.deleteCollection(Instance.directory).catch(() => {})
+      const freshCollection = await VectorStore.getCollection(Instance.directory)
+
+      // Flush already-embedded rows, avoiding remote calls after the old index is removed.
+      for (let i = 0; i < embeddedRows.length; i += ADD_BATCH_SIZE) {
+        await VectorStore.addEmbeddedDocuments(freshCollection, embeddedRows.slice(i, i + ADD_BATCH_SIZE))
       }
 
       // Verify that all chunks were actually persisted
@@ -477,6 +551,7 @@ export namespace Indexer {
           provider: config.provider,
           model: config.embedModel,
           dimension: config.embedDim,
+          distanceMetric: VectorStore.DEFAULT_DISTANCE_METRIC,
         },
         files: fileStats,
         updatedAt: Date.now(),
@@ -509,11 +584,19 @@ export namespace Indexer {
     }
   }
 
+  export async function indexProject(): Promise<{
+    files: number
+    chunks: number
+    duration: number
+  }> {
+    return withIndexLock(() => indexProjectUnlocked())
+  }
+
   /**
    * Incremental index: only re-index files that changed since last index.
    * Falls back to full index if no metadata exists or embeddings config changed.
    */
-  export async function indexProjectIncremental(): Promise<{
+  async function indexProjectIncrementalUnlocked(): Promise<{
     files: number
     chunks: number
     duration: number
@@ -539,9 +622,10 @@ export namespace Indexer {
         !meta ||
         meta.embeddings?.dimension !== dimension ||
         meta.embeddings?.provider !== provider ||
-        meta.embeddings?.model !== model
+        meta.embeddings?.model !== model ||
+        meta.embeddings?.distanceMetric !== VectorStore.DEFAULT_DISTANCE_METRIC
       ) {
-        const full = await indexProject()
+        const full = await indexProjectUnlocked()
         return { ...full, skipped: 0, removed: 0, mode: "full" }
       }
 
@@ -562,7 +646,7 @@ export namespace Indexer {
           expectedChunks,
           actualChunks,
         })
-        const full = await indexProject()
+        const full = await indexProjectUnlocked()
         return { ...full, skipped: 0, removed: 0, mode: "full" }
       }
 
@@ -578,7 +662,6 @@ export namespace Indexer {
       type FileAction =
         | { action: "skip"; file: string; stats: FileStat }
         | { action: "delete"; file: string }
-        | { action: "partial_update"; file: string; stats: FileStat; changedDocs: Document[] }
         | { action: "full_reindex"; file: string; stats: FileStat; documents: Document[] }
 
       // --- Phase 1: Parallel file preparation (stat, read, hash, chunk) ---
@@ -624,19 +707,20 @@ export namespace Indexer {
 
           const chunkHashes = documents.map((d) => d.hash)
 
-          // Check for partial update (same chunk count, some changed)
+          // Check for unchanged chunk hashes. Changed files are reindexed as a
+          // whole file to avoid stale/duplicate chunks in append-oriented stores.
           if (prev?.chunks && prev.chunks.length === chunkHashes.length) {
-            const changedIndexes: number[] = []
+            let changed = false
             for (let j = 0; j < chunkHashes.length; j++) {
-              if (chunkHashes[j] !== prev.chunks[j]) changedIndexes.push(j)
+              if (chunkHashes[j] !== prev.chunks[j]) {
+                changed = true
+                break
+              }
             }
 
-            if (changedIndexes.length === 0) {
+            if (!changed) {
               return { action: "skip", file, stats: { ...current, hash, chunks: chunkHashes, collapsibleRegions: prev.collapsibleRegions } }
             }
-
-            const changedDocs = changedIndexes.map((j) => documents[j]).filter(Boolean)
-            return { action: "partial_update", file, stats: { ...current, hash, chunks: chunkHashes, collapsibleRegions }, changedDocs }
           }
 
           // Full reindex for this file
@@ -648,8 +732,6 @@ export namespace Indexer {
       })
 
       // --- Phase 2: Process actions sequentially (vector store operations) ---
-      // Collect docs to batch embed
-      const docsToUpdate: { id: string; content: string; contentRaw: string; metadata: Record<string, string | number | boolean | null> }[] = []
       const filesToDeleteFirst: string[] = []
       const docsToAdd: { id: string; content: string; contentRaw: string; metadata: Record<string, string | number | boolean | null> }[] = []
 
@@ -669,17 +751,6 @@ export namespace Indexer {
             removed++
             break
 
-          case "partial_update":
-            docsToUpdate.push(
-              ...act.changedDocs.map(({ id, content: docContent, contentRaw, metadata }) => ({
-                id, content: docContent, contentRaw, metadata,
-              })),
-            )
-            indexed++
-            totalChunks += act.changedDocs.length
-            newStats[act.file] = act.stats
-            break
-
           case "full_reindex":
             filesToDeleteFirst.push(act.file)
             docsToAdd.push(
@@ -694,22 +765,24 @@ export namespace Indexer {
         }
       }
 
+      // Prepare embeddings before deleting old file chunks. If embedding fails,
+      // the previous index remains intact.
+      const embeddedRows: VectorStore.EmbeddedDocumentRow[] = []
+      if (docsToAdd.length > 0) {
+        for (let i = 0; i < docsToAdd.length; i += ADD_BATCH_SIZE) {
+          embeddedRows.push(...(await VectorStore.embedDocuments(docsToAdd.slice(i, i + ADD_BATCH_SIZE))))
+        }
+      }
+
       // Batch delete files that need full reindex
       for (const file of filesToDeleteFirst) {
         await VectorStore.deleteByFile(collection, file)
       }
 
-      // Batch update changed chunks
-      if (docsToUpdate.length > 0) {
-        for (let i = 0; i < docsToUpdate.length; i += ADD_BATCH_SIZE) {
-          await VectorStore.updateDocuments(collection, docsToUpdate.slice(i, i + ADD_BATCH_SIZE))
-        }
-      }
-
       // Batch add new/fully-reindexed documents
-      if (docsToAdd.length > 0) {
-        for (let i = 0; i < docsToAdd.length; i += ADD_BATCH_SIZE) {
-          await VectorStore.addDocuments(collection, docsToAdd.slice(i, i + ADD_BATCH_SIZE))
+      if (embeddedRows.length > 0) {
+        for (let i = 0; i < embeddedRows.length; i += ADD_BATCH_SIZE) {
+          await VectorStore.addEmbeddedDocuments(collection, embeddedRows.slice(i, i + ADD_BATCH_SIZE))
         }
       }
 
@@ -721,10 +794,24 @@ export namespace Indexer {
         }
       }
 
+      let nextExpectedChunks = 0
+      for (const fileStat of Object.values(newStats)) {
+        nextExpectedChunks += fileStat.chunks?.length ?? 0
+      }
+      const nextStats = await VectorStore.getStats(collection)
+      if (nextExpectedChunks > 0 && nextStats.count !== nextExpectedChunks) {
+        log.warn("chunk mismatch after incremental update, falling back to full rebuild", {
+          expectedChunks: nextExpectedChunks,
+          actualChunks: nextStats.count,
+        })
+        const full = await indexProjectUnlocked()
+        return { ...full, skipped, removed, mode: "full" }
+      }
+
       await VectorStore.writeIndexMeta(Instance.directory, {
         version: 1,
         root: Instance.directory,
-        embeddings: { provider, model, dimension },
+        embeddings: { provider, model, dimension, distanceMetric: VectorStore.DEFAULT_DISTANCE_METRIC },
         files: newStats,
         updatedAt: Date.now(),
       })
@@ -740,6 +827,17 @@ export namespace Indexer {
       })
       throw error
     }
+  }
+
+  export async function indexProjectIncremental(): Promise<{
+    files: number
+    chunks: number
+    duration: number
+    skipped: number
+    removed: number
+    mode: "incremental" | "full"
+  }> {
+    return withIndexLock(() => indexProjectIncrementalUnlocked())
   }
 
   /**
@@ -776,15 +874,15 @@ export namespace Indexer {
     }
 
     const documents = await buildDocuments({ filePath, content })
-    await VectorStore.updateDocuments(
-      collection,
-      documents.map(({ id, content: docContent, contentRaw, metadata }) => ({
-        id,
-        content: docContent,
-        contentRaw,
-        metadata,
-      })),
-    )
+    const docsToAdd = documents.map(({ id, content: docContent, contentRaw, metadata }) => ({
+      id,
+      content: docContent,
+      contentRaw,
+      metadata,
+    }))
+    const embeddedRows = await VectorStore.embedDocuments(docsToAdd)
+    await VectorStore.deleteByFile(collection, filePath)
+    await VectorStore.addEmbeddedDocuments(collection, embeddedRows)
     const meta = await VectorStore.readIndexMeta(Instance.directory)
     if (meta?.files) {
       meta.files[filePath] = {
@@ -832,7 +930,7 @@ export namespace Indexer {
     expectedChunks?: number
     actualChunks?: number
     chunkMismatch?: boolean
-    embeddings?: { provider: string; model?: string; dimension: number; device?: string }
+    embeddings?: { provider: string; model?: string; dimension: number; device?: string; distanceMetric?: VectorStore.DistanceMetric }
     updatedAt?: number
   }> {
     const hasIt = await hasIndex()
@@ -884,7 +982,7 @@ export namespace Indexer {
     expectedChunks?: number
     actualChunks?: number
     chunkMismatch?: boolean
-    embeddings?: { provider: string; model?: string; dimension: number; device?: string }
+    embeddings?: { provider: string; model?: string; dimension: number; device?: string; distanceMetric?: VectorStore.DistanceMetric }
     updatedAt?: number
   }> {
     const meta = await VectorStore.readIndexMeta(Instance.directory)
