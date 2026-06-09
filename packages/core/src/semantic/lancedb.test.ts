@@ -43,8 +43,9 @@ describe("VectorStore distance scoring", () => {
       })
 
       const resolved = await VectorStore.resolveIndexedProject(subdir)
+      const canonicalRoot = await fs.realpath(root)
 
-      expect(resolved?.root).toBe(root)
+      expect(resolved?.root).toBe(canonicalRoot)
       expect(resolved?.subdirPrefix).toBe("apps/web")
       expect(resolved?.meta.embeddings.provider).toBe("openai")
     } finally {
