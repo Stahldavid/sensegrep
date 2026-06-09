@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest"
 import {
   getLanguageCapabilities,
   getAvailableSemanticKinds,
+  expandSemanticKindFilter,
   validateVariant,
   validateDecorator,
   validateSymbolType,
@@ -35,6 +36,13 @@ describe("language capabilities", () => {
           framework: "web",
         }),
       ]),
+    )
+  })
+
+  it("expands semantic kind aliases and wildcards", () => {
+    expect(expandSemanticKindFilter("convexPrivateMutation")).toEqual(["convexInternalMutation"])
+    expect(expandSemanticKindFilter("convex*")).toEqual(
+      expect.arrayContaining(["convexQuery", "convexMutation", "convexInternalMutation", "convexHttpAction"]),
     )
   })
 

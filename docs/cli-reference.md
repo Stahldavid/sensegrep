@@ -31,6 +31,14 @@ sensegrep index [options]
 | `--verify` | Verify index first, skip if up to date |
 | `--watch` | Keep running, reindex on changes (at most once/minute) |
 | `--no-watch` | Exit after indexing; recommended for automation |
+| `--timeout <duration>` | Abort index lock/scan/parse/embed/persist after a duration (`30s`, `5m`, or bare seconds) |
+| `--max-files <n>` | Index at most N files for smoke tests or diagnostics |
+| `--log-format jsonl` | Emit progress as JSON Lines on stderr |
+| `--json` | Emit a single JSON payload on stdout; progress remains on stderr and watch is disabled |
+
+Index progress is reported by phase: `scan`, `parse`, `embed`, `persist`, and
+`complete`. Progress and warnings are always written to stderr when `--json` is
+active, so stdout remains parseable.
 
 ### `sensegrep search`
 
@@ -70,7 +78,7 @@ cosine distance explicitly for stable scoring across embedding providers.
 | `--language <lang>` | `typescript`, `javascript`, `python` (comma-separated) |
 | `--parent <name>` | Parent scope/class name |
 | `--imports <name>` | Filter by imported module |
-| `--semantic-kind <kind>` | Framework-aware kind (`convexMutation`, `convexAction`, `reactComponent`, etc.) |
+| `--semantic-kind <kind>` | Framework-aware kind (`convexMutation`, `convexAction`, `reactComponent`, etc.); aliases and `*` wildcards are supported |
 | `--explain-filters` | Include `whyMatched` and `filterMatches` in JSON results |
 | `--strict-parent` | Mark parent filtering as strict indexed metadata validation |
 | `--strict-imports` | Mark import filtering as strict AST metadata validation |
@@ -130,8 +138,22 @@ sensegrep detect-duplicates [options]
 Verify index integrity (hash-only check).
 
 ```bash
-sensegrep verify [--root <dir>]
+sensegrep verify [--root <dir>] [--strict] [--json]
 ```
+
+Use `--strict` in automation. It exits non-zero unless all index invariants hold:
+
+```text
+indexed=true
+expectedChunks == actualChunks
+changed=0
+missing=0
+removed=0
+isStale=false
+```
+
+With `--json`, stdout is a single JSON payload; human summaries are not mixed into
+stdout.
 
 ### `sensegrep status`
 
@@ -165,6 +187,29 @@ Current built-in values include `convexQuery`, `convexMutation`, `convexAction`,
 `convexHttpAction`, `routeHandler`, `reactComponent`, `reactHook`, and
 `wrappedFunction`.
 
+Aliases include `convexPrivateQuery`, `convexPrivateMutation`, and
+`convexPrivateAction`, which resolve to their `convexInternal*` forms. Wildcards
+are supported:
+
+```bash
+sensegrep search "backend write operations" --semantic-kind convex*
+```
+
+### `sensegrep selftest`
+
+Run a CLI/core health check.
+
+```bash
+sensegrep selftest --root .
+sensegrep selftest --root . --strict --json
+sensegrep selftest --root . --deep
+```
+
+Default selftest avoids remote embedding calls. It checks CLI version discovery,
+semantic-kind registration, language detection, status, and index verification.
+Use `--strict` to require a fresh healthy index. Use `--deep` to additionally run
+remote-embedding search and duplicate-result JSON shape checks.
+
 ## Examples
 
 ```bash
@@ -191,4 +236,13 @@ sensegrep index --root . --watch
 
 # Check if index is up to date
 sensegrep index --root . --verify
+
+# Strict index invariant for automation
+sensegrep verify --strict --json
+
+# Full rebuild with observable progress and a command budget
+sensegrep index --full --no-watch --timeout 5m --log-format jsonl
+
+# CLI health check
+sensegrep selftest --strict --json
 ```

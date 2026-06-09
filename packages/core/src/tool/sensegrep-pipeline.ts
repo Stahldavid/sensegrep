@@ -8,6 +8,7 @@ import { Embeddings } from "../semantic/embeddings.js"
 import { Indexer } from "../semantic/indexer.js"
 import { Ripgrep } from "../file/ripgrep.js"
 import { TreeShaker } from "../semantic/tree-shaker.js"
+import { expandSemanticKindFilter } from "../semantic/language/index.js"
 
 export type ResultMetadata = Record<string, string | number | boolean | string[] | undefined>
 
@@ -483,7 +484,17 @@ function buildSearchFilters(params: CommonSensegrepParams): VectorStore.SearchFi
     filters.all!.push({ key: "parentScope", operator: "contains", value: params.parentScope })
   }
   if (params.semanticKind) {
-    filters.all!.push({ key: "semanticKind", operator: "equals", value: params.semanticKind })
+    const semanticKinds = expandSemanticKindFilter(params.semanticKind)
+    if (semanticKinds.length === 1) {
+      filters.all!.push({ key: "semanticKind", operator: "equals", value: semanticKinds[0] })
+    } else if (semanticKinds.length > 1) {
+      filters.any = [
+        ...(filters.any ?? []),
+        ...semanticKinds.map((value) => ({ key: "semanticKind", operator: "equals" as const, value })),
+      ]
+    } else {
+      filters.all!.push({ key: "semanticKind", operator: "equals", value: params.semanticKind })
+    }
   }
   if (params.imports) {
     const importValues = expandImportFilterValues(params.imports)
@@ -1165,7 +1176,9 @@ export function annotateWorkingResults(results: WorkingResult[], params: CommonS
 
     if (params.semanticKind) {
       const semanticKind = typeof metadata.semanticKind === "string" ? metadata.semanticKind : ""
-      const matched = semanticKind === params.semanticKind
+      const requestedSemanticKinds = expandSemanticKindFilter(params.semanticKind)
+      const accepted = requestedSemanticKinds.length > 0 ? requestedSemanticKinds : [params.semanticKind]
+      const matched = accepted.includes(semanticKind)
       if (matched) whyMatched.add(`semantic kind matched: ${semanticKind}`)
       if (matched) {
         signals.semanticKindMatch = true
@@ -1174,7 +1187,7 @@ export function annotateWorkingResults(results: WorkingResult[], params: CommonS
       filterMatches.semanticKind = {
         matched,
         mode: "metadata",
-        value: semanticKind || params.semanticKind,
+        value: semanticKind || accepted,
       }
     }
 

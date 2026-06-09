@@ -17,6 +17,7 @@ import {
   prependFreshnessWarning,
   toStructuredSearchResult,
 } from "./sensegrep-pipeline.js"
+import { expandSemanticKindFilter } from "../semantic/language/index.js"
 
 const DESCRIPTION = readFileSync(new URL("./sensegrep.txt", import.meta.url), "utf8")
 const log = Log.create({ service: "tool.sensegrep" })
@@ -601,7 +602,17 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       filters.all!.push({ key: "parentScope", operator: "contains", value: params.parentScope })
     }
     if ((params as any).semanticKind) {
-      filters.all!.push({ key: "semanticKind", operator: "equals", value: (params as any).semanticKind })
+      const semanticKinds = expandSemanticKindFilter(String((params as any).semanticKind))
+      if (semanticKinds.length === 1) {
+        filters.all!.push({ key: "semanticKind", operator: "equals", value: semanticKinds[0] })
+      } else if (semanticKinds.length > 1) {
+        filters.any = [
+          ...(filters.any ?? []),
+          ...semanticKinds.map((value) => ({ key: "semanticKind", operator: "equals" as const, value })),
+        ]
+      } else {
+        filters.all!.push({ key: "semanticKind", operator: "equals", value: (params as any).semanticKind })
+      }
     }
     if (params.imports) {
       const importValues = expandImportFilterValues(params.imports)

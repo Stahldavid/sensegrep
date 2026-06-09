@@ -49,7 +49,7 @@ Start with these defaults and adjust based on what you find:
 
 > **Subdirectory roots:** If the repo root was indexed and you run `sensegrep` with `--root` pointing at a subdirectory, Sensegrep reuses the nearest indexed parent and scopes the query to that subdirectory. You no longer need to reindex every subfolder separately.
 
-> **JSON output:** `--json` returns structured data plus the human-readable `output`: `search` returns `results`, `survey` returns `groups`, and `cluster` returns `clusters`. Prefer these fields for automation instead of parsing Markdown text.
+> **JSON output:** `--json` returns structured data plus the human-readable `output`: `search` returns `results`, `survey` returns `groups`, and `cluster` returns `clusters`. Prefer these fields for automation instead of parsing Markdown text. stdout is reserved for JSON; progress and warnings go to stderr.
 
 ## Commands
 
@@ -68,7 +68,7 @@ sensegrep search "error handling and retry logic" \
   --decorator "@route"     # filter by decorator
   --parent "UserService"   # scope to class/parent
   --imports express        # filter by imported module
-  --semantic-kind convexMutation # framework-aware kind; run sensegrep semantic-kinds
+  --semantic-kind convexMutation # framework-aware kind; aliases and wildcards like convex* work
   --explain-filters        # include whyMatched/filterMatches in JSON
   --strict-parent          # strict indexed parent metadata validation
   --strict-imports         # strict AST import metadata validation
@@ -143,6 +143,13 @@ Common values include `convexQuery`, `convexMutation`, `convexAction`,
 `convexHttpAction`, `routeHandler`, `reactComponent`, `reactHook`, and
 `wrappedFunction`.
 
+Aliases include `convexPrivateQuery`, `convexPrivateMutation`, and `convexPrivateAction`.
+Use wildcards for families:
+
+```bash
+sensegrep search "backend writes" --semantic-kind convex*
+```
+
 ### `sensegrep index` — Index a project
 
 Language detection is **automatic** — sensegrep detects TypeScript, JavaScript, Python, Java, and Vue on its own. **Never specify language when indexing.**
@@ -151,12 +158,35 @@ Language detection is **automatic** — sensegrep detects TypeScript, JavaScript
 sensegrep index                  # fast, only changed files — use by default (incremental)
 sensegrep index --full           # rebuild from scratch — only if index is corrupted or stale
 sensegrep index --no-watch       # index once and exit — use in automation
+sensegrep index --full --no-watch --timeout 5m --log-format jsonl
 sensegrep status                 # check index health without reindexing
+sensegrep verify --strict        # non-zero exit unless index is fresh and internally consistent
+sensegrep selftest --strict      # CLI/core health check without remote embedding calls
 ```
 
 Search scores are metric-aware. New indexes use cosine distance explicitly and JSON results
 include `score`, `rawDistance`, and `distanceMetric`. After upgrading across scoring/index
 metadata changes, prefer `sensegrep index --full --no-watch`.
+
+`sensegrep index` reports phases (`scan`, `parse`, `embed`, `persist`, `complete`) on stderr.
+Use `--timeout <duration>` to budget the whole command, including lock wait. Bare numeric
+timeouts are seconds; suffixes `ms`, `s`, and `m` are supported. `--max-files <n>` is useful
+for smoke tests.
+
+`sensegrep verify --strict` enforces:
+
+```text
+indexed=true
+expectedChunks == actualChunks
+changed=0
+missing=0
+removed=0
+isStale=false
+```
+
+Use `sensegrep selftest --strict --json` when checking whether the installed CLI and current
+project index are healthy. Add `--deep` only when remote embeddings are configured and you
+want to exercise search/duplicate JSON shape too.
 
 ## How the Search Pipeline Works
 

@@ -1,5 +1,11 @@
 # @sensegrep/core
 
+## 1.6.7
+
+### Patch Changes
+
+- Improve operational reliability for agents: index runs now expose structured progress phases, timeout budgets, safer max-file smoke runs, and clearer lock-wait reporting. The CLI adds `verify --strict`, `selftest`, JSON-safe index output, and JSONL progress logs on stderr. Semantic kind filters now support aliases such as `convexPrivateMutation` and wildcards such as `convex*`.
+
 ## 1.6.6
 
 ### Patch Changes

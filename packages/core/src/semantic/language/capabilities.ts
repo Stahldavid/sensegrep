@@ -49,16 +49,19 @@ const SEMANTIC_KINDS: readonly SemanticKindInfo[] = [
     name: "convexInternalQuery",
     framework: "convex",
     description: "Convex internal query declared through internalQuery(...)",
+    aliases: ["convexPrivateQuery"],
   },
   {
     name: "convexInternalMutation",
     framework: "convex",
     description: "Convex internal mutation declared through internalMutation(...)",
+    aliases: ["convexPrivateMutation"],
   },
   {
     name: "convexInternalAction",
     framework: "convex",
     description: "Convex internal action declared through internalAction(...)",
+    aliases: ["convexPrivateAction"],
   },
   {
     name: "convexHttpAction",
@@ -140,6 +143,31 @@ export function getLanguageCapabilities(): LanguageCapabilities {
 
 export function getAvailableSemanticKinds(): readonly SemanticKindInfo[] {
   return [...SEMANTIC_KINDS]
+}
+
+export function expandSemanticKindFilter(input: string): string[] {
+  const raw = input.trim()
+  if (!raw) return []
+
+  const matches = new Set<string>()
+  const normalized = raw.toLowerCase()
+  const wildcard = normalized.endsWith("*") ? normalized.slice(0, -1) : undefined
+
+  for (const kind of SEMANTIC_KINDS) {
+    const names = [kind.name, ...(kind.aliases ?? [])]
+    if (wildcard) {
+      if (names.some((name) => name.toLowerCase().startsWith(wildcard))) {
+        matches.add(kind.name)
+      }
+      continue
+    }
+
+    if (names.some((name) => name.toLowerCase() === normalized)) {
+      matches.add(kind.name)
+    }
+  }
+
+  return [...matches]
 }
 
 /**

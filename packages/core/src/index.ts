@@ -38,6 +38,7 @@ export {
   getAvailableVariants,
   getAvailableDecorators,
   getAvailableSemanticKinds,
+  expandSemanticKindFilter,
   validateVariant,
   validateDecorator,
   // Autodetection

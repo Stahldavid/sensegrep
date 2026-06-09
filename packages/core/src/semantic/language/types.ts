@@ -332,6 +332,9 @@ export interface SemanticKindInfo {
 
   /** Human-readable description */
   readonly description: string
+
+  /** Alternate names accepted by filters */
+  readonly aliases?: readonly string[]
 }
 
 /**

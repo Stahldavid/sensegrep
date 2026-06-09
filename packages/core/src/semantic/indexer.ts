@@ -90,6 +90,77 @@ export namespace Indexer {
   const INDEX_LOCK_STALE_MS = 30 * 60_000
   let inProcessLockDepth = 0
 
+  export type IndexProgressPhase = "lock" | "scan" | "parse" | "embed" | "persist" | "complete" | "error"
+
+  export type IndexProgress = {
+    phase: IndexProgressPhase
+    current: number
+    total: number
+    file?: string
+    message?: string
+    filesParsed?: number
+    chunksPrepared?: number
+    chunksEmbedded?: number
+    chunksPersisted?: number
+    skipped?: number
+    failed?: number
+  }
+
+  export type IndexRunOptions = {
+    timeoutMs?: number
+    maxFiles?: number
+    onProgress?: (progress: IndexProgress) => void
+  }
+
+  function createRunContext(options: IndexRunOptions = {}) {
+    const startedAt = Date.now()
+    const timeoutMs = options.timeoutMs
+
+    function assertNotTimedOut(phase: string): void {
+      if (!timeoutMs || timeoutMs <= 0) return
+      const elapsed = Date.now() - startedAt
+      if (elapsed > timeoutMs) {
+        throw new Error(`sensegrep index timed out after ${Math.ceil(timeoutMs / 1000)}s during ${phase}`)
+      }
+    }
+
+    async function withTimeout<T>(promise: Promise<T>, phase: string): Promise<T> {
+      if (!timeoutMs || timeoutMs <= 0) return promise
+      const remaining = timeoutMs - (Date.now() - startedAt)
+      if (remaining <= 0) {
+        throw new Error(`sensegrep index timed out after ${Math.ceil(timeoutMs / 1000)}s during ${phase}`)
+      }
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        return await Promise.race([
+          promise,
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(
+              () => reject(new Error(`sensegrep index timed out after ${Math.ceil(timeoutMs / 1000)}s during ${phase}`)),
+              remaining,
+            )
+          }),
+        ])
+      } finally {
+        if (timer) clearTimeout(timer)
+      }
+    }
+
+    function emit(progress: IndexProgress): void {
+      options.onProgress?.(progress)
+      const phase = progress.phase === "scan" ? "scanning" : progress.phase === "parse" ? "indexing" : progress.phase
+      Bus.publish(Event.Progress, {
+        phase: phase === "embed" || phase === "persist" || phase === "lock" ? "indexing" : phase,
+        current: progress.current,
+        total: progress.total,
+        file: progress.file,
+        message: progress.message,
+      }).catch(() => {})
+    }
+
+    return { assertNotTimedOut, withTimeout, emit }
+  }
+
   function projectLockPath(): string {
     const hash = crypto.createHash("sha1").update(path.resolve(Instance.directory)).digest("hex").slice(0, 16)
     return path.join(Global.Path.data, "locks", `index-${hash}.lock`)
@@ -99,7 +170,7 @@ export namespace Indexer {
     await new Promise<void>((resolve) => setTimeout(resolve, ms))
   }
 
-  async function acquireIndexLock(): Promise<() => Promise<void>> {
+  async function acquireIndexLock(options: IndexRunOptions = {}): Promise<() => Promise<void>> {
     if (inProcessLockDepth > 0) {
       inProcessLockDepth++
       return async () => {
@@ -109,7 +180,11 @@ export namespace Indexer {
 
     const lockPath = projectLockPath()
     const start = Date.now()
+    const lockTimeoutMs = options.timeoutMs && options.timeoutMs > 0
+      ? Math.min(INDEX_LOCK_TIMEOUT_MS, options.timeoutMs)
+      : INDEX_LOCK_TIMEOUT_MS
     await fs.mkdir(path.dirname(lockPath), { recursive: true })
+    let lastNotice = 0
 
     while (true) {
       try {
@@ -136,8 +211,18 @@ export namespace Indexer {
           continue
         }
 
-        if (Date.now() - start > INDEX_LOCK_TIMEOUT_MS) {
+        if (Date.now() - start > lockTimeoutMs) {
           throw new Error(`Timed out waiting for sensegrep index lock for ${Instance.directory}`)
+        }
+
+        if (Date.now() - lastNotice > 5_000) {
+          lastNotice = Date.now()
+          options.onProgress?.({
+            phase: "lock",
+            current: Date.now() - start,
+            total: lockTimeoutMs,
+            message: `Index already running for this project; waiting for lock (${Math.ceil((Date.now() - start) / 1000)}s)`,
+          })
         }
 
         await wait(500)
@@ -145,8 +230,8 @@ export namespace Indexer {
     }
   }
 
-  async function withIndexLock<T>(fn: () => Promise<T>): Promise<T> {
-    const release = await acquireIndexLock()
+  async function withIndexLock<T>(options: IndexRunOptions, fn: () => Promise<T>): Promise<T> {
+    const release = await acquireIndexLock(options)
     try {
       return await fn()
     } finally {
@@ -422,37 +507,52 @@ export namespace Indexer {
   /**
    * Full index of the project
    */
-  async function indexProjectUnlocked(): Promise<{
+  async function indexProjectUnlocked(options: IndexRunOptions = {}): Promise<{
     files: number
     chunks: number
     duration: number
   }> {
     const start = Date.now()
+    const run = createRunContext(options)
     try {
       log.info("starting full index", { project: Instance.directory })
       assertEmbeddingsConfigured()
 
-      // Emit scanning phase
-      Bus.publish(Event.Progress, {
-        phase: "scanning",
+      run.emit({
+        phase: "scan",
         current: 0,
         total: 0,
         message: "Scanning files...",
       })
 
-      // Get all files
-      const files = await getFiles()
+      let files = await run.withTimeout(getFiles(), "scan")
+      if (options.maxFiles && options.maxFiles > 0 && files.length > options.maxFiles) {
+        files = files.slice(0, options.maxFiles)
+      }
       log.info("found files to index", { count: files.length })
+      run.emit({
+        phase: "scan",
+        current: files.length,
+        total: files.length,
+        message: `Found ${files.length} indexable files`,
+      })
 
       // --- Pass 1: Parallel file preparation (I/O + parsing + chunking) ---
       let progressCounter = 0
+      let filesParsed = 0
+      let chunksPrepared = 0
+      let failed = 0
       const prepared = await mapConcurrent(files, FILE_CONCURRENCY, async (file) => {
+        run.assertNotTimedOut("parse")
         const idx = ++progressCounter
-        Bus.publish(Event.Progress, {
-          phase: "indexing",
+        run.emit({
+          phase: "parse",
           current: idx,
           total: files.length,
           file,
+          filesParsed,
+          chunksPrepared,
+          failed,
         })
 
         try {
@@ -478,6 +578,8 @@ export namespace Indexer {
           ])
 
           if (documents.length === 0) return null
+          filesParsed++
+          chunksPrepared += documents.length
 
           return {
             file,
@@ -487,9 +589,19 @@ export namespace Indexer {
             documents,
           } as PreparedFile
         } catch (err) {
+          failed++
           log.warn("failed to prepare file", { file, error: err instanceof Error ? err.message : String(err) })
           return null
         }
+      })
+      run.emit({
+        phase: "parse",
+        current: files.length,
+        total: files.length,
+        message: `Parsed ${filesParsed} files into ${chunksPrepared} chunks`,
+        filesParsed,
+        chunksPrepared,
+        failed,
       })
 
       // --- Pass 2: Collect results and batch embed ---
@@ -523,15 +635,53 @@ export namespace Indexer {
       // hangs or fails, the previous index remains readable.
       const embeddedRows: VectorStore.EmbeddedDocumentRow[] = []
       for (let i = 0; i < allDocs.length; i += ADD_BATCH_SIZE) {
-        embeddedRows.push(...(await VectorStore.embedDocuments(allDocs.slice(i, i + ADD_BATCH_SIZE))))
+        run.assertNotTimedOut("embed")
+        const batch = allDocs.slice(i, i + ADD_BATCH_SIZE)
+        run.emit({
+          phase: "embed",
+          current: i,
+          total: allDocs.length,
+          message: `Embedding chunks ${i + 1}-${Math.min(i + batch.length, allDocs.length)} of ${allDocs.length}`,
+          filesParsed: indexed,
+          chunksPrepared: totalChunks,
+          chunksEmbedded: embeddedRows.length,
+          failed,
+        })
+        embeddedRows.push(...(await run.withTimeout(VectorStore.embedDocuments(batch), "embed")))
       }
+      run.emit({
+        phase: "embed",
+        current: embeddedRows.length,
+        total: allDocs.length,
+        message: `Embedded ${embeddedRows.length} chunks`,
+        filesParsed: indexed,
+        chunksPrepared: totalChunks,
+        chunksEmbedded: embeddedRows.length,
+        failed,
+      })
 
+      run.assertNotTimedOut("persist")
       await VectorStore.deleteCollection(Instance.directory).catch(() => {})
       const freshCollection = await VectorStore.getCollection(Instance.directory)
 
       // Flush already-embedded rows, avoiding remote calls after the old index is removed.
+      let chunksPersisted = 0
       for (let i = 0; i < embeddedRows.length; i += ADD_BATCH_SIZE) {
-        await VectorStore.addEmbeddedDocuments(freshCollection, embeddedRows.slice(i, i + ADD_BATCH_SIZE))
+        run.assertNotTimedOut("persist")
+        const batch = embeddedRows.slice(i, i + ADD_BATCH_SIZE)
+        await run.withTimeout(VectorStore.addEmbeddedDocuments(freshCollection, batch), "persist")
+        chunksPersisted += batch.length
+        run.emit({
+          phase: "persist",
+          current: chunksPersisted,
+          total: embeddedRows.length,
+          message: `Persisted ${chunksPersisted}/${embeddedRows.length} chunks`,
+          filesParsed: indexed,
+          chunksPrepared: totalChunks,
+          chunksEmbedded: embeddedRows.length,
+          chunksPersisted,
+          failed,
+        })
       }
 
       // Verify that all chunks were actually persisted
@@ -559,7 +709,7 @@ export namespace Indexer {
 
       const duration = Date.now() - start
 
-      Bus.publish(Event.Progress, {
+      run.emit({
         phase: "complete",
         current: indexed,
         total: files.length,
@@ -574,7 +724,7 @@ export namespace Indexer {
 
       return { files: indexed, chunks: totalChunks, duration }
     } catch (error) {
-      Bus.publish(Event.Progress, {
+      run.emit({
         phase: "error",
         current: 0,
         total: 0,
@@ -584,19 +734,19 @@ export namespace Indexer {
     }
   }
 
-  export async function indexProject(): Promise<{
+  export async function indexProject(options: IndexRunOptions = {}): Promise<{
     files: number
     chunks: number
     duration: number
   }> {
-    return withIndexLock(() => indexProjectUnlocked())
+    return withIndexLock(options, () => indexProjectUnlocked(options))
   }
 
   /**
    * Incremental index: only re-index files that changed since last index.
    * Falls back to full index if no metadata exists or embeddings config changed.
    */
-  async function indexProjectIncrementalUnlocked(): Promise<{
+  async function indexProjectIncrementalUnlocked(options: IndexRunOptions = {}): Promise<{
     files: number
     chunks: number
     duration: number
@@ -605,12 +755,19 @@ export namespace Indexer {
     mode: "incremental" | "full"
   }> {
     const start = Date.now()
+    const run = createRunContext(options)
     try {
       log.info("starting incremental index", { project: Instance.directory })
       assertEmbeddingsConfigured()
 
-      const files = await getFiles()
+      run.emit({ phase: "scan", current: 0, total: 0, message: "Scanning files..." })
+      let files = await run.withTimeout(getFiles(), "scan")
+      const truncatedByMaxFiles = !!(options.maxFiles && options.maxFiles > 0 && files.length > options.maxFiles)
+      if (options.maxFiles && options.maxFiles > 0 && files.length > options.maxFiles) {
+        files = files.slice(0, options.maxFiles)
+      }
       log.info("found files to scan", { count: files.length })
+      run.emit({ phase: "scan", current: files.length, total: files.length, message: `Found ${files.length} indexable files` })
 
       const meta = await VectorStore.readIndexMeta(Instance.directory)
       const config = Embeddings.getConfig()
@@ -625,7 +782,7 @@ export namespace Indexer {
         meta.embeddings?.model !== model ||
         meta.embeddings?.distanceMetric !== VectorStore.DEFAULT_DISTANCE_METRIC
       ) {
-        const full = await indexProjectUnlocked()
+        const full = await indexProjectUnlocked(options)
         return { ...full, skipped: 0, removed: 0, mode: "full" }
       }
 
@@ -646,7 +803,7 @@ export namespace Indexer {
           expectedChunks,
           actualChunks,
         })
-        const full = await indexProjectUnlocked()
+        const full = await indexProjectUnlocked(options)
         return { ...full, skipped: 0, removed: 0, mode: "full" }
       }
 
@@ -665,7 +822,19 @@ export namespace Indexer {
         | { action: "full_reindex"; file: string; stats: FileStat; documents: Document[] }
 
       // --- Phase 1: Parallel file preparation (stat, read, hash, chunk) ---
+      let preparedCount = 0
+      let failed = 0
       const actions = await mapConcurrent(files, FILE_CONCURRENCY, async (file): Promise<FileAction | null> => {
+        run.assertNotTimedOut("parse")
+        preparedCount++
+        run.emit({
+          phase: "parse",
+          current: preparedCount,
+          total: files.length,
+          file,
+          skipped,
+          failed,
+        })
         try {
           const fullPath = path.join(Instance.directory, file)
           const stat = await fs.stat(fullPath).catch(() => null)
@@ -726,6 +895,7 @@ export namespace Indexer {
           // Full reindex for this file
           return { action: "full_reindex", file, stats: { ...current, hash, chunks: chunkHashes, collapsibleRegions }, documents }
         } catch (err) {
+          failed++
           log.warn("failed to prepare file for incremental index", { file, error: err instanceof Error ? err.message : String(err) })
           return null
         }
@@ -770,27 +940,60 @@ export namespace Indexer {
       const embeddedRows: VectorStore.EmbeddedDocumentRow[] = []
       if (docsToAdd.length > 0) {
         for (let i = 0; i < docsToAdd.length; i += ADD_BATCH_SIZE) {
-          embeddedRows.push(...(await VectorStore.embedDocuments(docsToAdd.slice(i, i + ADD_BATCH_SIZE))))
+          run.assertNotTimedOut("embed")
+          const batch = docsToAdd.slice(i, i + ADD_BATCH_SIZE)
+          run.emit({
+            phase: "embed",
+            current: i,
+            total: docsToAdd.length,
+            message: `Embedding changed chunks ${i + 1}-${Math.min(i + batch.length, docsToAdd.length)} of ${docsToAdd.length}`,
+            chunksPrepared: docsToAdd.length,
+            chunksEmbedded: embeddedRows.length,
+            skipped,
+            failed,
+          })
+          embeddedRows.push(...(await run.withTimeout(VectorStore.embedDocuments(batch), "embed")))
         }
       }
 
       // Batch delete files that need full reindex
       for (const file of filesToDeleteFirst) {
+        run.assertNotTimedOut("persist")
         await VectorStore.deleteByFile(collection, file)
       }
 
       // Batch add new/fully-reindexed documents
       if (embeddedRows.length > 0) {
+        let chunksPersisted = 0
         for (let i = 0; i < embeddedRows.length; i += ADD_BATCH_SIZE) {
-          await VectorStore.addEmbeddedDocuments(collection, embeddedRows.slice(i, i + ADD_BATCH_SIZE))
+          run.assertNotTimedOut("persist")
+          const batch = embeddedRows.slice(i, i + ADD_BATCH_SIZE)
+          await run.withTimeout(VectorStore.addEmbeddedDocuments(collection, batch), "persist")
+          chunksPersisted += batch.length
+          run.emit({
+            phase: "persist",
+            current: chunksPersisted,
+            total: embeddedRows.length,
+            message: `Persisted ${chunksPersisted}/${embeddedRows.length} changed chunks`,
+            chunksPrepared: docsToAdd.length,
+            chunksEmbedded: embeddedRows.length,
+            chunksPersisted,
+            skipped,
+            failed,
+          })
         }
       }
 
       // Remove files that no longer exist
-      if (remaining.size > 0) {
+      if (remaining.size > 0 && !truncatedByMaxFiles) {
         for (const file of remaining) {
           await VectorStore.deleteByFile(collection, file)
           removed++
+        }
+      } else if (truncatedByMaxFiles) {
+        for (const file of remaining) {
+          const prev = previous[file]
+          if (prev) newStats[file] = prev
         }
       }
 
@@ -804,7 +1007,7 @@ export namespace Indexer {
           expectedChunks: nextExpectedChunks,
           actualChunks: nextStats.count,
         })
-        const full = await indexProjectUnlocked()
+        const full = await indexProjectUnlocked(options)
         return { ...full, skipped, removed, mode: "full" }
       }
 
@@ -817,9 +1020,19 @@ export namespace Indexer {
       })
 
       const duration = Date.now() - start
+      run.emit({
+        phase: "complete",
+        current: indexed,
+        total: files.length,
+        message: `Indexed ${indexed} changed files (${totalChunks} chunks), skipped ${skipped}, removed ${removed} in ${(duration / 1000).toFixed(1)}s`,
+        chunksPrepared: docsToAdd.length,
+        chunksEmbedded: embeddedRows.length,
+        skipped,
+        failed,
+      })
       return { files: indexed, chunks: totalChunks, duration, skipped, removed, mode: "incremental" }
     } catch (error) {
-      Bus.publish(Event.Progress, {
+      run.emit({
         phase: "error",
         current: 0,
         total: 0,
@@ -829,7 +1042,7 @@ export namespace Indexer {
     }
   }
 
-  export async function indexProjectIncremental(): Promise<{
+  export async function indexProjectIncremental(options: IndexRunOptions = {}): Promise<{
     files: number
     chunks: number
     duration: number
@@ -837,7 +1050,7 @@ export namespace Indexer {
     removed: number
     mode: "incremental" | "full"
   }> {
-    return withIndexLock(() => indexProjectIncrementalUnlocked())
+    return withIndexLock(options, () => indexProjectIncrementalUnlocked(options))
   }
 
   /**

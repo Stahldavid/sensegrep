@@ -40,7 +40,7 @@ sensegrep (CLI)
 
 Usage:
   sensegrep index [--root <dir>] [--full|--incremental] [--verify|--check] [--no-watch] [--include-docs] [--include-config]
-  sensegrep verify [--root <dir>]
+  sensegrep verify [--root <dir>] [--strict] [--json]
   sensegrep status [--root <dir>]
   sensegrep search <query...> [options]
   sensegrep survey <query...> [options]
@@ -48,6 +48,7 @@ Usage:
   sensegrep detect-duplicates [--root <dir>] [options]
   sensegrep languages [--detect] [--variants]
   sensegrep semantic-kinds [--json]
+  sensegrep selftest [--root <dir>] [--strict] [--deep] [--json]
 
 Search options:
   --query <text>            Query text (if not provided as positional)
@@ -88,6 +89,9 @@ Search options:
   --no-watch                Exit after indexing (for CI/scripts)
   --include-docs            Include markdown/docs in the index (default: false)
   --include-config          Include config files (JSON/YAML/TOML) in the index (default: false)
+  --timeout <duration>      Abort index phases after duration (e.g. 30s, 5m; bare numbers are seconds)
+  --max-files <n>           Index at most N files (smoke tests/diagnostics)
+  --log-format jsonl        Emit progress logs as JSON Lines on stderr
   --json                    Output JSON
 
 Survey options:
@@ -129,9 +133,11 @@ Language management:
   sensegrep languages --detect        Detect project languages
   sensegrep languages --variants      Show all variants by language
   sensegrep semantic-kinds            List framework-aware semanticKind filters
+  sensegrep semantic-kinds --json     Include aliases accepted by --semantic-kind
 
 Index health:
   sensegrep status --verbose          Include changed/missing/removed file lists
+  sensegrep verify --strict           Exit non-zero unless the index is healthy and fresh
   sensegrep index --check             Exit non-zero if index is stale
   sensegrep index --check --max-changed 5 --max-missing 0
 `)
@@ -211,6 +217,26 @@ function formatIndexResult(result: IndexResult): string {
   return `Indexed ${result.files} files (${result.chunks} chunks) in ${duration}s`
 }
 
+function parseDurationMs(value: string | boolean | undefined): number | undefined {
+  if (value === undefined || value === false || value === true) return undefined
+  const raw = String(value).trim().toLowerCase()
+  const match = raw.match(/^(\d+(?:\.\d+)?)(ms|s|m)?$/)
+  if (!match) throw new Error(`Invalid duration "${value}". Use 30000ms, 30s, or 5m.`)
+  const amount = Number(match[1])
+  const unit = match[2] ?? "s"
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error(`Invalid duration "${value}"`)
+  if (unit === "ms") return Math.ceil(amount)
+  if (unit === "m") return Math.ceil(amount * 60_000)
+  return Math.ceil(amount * 1000)
+}
+
+function parsePositiveIntFlag(value: string | boolean | undefined, name: string): number | undefined {
+  if (value === undefined || value === false || value === true) return undefined
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed <= 0) throw new Error(`--${name} must be a positive integer`)
+  return parsed
+}
+
 function isIndexStale(
   verify: Awaited<ReturnType<CoreModule["Indexer"]["verifyIndex"]>>,
   thresholds?: { maxChanged?: number; maxMissing?: number; maxRemoved?: number },
@@ -229,6 +255,50 @@ function isIndexStale(
 
 function formatVerifySummary(verify: Awaited<ReturnType<CoreModule["Indexer"]["verifyIndex"]>>) {
   return `indexed=${verify.indexed} changed=${verify.changed} missing=${verify.missing} removed=${verify.removed} chunkMismatch=${(verify as any).chunkMismatch === true ? `${(verify as any).actualChunks}/${(verify as any).expectedChunks}` : "false"}`
+}
+
+function createIndexRunOptions(flags: Flags): {
+  timeoutMs?: number
+  maxFiles?: number
+  onProgress?: (progress: any) => void
+} {
+  const timeoutMs = parseDurationMs(flags.timeout)
+  const maxFiles = parsePositiveIntFlag(flags["max-files"] ?? flags.maxFiles, "max-files")
+  const logFormat = flags["log-format"] ? String(flags["log-format"]).toLowerCase() : undefined
+  if (logFormat && logFormat !== "jsonl") {
+    throw new Error('--log-format must be "jsonl"')
+  }
+
+  let lastHumanProgress = 0
+  const verbose = toBool(flags.verbose) ?? false
+  const onProgress = (progress: any) => {
+    const now = Date.now()
+    const isTerminal = progress.phase === "complete" || progress.phase === "error"
+    const isPhaseBoundary = progress.current === 0 || progress.current === progress.total
+    if (!verbose && !isTerminal && !isPhaseBoundary && now - lastHumanProgress < 2_000) return
+    lastHumanProgress = now
+
+    if (logFormat === "jsonl") {
+      process.stderr.write(JSON.stringify({ type: "index-progress", ...progress, at: new Date().toISOString() }) + "\n")
+      return
+    }
+
+    const total = Number(progress.total ?? 0)
+    const current = Number(progress.current ?? 0)
+    const count = total > 0 ? `${current}/${total}` : String(current)
+    const message = progress.message ? ` ${progress.message}` : ""
+    const details = [
+      progress.filesParsed !== undefined ? `filesParsed=${progress.filesParsed}` : undefined,
+      progress.chunksPrepared !== undefined ? `chunksPrepared=${progress.chunksPrepared}` : undefined,
+      progress.chunksEmbedded !== undefined ? `chunksEmbedded=${progress.chunksEmbedded}` : undefined,
+      progress.chunksPersisted !== undefined ? `chunksPersisted=${progress.chunksPersisted}` : undefined,
+      progress.skipped !== undefined ? `skipped=${progress.skipped}` : undefined,
+      progress.failed !== undefined ? `failed=${progress.failed}` : undefined,
+    ].filter(Boolean).join(" ")
+    process.stderr.write(`[sensegrep:index] ${progress.phase} ${count}${message}${details ? ` ${details}` : ""}\n`)
+  }
+
+  return { timeoutMs, maxFiles, onProgress }
 }
 
 async function ensureFreshIfRequested(
@@ -257,7 +327,7 @@ async function ensureFreshIfRequested(
 
   const result = await Instance.provide({
     directory: rootDir,
-    fn: () => (mode === "full" ? Indexer.indexProject() : Indexer.indexProjectIncremental()),
+    fn: () => (mode === "full" ? Indexer.indexProject(createIndexRunOptions(flags)) : Indexer.indexProjectIncremental(createIndexRunOptions(flags))),
   })
   console.error(`Refreshed stale index before query: ${formatIndexResult(result)}`)
 }
@@ -300,9 +370,11 @@ async function run() {
     const full = flags.full === true
     const checkOnly = flags.check === true
     const noWatch = flags["no-watch"] === true
-    const watch = noWatch ? false : (toBool(flags.watch) ?? true)
+    const watch = noWatch || flags.json ? false : (toBool(flags.watch) ?? true)
     const includeDocs = flags["include-docs"] === true
     const includeConfig = flags["include-config"] === true
+    const humanLog = flags.json ? console.error : console.log
+    const indexRunOptions = createIndexRunOptions(flags)
 
     // Configure index options
     const { Indexer } = await loadCore()
@@ -340,16 +412,17 @@ async function run() {
     const detected = await detectProjectLanguages(rootDir)
     if (detected.length > 0) {
       const langSummary = detected.map((d: any) => `${d.language} (${d.fileCount})`).join(", ")
-      console.log(`Detected: ${langSummary}`)
+      humanLog(`Detected: ${langSummary}`)
     }
 
     let skipIndex = false
+    let result: IndexResult | undefined
     if (flags.verify === true) {
       const check = await Instance.provide({
         directory: rootDir,
         fn: () => Indexer.verifyIndex(),
       })
-      console.log(`Verify: ${formatVerifySummary(check)}`)
+      humanLog(`Verify: ${formatVerifySummary(check)}`)
       if (
         check.indexed &&
         check.changed === 0 &&
@@ -358,25 +431,35 @@ async function run() {
         (check as any).chunkMismatch !== true &&
         !full
       ) {
-        console.log("Index is up to date. Skipping.")
+        humanLog("Index is up to date. Skipping.")
         skipIndex = true
       }
     }
     if (!skipIndex) {
-      const result = await Instance.provide({
+      result = await Instance.provide({
         directory: rootDir,
         fn: () =>
-          full ? Indexer.indexProject() : Indexer.indexProjectIncremental(),
+          full ? Indexer.indexProject(indexRunOptions) : Indexer.indexProjectIncremental(indexRunOptions),
       })
-      console.log(formatIndexResult(result))
+      humanLog(formatIndexResult(result))
     }
     const stats = await Instance.provide({
       directory: rootDir,
       fn: () => Indexer.getStats(),
     })
-    console.log(
-      `Index summary: indexed=${stats.indexed} files=${stats.files} chunks=${stats.chunks} provider=${stats.embeddings?.provider ?? "n/a"}`,
-    )
+    const summary = {
+      result,
+      stats,
+      skipped: skipIndex,
+      detectedLanguages: detected,
+    }
+    if (flags.json) {
+      console.log(JSON.stringify(summary, null, 2))
+    } else {
+      console.log(
+        `Index summary: indexed=${stats.indexed} files=${stats.files} chunks=${stats.chunks} provider=${stats.embeddings?.provider ?? "n/a"}`,
+      )
+    }
     if (watch) {
       console.log("Watching for changes (reindex at most once per minute)... Use --no-watch to disable.")
       const handle = await IndexWatcher.start({
@@ -429,19 +512,33 @@ async function run() {
     return
   }
 
-if (command === "verify") {
+  if (command === "verify") {
     const result = await Instance.provide({
       directory: rootDir,
       fn: () => Indexer.verifyIndex(),
     })
-    console.log(JSON.stringify(result, null, 2))
     const stats = await Instance.provide({
       directory: rootDir,
       fn: () => Indexer.getStats(),
     })
-    console.log(
-      `Index summary: indexed=${stats.indexed} files=${stats.files} chunks=${stats.chunks} provider=${stats.embeddings?.provider ?? "n/a"}${(result as any).chunkMismatch === true ? ` expectedChunks=${(result as any).expectedChunks} actualChunks=${(result as any).actualChunks}` : ""}`,
-    )
+    const strict = flags.strict === true
+    const isStrictHealthy = !isIndexStale(result)
+    const payload = {
+      ...result,
+      isStale: isIndexStale(result),
+      strict,
+      ok: strict ? isStrictHealthy : true,
+      stats,
+    }
+    if (flags.json) {
+      console.log(JSON.stringify(payload, null, 2))
+    } else {
+      console.log(`Verify: ${formatVerifySummary(result)}${strict ? ` strict=${isStrictHealthy}` : ""}`)
+      console.log(
+        `Index summary: indexed=${stats.indexed} files=${stats.files} chunks=${stats.chunks} provider=${stats.embeddings?.provider ?? "n/a"}${(result as any).chunkMismatch === true ? ` expectedChunks=${(result as any).expectedChunks} actualChunks=${(result as any).actualChunks}` : ""}`,
+      )
+    }
+    if (strict && !isStrictHealthy) process.exitCode = 1
     return
   }
 
@@ -452,6 +549,18 @@ if (command === "verify") {
 
   if (command === "semantic-kinds") {
     await runSemanticKindsCommand(flags)
+    return
+  }
+
+  if (command === "selftest") {
+    await runSelftestCommand(flags, rootDir, {
+      SenseGrepTool,
+      SenseGrepSurveyTool,
+      SenseGrepClusterTool,
+      Indexer,
+      Instance,
+      DuplicateDetector,
+    })
     return
   }
 
@@ -960,6 +1069,152 @@ async function runLanguagesCommand(flags: Flags, rootDir: string) {
   console.log("Use 'sensegrep languages --detect' to detect project languages")
 }
 
+async function runSelftestCommand(
+  flags: Flags,
+  rootDir: string,
+  core: Pick<
+    CoreModule,
+    "SenseGrepTool" | "SenseGrepSurveyTool" | "SenseGrepClusterTool" | "Indexer" | "Instance" | "DuplicateDetector"
+  >,
+) {
+  type Check = {
+    name: string
+    ok: boolean
+    skipped?: boolean
+    message?: string
+    details?: unknown
+  }
+
+  const checks: Check[] = []
+  const strict = flags.strict === true
+  const deep = flags.deep === true
+
+  async function check(name: string, fn: () => Promise<Partial<Omit<Check, "name">> | void>) {
+    try {
+      const result = await fn()
+      checks.push({ name, ok: true, ...(result ?? {}) })
+    } catch (error) {
+      checks.push({
+        name,
+        ok: false,
+        message: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  await check("cli.version", async () => ({
+    message: getCliVersion(),
+  }))
+
+  await check("semantic-kinds", async () => {
+    const { getAvailableSemanticKinds } = await loadCore()
+    const semanticKinds = getAvailableSemanticKinds()
+    if (semanticKinds.length === 0) throw new Error("No semantic kinds registered")
+    return { message: `${semanticKinds.length} semantic kinds`, details: semanticKinds.map((kind) => kind.name) }
+  })
+
+  await check("languages.detect", async () => {
+    const { detectProjectLanguages } = await loadCore()
+    const detected = await detectProjectLanguages(rootDir)
+    return {
+      message: detected.length > 0 ? detected.map((d: any) => `${d.language}:${d.fileCount}`).join(", ") : "no supported languages detected",
+      details: detected,
+    }
+  })
+
+  let verifyResult: Awaited<ReturnType<CoreModule["Indexer"]["verifyIndex"]>> | undefined
+  await check("index.verify", async () => {
+    verifyResult = await core.Instance.provide({
+      directory: rootDir,
+      fn: () => core.Indexer.verifyIndex(),
+    })
+    const healthy = !isIndexStale(verifyResult)
+    if (strict && !healthy) throw new Error(`Strict index invariant failed: ${formatVerifySummary(verifyResult)}`)
+    return {
+      ok: healthy || !strict,
+      message: formatVerifySummary(verifyResult),
+      details: verifyResult,
+    }
+  })
+
+  await check("status.stats", async () => {
+    const stats = await core.Instance.provide({
+      directory: rootDir,
+      fn: () => core.Indexer.getStats(),
+    })
+    if (strict && !stats.indexed) throw new Error("Index is not present")
+    return {
+      ok: stats.indexed || !strict,
+      message: `indexed=${stats.indexed} files=${stats.files} chunks=${stats.chunks}`,
+      details: stats,
+    }
+  })
+
+  if (deep) {
+    await check("search.json-shape", async () => {
+      if (!verifyResult || isIndexStale(verifyResult)) {
+        return { ok: true, skipped: true, message: "skipped because index is missing or stale" }
+      }
+      const tool = await core.SenseGrepTool.init()
+      const res = await core.Instance.provide({
+        directory: rootDir,
+        fn: () =>
+          tool.execute(
+            { query: "code search", limit: 1, rerank: false, shake: true },
+            {
+              sessionID: "cli-selftest",
+              messageID: "cli-selftest",
+              agent: "sensegrep-cli",
+              abort: new AbortController().signal,
+              metadata(_input: { title?: string; metadata?: unknown }) {},
+            },
+          ),
+      })
+      if (!Array.isArray((res as any).results)) throw new Error("search result is missing results[]")
+      return { message: `results=${(res as any).results.length}` }
+    })
+
+    await check("duplicates.json-shape", async () => {
+      const res = await core.DuplicateDetector.detect({
+        path: rootDir,
+        maxCandidates: 50,
+        thresholds: { exact: 0.98, high: 0.9, medium: 0.85, low: 0.85 },
+      })
+      if (!(res as any).summary || !Array.isArray((res as any).duplicates)) {
+        throw new Error("duplicate detector result is missing summary/duplicates")
+      }
+      return { message: `duplicates=${(res as any).summary.totalDuplicates}` }
+    })
+  } else {
+    checks.push({
+      name: "deep-search",
+      ok: true,
+      skipped: true,
+      message: "use --deep to test remote-embedding search and duplicate JSON shape",
+    })
+  }
+
+  const failed = checks.filter((item) => !item.ok)
+  const payload = {
+    ok: failed.length === 0,
+    strict,
+    deep,
+    root: rootDir,
+    checks,
+  }
+
+  if (flags.json) {
+    console.log(JSON.stringify(payload, null, 2))
+  } else {
+    for (const item of checks) {
+      const status = item.skipped ? "SKIP" : item.ok ? "OK" : "FAIL"
+      console.log(`${status.padEnd(4)} ${item.name}${item.message ? ` - ${item.message}` : ""}`)
+    }
+  }
+
+  if (failed.length > 0) process.exitCode = 1
+}
+
 async function runSemanticKindsCommand(flags: Flags) {
   const { getAvailableSemanticKinds } = await loadCore()
   const semanticKinds = getAvailableSemanticKinds()
@@ -972,9 +1227,13 @@ async function runSemanticKindsCommand(flags: Flags) {
   console.log("Framework-aware semantic kinds:\n")
   for (const kind of semanticKinds) {
     const framework = kind.framework ? ` (${kind.framework})` : ""
-    console.log(`  - ${kind.name}${framework}: ${kind.description}`)
+    const aliases = Array.isArray((kind as any).aliases) && (kind as any).aliases.length > 0
+      ? ` aliases: ${(kind as any).aliases.join(", ")}`
+      : ""
+    console.log(`  - ${kind.name}${framework}: ${kind.description}${aliases}`)
   }
   console.log("\nUse with: sensegrep search \"...\" --semantic-kind <kind>")
+  console.log("Wildcards are supported, for example: --semantic-kind convex*")
 }
 
 run().catch((error) => {
