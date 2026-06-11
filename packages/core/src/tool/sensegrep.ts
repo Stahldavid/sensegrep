@@ -13,6 +13,7 @@ import { Log } from "../util/log.js"
 import path from "path"
 import {
   annotateWorkingResults,
+  formatFreshnessWarning,
   getFreshnessSummary,
   prependFreshnessWarning,
   toStructuredSearchResult,
@@ -238,6 +239,14 @@ function queryLooksLikeIdentifier(query: string): boolean {
   )
 }
 
+function queryLooksLikeSimpleIdentifier(query: string): boolean {
+  const trimmed = query.trim()
+  if (trimmed.length < 2 || trimmed.length > 120) return false
+  if (/\s/.test(trimmed)) return false
+  if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(trimmed)) return false
+  return /[A-Za-z]/.test(trimmed)
+}
+
 function buildFiltersWithFileVariants(
   filters: VectorStore.SearchFilters,
   filePath: string,
@@ -270,6 +279,37 @@ function pickBestLiteralDocument(
     const bLen = Number(b.metadata.endLine ?? 0) - Number(b.metadata.startLine ?? 0)
     return aLen - bLen
   })[0]
+}
+
+async function collectExactSymbolResults(
+  symbolName: string,
+  collection: Awaited<ReturnType<typeof VectorStore.getCollectionUnsafe>>,
+  filters: VectorStore.SearchFilters,
+): Promise<
+  {
+    id: string
+    file: string
+    content: string
+    startLine: number
+    endLine: number
+    semanticScore: number
+    metadata: Record<string, string | number | boolean | string[] | undefined>
+  }[]
+> {
+  const exactFilters: VectorStore.SearchFilters = {
+    ...filters,
+    all: [...(filters.all ?? []), { key: "symbolName", operator: "equals", value: symbolName }],
+  }
+  const rows = await VectorStore.listDocuments(collection, { filters: exactFilters })
+  return rows.map((row) => ({
+    id: row.id,
+    file: row.metadata.file as string,
+    content: row.content,
+    startLine: row.metadata.startLine as number,
+    endLine: row.metadata.endLine as number,
+    semanticScore: 1.08,
+    metadata: row.metadata,
+  }))
 }
 
 async function collectRipgrepFallbackResults(
@@ -486,6 +526,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     minScore: z.number().optional().describe("Minimum relevance score 0-1 (filters low-confidence results)"),
     symbol: z.string().optional().describe('Filter by symbol name (e.g. "VectorStore")'),
     name: z.string().optional().describe('Alias for "symbol"'),
+    exact: z.boolean().optional().describe("Prefer exact symbol-name lookup for identifier queries"),
 
 
     // Semantic metadata filters
@@ -540,15 +581,22 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     }
 
     const run = async () => {
+    const startedAt = Date.now()
+    const metrics: Record<string, number> = {}
+    const warnings: string[] = []
     // Clear any cached tables that might have wrong dimension expectations
     VectorStore.clearProjectCache(resolved.root)
     const freshness = await getFreshnessSummary()
+    const freshnessWarning = formatFreshnessWarning(freshness)
+    if (freshnessWarning) warnings.push(freshnessWarning)
 
     const limit = params.limit ?? 10
     const shouldRerank = params.rerank === true
 
     // Get collection, passing the expected dimension from index metadata
+    const collectionStartedAt = Date.now()
     const collection = await VectorStore.getCollectionUnsafe(resolved.root, meta.embeddings.dimension)
+    metrics.collectionMs = Date.now() - collectionStartedAt
 
     // Build semantic filters from parameters
     const filters: VectorStore.SearchFilters = { all: [] }
@@ -653,13 +701,18 @@ export const SenseGrepTool = Tool.define("sensegrep", {
         ]
           .filter(Boolean)
           .join(", ")
+        const warning = `No indexed files matched the file filters${filterLabel ? ` (${filterLabel})` : ""}.`
+        warnings.push(warning)
+        metrics.totalMs = Date.now() - startedAt
         return {
           title: params.query,
-          metadata: { matches: 0, indexed: true, freshness },
+          metadata: { matches: 0, indexed: true, freshness, warnings, metrics },
           freshness,
+          warnings,
+          metrics,
           results: [],
           output: prependFreshnessWarning(
-            `No indexed files matched the file filters${filterLabel ? ` (${filterLabel})` : ""}.`,
+            warning,
             freshness,
           ),
         }
@@ -677,22 +730,50 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       searchOptions.filters = filters
     }
 
-    // Step 1: Semantic search with metadata filters
-    let semanticResults = await VectorStore.search(collection, params.query, searchOptions)
-
-    // Apply file globs again as a safety net after semantic search.
-    if (includeMatcher) {
-      semanticResults = semanticResults.filter((r) =>
-        matchesScopedGlob(r.metadata.file as string, includeMatcher, resolved.subdirPrefix),
-      )
-    }
-    if (excludeMatcher) {
-      semanticResults = semanticResults.filter((r) =>
-        !matchesScopedGlob(r.metadata.file as string, excludeMatcher, resolved.subdirPrefix),
-      )
-    }
-
     const shouldRunLiteralFallback = !params.pattern && queryLooksLikeIdentifier(params.query)
+    const simpleIdentifierQuery = queryLooksLikeSimpleIdentifier(params.query)
+    const exactSymbolQuery = symbolQuery ?? (params.exact || simpleIdentifierQuery ? params.query.trim() : undefined)
+    let exactSymbolResults: WorkingResult[] = []
+    if (exactSymbolQuery) {
+      const exactStartedAt = Date.now()
+      const symbolResults = await collectExactSymbolResults(exactSymbolQuery, collection, filters)
+      metrics.exactSymbolLookupMs = Date.now() - exactStartedAt
+      exactSymbolResults = symbolResults.map((result) => ({
+        file: result.file,
+        content: result.content,
+        startLine: result.startLine,
+        endLine: result.endLine,
+        semanticScore: result.semanticScore,
+        metadata: result.metadata,
+      }))
+    }
+    const useExactOnly =
+      exactSymbolResults.length > 0 &&
+      !params.pattern &&
+      (params.exact === true || Boolean(symbolQuery) || simpleIdentifierQuery)
+
+    // Step 1: Semantic search with metadata filters. Exact symbol lookups can skip embeddings entirely.
+    let semanticResults: Awaited<ReturnType<typeof VectorStore.search>> = []
+    if (!useExactOnly) {
+      const semanticStartedAt = Date.now()
+      semanticResults = await VectorStore.search(collection, params.query, searchOptions)
+      metrics.semanticSearchMs = Date.now() - semanticStartedAt
+
+      // Apply file globs again as a safety net after semantic search.
+      if (includeMatcher) {
+        semanticResults = semanticResults.filter((r) =>
+          matchesScopedGlob(r.metadata.file as string, includeMatcher, resolved.subdirPrefix),
+        )
+      }
+      if (excludeMatcher) {
+        semanticResults = semanticResults.filter((r) =>
+          !matchesScopedGlob(r.metadata.file as string, excludeMatcher, resolved.subdirPrefix),
+        )
+      }
+    } else {
+      metrics.semanticSearchMs = 0
+    }
+
     let literalFallbackResults: WorkingResult[] = []
     const lexicalCandidateFiles =
       shouldRunLiteralFallback || params.pattern
@@ -706,7 +787,9 @@ export const SenseGrepTool = Tool.define("sensegrep", {
         : []
 
     if (shouldRunLiteralFallback) {
+      const literalStartedAt = Date.now()
       const literalResults = await collectLiteralFallbackResults(params.query, lexicalCandidateFiles, collection, filters)
+      metrics.literalFallbackMs = Date.now() - literalStartedAt
       literalFallbackResults = literalResults.map((result) => ({
         file: result.file,
         content: result.content,
@@ -721,6 +804,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     // This runs ripgrep ONLY on files found by semantic search
     let filteredResults = semanticResults
     if (params.pattern && semanticResults.length > 0) {
+      const patternFilterStartedAt = Date.now()
       const uniqueFiles = [...new Set(semanticResults.map((r) => r.metadata.file as string))]
       const rgMatches = await runRipgrepOnFiles(params.pattern, uniqueFiles)
 
@@ -731,10 +815,12 @@ export const SenseGrepTool = Tool.define("sensegrep", {
         const endLine = r.metadata.endLine as number
         return rgMatches.some((m) => m.file === file && m.line >= startLine && m.line <= endLine)
       })
+      metrics.patternFilterMs = Date.now() - patternFilterStartedAt
     }
 
     let patternFallbackResults: WorkingResult[] = []
     if (params.pattern) {
+      const patternFallbackStartedAt = Date.now()
       const patternResults = await collectRipgrepFallbackResults(
         params.pattern,
         lexicalCandidateFiles,
@@ -750,6 +836,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
         semanticScore: result.semanticScore,
         metadata: result.metadata,
       }))
+      metrics.patternFallbackMs = Date.now() - patternFallbackStartedAt
     }
 
     // Convert to working format with semantic score
@@ -779,7 +866,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       metadata: r.metadata,
     }))
 
-    const fallbackResults = [...literalFallbackResults, ...patternFallbackResults]
+    const fallbackResults = [...exactSymbolResults, ...literalFallbackResults, ...patternFallbackResults]
     if (fallbackResults.length > 0) {
       const merged = new Map<string, WorkingResult>()
 
@@ -804,7 +891,10 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       workingResults = [...merged.values()]
     }
 
-    workingResults = annotateWorkingResults(workingResults, params as any)
+    workingResults = annotateWorkingResults(workingResults, {
+      ...(params as any),
+      symbol: symbolQuery ?? exactSymbolQuery,
+    })
 
     // Sort by semantic score initially
     workingResults.sort((a, b) => b.semanticScore - a.semanticScore)
@@ -832,19 +922,23 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     const finalResults = diversifiedResults.slice(0, limit)
 
     if (finalResults.length === 0) {
+      metrics.totalMs = Date.now() - startedAt
       return {
         title: params.query,
-        metadata: { matches: 0, indexed: true, freshness },
+        metadata: { matches: 0, indexed: true, freshness, warnings, metrics },
         freshness,
+        warnings,
+        metrics,
         results: [],
         output: prependFreshnessWarning("No matching results found for your query.", freshness),
       }
     }
 
     // Apply semantic tree-shaking if enabled (default: true)
-    const shouldShake = params.shake !== false
+    const shouldShake = params.shake !== false && !(exactSymbolQuery && exactSymbolResults.length > 0)
     
     if (shouldShake) {
+      const shakeStartedAt = Date.now()
       // Get pre-computed collapsible regions from the index
       const indexMeta = await VectorStore.readIndexMeta(Instance.directory)
       const precomputedRegionsMap = new Map<string, TreeShaker.CollapsibleRegion[]>()
@@ -871,6 +965,8 @@ export const SenseGrepTool = Tool.define("sensegrep", {
         Instance.directory,
         precomputedRegionsMap.size > 0 ? precomputedRegionsMap : undefined
       )
+      metrics.treeShakeMs = Date.now() - shakeStartedAt
+      metrics.totalMs = Date.now() - startedAt
 
       // Format output with shaked content
       const outputLines = [`Found ${finalResults.length} results across ${shakedResults.length} files\n`]
@@ -917,8 +1013,12 @@ export const SenseGrepTool = Tool.define("sensegrep", {
           indexed: true,
           shaked: true,
           freshness,
+          warnings,
+          metrics,
         },
         freshness,
+        warnings,
+        metrics,
         results: finalResults.map(toStructuredSearchResult),
         output: prependFreshnessWarning(outputLines.join("\n"), freshness),
       }
@@ -989,14 +1089,19 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       outputLines.push("```\n")
     }
 
+      metrics.totalMs = Date.now() - startedAt
       return {
         title: params.query,
         metadata: {
           matches: finalResults.length,
           indexed: true,
           freshness,
+          warnings,
+          metrics,
         },
         freshness,
+        warnings,
+        metrics,
         results: finalResults.map(toStructuredSearchResult),
         output: prependFreshnessWarning(outputLines.join("\n"), freshness),
       }

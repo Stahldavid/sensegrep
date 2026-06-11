@@ -80,6 +80,7 @@ export type CommonSensegrepParams = {
   strictParent?: boolean
   strictImports?: boolean
   shake?: boolean
+  exact?: boolean
 }
 
 type IndexMeta = NonNullable<Awaited<ReturnType<typeof VectorStore.readIndexMeta>>>
@@ -565,10 +566,12 @@ function resolveFileFiltering(
       .filter(Boolean)
       .join(", ")
 
+    const warning = `No indexed files matched the file filters${filterLabel ? ` (${filterLabel})` : ""}.`
     return {
       title: params.query,
-      metadata: { matches: 0, indexed: true },
-      output: `No indexed files matched the file filters${filterLabel ? ` (${filterLabel})` : ""}.`,
+      metadata: { matches: 0, indexed: true, warnings: [warning] },
+      warnings: [warning],
+      output: warning,
     }
   }
 

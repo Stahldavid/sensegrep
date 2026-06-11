@@ -300,6 +300,32 @@ describe("SenseGrepTool file glob filters", () => {
     expect(result.output).not.toContain("docs/guide.md")
   })
 
+  it("returns structured warnings when include matches no indexed files", async () => {
+    const { SenseGrepTool } = await import("./sensegrep.js")
+    const tool = await SenseGrepTool.init()
+    const result = await tool.execute(
+      {
+        query: "calendar sync",
+        include: "convex/**/*.ts",
+        limit: 3,
+      },
+      {
+        sessionID: "test",
+        messageID: "test",
+        agent: "vitest",
+        abort: new AbortController().signal,
+        metadata() {},
+      },
+    )
+
+    expect(result.results).toEqual([])
+    expect(result.warnings).toEqual([
+      'No indexed files matched the file filters (include="convex/**/*.ts").',
+    ])
+    expect(result.output).toContain("No indexed files matched")
+    expect(search).not.toHaveBeenCalled()
+  })
+
   it("falls back to literal identifier matches when semantic search misses them", async () => {
     readIndexMeta.mockResolvedValue({
       embeddings: {
@@ -314,6 +340,10 @@ describe("SenseGrepTool file glob filters", () => {
 
     search.mockResolvedValue([])
     listDocuments.mockImplementation(async (_collection, options) => {
+      const symbolFilter = options.filters?.all?.find((filter: any) => filter.key === "symbolName")
+      if (symbolFilter?.value === "defineNuxtRouteMiddleware") {
+        return []
+      }
       const languageFilter = options.filters?.all?.find((filter: any) => filter.key === "language")
       const fileFilter = options.filters?.all?.findLast((filter: any) => filter.key === "file")
       expect(languageFilter).toEqual({
@@ -362,9 +392,86 @@ describe("SenseGrepTool file glob filters", () => {
     )
 
     expect(search).toHaveBeenCalledTimes(1)
-    expect(listDocuments).toHaveBeenCalledTimes(1)
+    expect(listDocuments).toHaveBeenCalledTimes(2)
     expect(result.output).toContain("frontend-admin/src/middleware/auth.global.ts")
     expect(result.output).toContain("defineNuxtRouteMiddleware")
+  })
+
+  it("promotes exact short symbol matches above weak semantic matches", async () => {
+    readIndexMeta.mockResolvedValue({
+      embeddings: {
+        provider: "gemini",
+        model: "test-model",
+        dimension: 3,
+      },
+      files: {
+        "src/forge/compiler/emitter/emit.ts": {},
+        "src/forge/compiler/emitter/context.ts": {},
+      },
+    })
+
+    search.mockResolvedValue([
+      {
+        id: "src/forge/compiler/emitter/context.ts:0",
+        content: "export function buildRenderContext() {}",
+        metadata: {
+          file: "src/forge/compiler/emitter/context.ts",
+          startLine: 1,
+          endLine: 3,
+          symbolName: "buildRenderContext",
+          symbolType: "function",
+        },
+        distance: 0.7,
+      },
+    ])
+    listDocuments.mockImplementation(async (_collection, options) => {
+      expect(options.filters?.all).toEqual(
+        expect.arrayContaining([
+          { key: "symbolName", operator: "equals", value: "emit" },
+        ]),
+      )
+      return [
+        {
+          id: "src/forge/compiler/emitter/emit.ts:emit",
+          content: "export async function emit() {\n  await writeFileAtomic()\n}",
+          metadata: {
+            file: "src/forge/compiler/emitter/emit.ts",
+            startLine: 1,
+            endLine: 12,
+            symbolName: "emit",
+            symbolType: "function",
+            language: "typescript",
+          },
+          distance: 0,
+        },
+      ]
+    })
+
+    const { SenseGrepTool } = await import("./sensegrep.js")
+    const tool = await SenseGrepTool.init()
+    const result = await tool.execute(
+      {
+        query: "emit",
+        include: "src/forge/compiler/emitter/**",
+        limit: 3,
+      },
+      {
+        sessionID: "test",
+        messageID: "test",
+        agent: "vitest",
+        abort: new AbortController().signal,
+        metadata() {},
+      },
+    )
+
+    expect(result.results?.[0]).toMatchObject({
+      symbolName: "emit",
+      confidence: "high",
+      isWeakMatch: false,
+    })
+    expect(search).not.toHaveBeenCalled()
+    expect(result.output).toContain("export async function emit()")
+    expect(result.output).not.toContain("hidden")
   })
 
   it("falls back to pattern matches while preserving structural filters", async () => {

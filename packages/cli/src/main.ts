@@ -42,7 +42,7 @@ sensegrep (CLI)
 Usage:
   sensegrep index [--root <dir>] [--full|--incremental] [--verify|--check] [--no-watch] [--include-docs] [--include-config]
   sensegrep verify [--root <dir>] [--strict] [--json]
-  sensegrep status [--root <dir>]
+  sensegrep status [--root <dir>] [--verify|--verbose]
   sensegrep search <query...> [options]
   sensegrep survey <query...> [options]
   sensegrep cluster <query...> [options]
@@ -62,6 +62,7 @@ Search options:
   --decorator <name>        Filter by decorator (@property, @dataclass, etc.)
   --symbol <name>           Filter by symbol name
   --name <name>             Alias for --symbol
+  --exact                   Prefer exact symbol-name lookup for identifier queries
   --exported <true|false>   Only exported symbols
   --async                   Only async functions/methods
   --static                  Only static methods
@@ -86,13 +87,14 @@ Search options:
   --strict-imports          Mark import filter as strict AST-metadata validation
   --ensure-fresh <mode>     check|incremental|full before search/survey/cluster/duplicates
   --root <dir>              Root directory (default: cwd)
+  --no-shake                Disable semantic tree-shaking in output
   --watch                   Keep running; reindex on changes (default: on)
   --no-watch                Exit after indexing (for CI/scripts)
   --include-docs            Include markdown/docs in the index (default: false)
   --include-config          Include config files (JSON/YAML/TOML) in the index (default: false)
   --timeout <duration>      Abort index phases after duration (e.g. 30s, 5m; bare numbers are seconds)
   --max-files <n>           Index at most N files (smoke tests/diagnostics)
-  --log-format jsonl        Emit progress logs as JSON Lines on stderr
+  --log-format jsonl|none   Emit progress logs as JSON Lines on stderr, or suppress logs with none
   --json                    Output JSON
 
 Survey options:
@@ -139,7 +141,9 @@ Language management:
   sensegrep semantic-kinds --json     Include aliases accepted by --semantic-kind
 
 Index health:
-  sensegrep status --verbose          Include changed/missing/removed file lists
+  sensegrep status                    Fast metadata-only index stats
+  sensegrep status --verify           Include freshness verification (can scan/hash files)
+  sensegrep status --verbose          Include freshness verification plus changed/missing/removed file lists
   sensegrep verify --strict           Exit non-zero unless the index is healthy and fresh
   sensegrep index --check             Exit non-zero if index is stale
   sensegrep index --check --max-changed 5 --max-missing 0
@@ -188,6 +192,7 @@ const SEARCH_FILTER_FLAGS = new Set([
   "decorator",
   "symbol",
   "name",
+  "exact",
   "exported",
   "async",
   "static",
@@ -220,6 +225,7 @@ const SEARCH_FILTER_FLAGS = new Set([
   "strictImports",
   "ensure-fresh",
   "ensureFresh",
+  "no-shake",
 ])
 
 const ALLOWED_FLAGS_BY_COMMAND: Record<string, Set<string>> = {
@@ -240,7 +246,7 @@ const ALLOWED_FLAGS_BY_COMMAND: Record<string, Set<string>> = {
     "max-removed",
   ]),
   verify: new Set([...GLOBAL_FLAGS, "strict"]),
-  status: new Set([...GLOBAL_FLAGS, "verbose"]),
+  status: new Set([...GLOBAL_FLAGS, "verbose", "verify"]),
   search: new Set([...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, ...SEARCH_FILTER_FLAGS]),
   survey: new Set([
     ...GLOBAL_FLAGS,
@@ -402,13 +408,14 @@ function createIndexRunOptions(flags: Flags): {
   const timeoutMs = parseDurationMs(flags.timeout)
   const maxFiles = parsePositiveIntFlag(flags["max-files"] ?? flags.maxFiles, "max-files")
   const logFormat = flags["log-format"] ? String(flags["log-format"]).toLowerCase() : undefined
-  if (logFormat && logFormat !== "jsonl") {
-    throw new Error('--log-format must be "jsonl"')
+  if (logFormat && !["jsonl", "none"].includes(logFormat)) {
+    throw new Error('--log-format must be "jsonl" or "none"')
   }
 
   let lastHumanProgress = 0
   const verbose = toBool(flags.verbose) ?? false
   const onProgress = (progress: any) => {
+    if (logFormat === "none") return
     const now = Date.now()
     const isTerminal = progress.phase === "complete" || progress.phase === "error"
     const isPhaseBoundary = progress.current === 0 || progress.current === progress.total
@@ -627,27 +634,34 @@ async function run() {
 
   if (command === "status") {
     const verbose = flags.verbose === true
-    const [stats, verify] = await Instance.provide({
+    const verifyFreshness = verbose || flags.verify === true
+    const stats = await Instance.provide({
       directory: rootDir,
-      fn: () => Promise.all([
-        Indexer.getStats(),
-        Indexer.verifyIndex(),
-      ]),
+      fn: () => Indexer.getStats(),
     })
     const output: Record<string, unknown> = {
       ...stats,
-      changed: (verify as any).changed,
-      missing: (verify as any).missing,
-      removed: (verify as any).removed,
-      expectedChunks: (verify as any).expectedChunks,
-      actualChunks: (verify as any).actualChunks,
-      chunkMismatch: (verify as any).chunkMismatch,
-      isStale: isIndexStale(verify),
+      freshnessChecked: false,
+      isStale: stats.chunkMismatch === true ? true : null,
     }
-    if (verbose) {
-      output.changedFiles = (verify as any).changedFiles ?? []
-      output.missingFiles = (verify as any).missingFiles ?? []
-      output.removedFiles = (verify as any).removedFiles ?? []
+    if (verifyFreshness) {
+      const verify = await Instance.provide({
+        directory: rootDir,
+        fn: () => Indexer.verifyIndex(),
+      })
+      output.freshnessChecked = true
+      output.changed = (verify as any).changed
+      output.missing = (verify as any).missing
+      output.removed = (verify as any).removed
+      output.expectedChunks = (verify as any).expectedChunks
+      output.actualChunks = (verify as any).actualChunks
+      output.chunkMismatch = (verify as any).chunkMismatch
+      output.isStale = isIndexStale(verify)
+      if (verbose) {
+        output.changedFiles = (verify as any).changedFiles ?? []
+        output.missingFiles = (verify as any).missingFiles ?? []
+        output.removedFiles = (verify as any).removedFiles ?? []
+      }
     }
     writeJson(output)
     return
@@ -752,6 +766,8 @@ if (flags.pattern) params.pattern = String(flags.pattern)
     if (flags.strictImports !== undefined) (params as any).strictImports = true
     if (flags.symbol) params.symbol = String(flags.symbol)
     if (flags.name) params.symbol = String(flags.name)
+    if (flags.exact !== undefined) (params as any).exact = true
+    if (flags["no-shake"] !== undefined) params.shake = false
     if (flags["min-score"]) params.minScore = Number(flags["min-score"])
     if (flags.minScore) params.minScore = Number(flags.minScore)
     if (flags["max-per-file"]) params.maxPerFile = Number(flags["max-per-file"])
@@ -836,6 +852,7 @@ if (flags.pattern) params.pattern = String(flags.pattern)
     if (flags.strictImports !== undefined) (params as any).strictImports = true
     if (flags.symbol) params.symbol = String(flags.symbol)
     if (flags.name) params.symbol = String(flags.name)
+    if (flags["no-shake"] !== undefined) params.shake = false
     if (flags["min-score"]) params.minScore = Number(flags["min-score"])
     if (flags.minScore) params.minScore = Number(flags.minScore)
 
@@ -915,6 +932,7 @@ if (flags.pattern) params.pattern = String(flags.pattern)
     if (flags.strictImports !== undefined) (params as any).strictImports = true
     if (flags.symbol) params.symbol = String(flags.symbol)
     if (flags.name) params.symbol = String(flags.name)
+    if (flags["no-shake"] !== undefined) params.shake = false
     if (flags["min-score"]) params.minScore = Number(flags["min-score"])
     if (flags.minScore) params.minScore = Number(flags.minScore)
 
@@ -1011,15 +1029,18 @@ if (flags.pattern) params.pattern = String(flags.pattern)
       ...(options.thresholds ?? {}),
     }
 
-    const humanLog = createHumanLogger({ json: flags.json === true })
+    const suppressHumanLog = flags["log-format"] === "none"
+    const humanLog = suppressHumanLog ? undefined : createHumanLogger({ json: flags.json === true })
 
-    if (!quiet) {
+    if (!quiet && humanLog) {
       humanLog("Detecting logical duplicates...")
       humanLog(`Path: ${rootDir}`)
       humanLog(`Threshold: ${minThreshold}`)
       humanLog(`Scope: ${scopeFilter?.join(", ") || "all"}`)
       if (options.crossFileOnly) humanLog("Filter: cross-file only")
       if (options.onlyExported) humanLog("Filter: exported only")
+      if (options.include) humanLog(`Filter: include ${options.include}`)
+      if (options.exclude) humanLog(`Filter: exclude ${options.exclude}`)
       if (options.excludePattern) humanLog(`Filter: exclude pattern /${options.excludePattern}/`)
       humanLog("")
     }

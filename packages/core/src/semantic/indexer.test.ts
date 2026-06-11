@@ -1,6 +1,6 @@
 import path from "node:path"
 import { mkdir, rm, writeFile } from "node:fs/promises"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const TEST_DIR = path.join(process.cwd(), ".test-indexer")
 
@@ -139,6 +139,10 @@ describe("Indexer incremental updates", () => {
         decorators: "",
       })),
     )
+  })
+
+  afterEach(async () => {
+    await rm(TEST_DIR, { recursive: true, force: true })
   })
 
   it("reindexes changed files by file instead of partial chunk updates", async () => {

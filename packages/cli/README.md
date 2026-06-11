@@ -12,7 +12,10 @@ npm install -g @sensegrep/cli
 
 ```bash
 sensegrep index --root .
+sensegrep status --root .              # fast metadata-only stats
+sensegrep status --root . --verify     # freshness check
 sensegrep search "error handling and retry logic"
+sensegrep search emit --exact --no-shake --include "src/**/*.ts"
 sensegrep survey "authentication login token" --limit 4
 sensegrep cluster "checkout payment order cart" --limit 4
 sensegrep detect-duplicates --cross-file-only
@@ -20,6 +23,9 @@ sensegrep semantic-kinds --json
 ```
 
 `--json` writes parseable JSON to stdout; progress and warnings are written to stderr.
+Use `--log-format none` when a JSON command must suppress human progress logs entirely.
+If an `--include`/`--exclude` scope matches no indexed files, JSON output includes a
+structured warning instead of failing silently.
 
 ## Documentation
 

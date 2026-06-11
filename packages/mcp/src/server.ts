@@ -162,6 +162,7 @@ async function generateTools(): Promise<Tool[]> {
           exclude: { type: "string", description: "File glob exclude filter (e.g., '*.md' or 'docs/**')" },
           symbol: { type: "string", description: "Filter by symbol name" },
           name: { type: "string", description: "Alias for symbol name" },
+          exact: { type: "boolean", description: "Prefer exact symbol-name lookup for identifier queries" },
           symbolType: {
             type: "string",
             enum: [...caps.symbolTypes],
@@ -200,6 +201,7 @@ async function generateTools(): Promise<Tool[]> {
           explainFilters: { type: "boolean", description: "Include deterministic filter match explanations in JSON results" },
           strictParent: { type: "boolean", description: "Require strict parent metadata when filtering by parent" },
           strictImports: { type: "boolean", description: "Require strict import metadata when filtering by imports" },
+          shake: { type: "boolean", description: "Enable semantic tree-shaking in output (default: true)" },
           rerank: {
             type: "boolean",
             description: "Compatibility flag. Remote-only mode keeps semantic ranking unchanged",
@@ -384,7 +386,7 @@ async function generateTools(): Promise<Tool[]> {
 const server = new Server(
   {
     name: "sensegrep",
-    version: "1.6.11",
+    version: "1.6.12",
   },
   {
     capabilities: {

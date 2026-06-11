@@ -1,5 +1,11 @@
 # @sensegrep/core
 
+## 1.6.12
+
+### Patch Changes
+
+- Improve agent-loop ergonomics with fast metadata-only status, exact symbol lookup for short identifier queries, no-shake output control, structured file-filter warnings, search timing metrics, and suppressible JSON progress logs.
+
 ## 1.6.8
 
 ### Patch Changes

@@ -34,5 +34,7 @@ When exploring code, searching for functions, classes, patterns, or understandin
 - Combine semantic query with structural filters (`symbolType`, `isAsync`, `isExported`, `minComplexity`)
 - Use `include` to scope to specific directories
 - Use `pattern` for regex post-filtering when semantic results are too broad
+- For exact or very short identifiers (`emit`, `run`, `sync`), pass `exact: true`; if the result is in the right file but hidden by collapsed output, pass `shake: false`
+- If scoped search returns zero results and the tool reports a file-filter warning, fix the `include`/`exclude` glob before concluding the code is absent
 - Start broad, then add filters incrementally
 - For duplicate scans in large repos, scope with `include`, `exclude`, `language`, `minLines`, or `minComplexity` before raising `maxCandidates`

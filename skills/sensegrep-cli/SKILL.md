@@ -45,11 +45,11 @@ Start with these defaults and adjust based on what you find:
 
 > **Tip:** Use `--include "src/**/*.ts"` to focus on source folders, or add `--exclude "*.md"` / `--exclude "docs/**"` when you want to keep markdown, docs, and changelogs out of results. On Windows, prefer forward slashes in globs (`src/**/*.ts`), though backslash-based indexed paths are now normalized automatically.
 
-> **Identifier queries:** If the query looks like a symbol or framework API (`defineNuxtRouteMiddleware`, `defineStore`, `OrderServiceImpl`), sensegrep now auto-adds a literal fallback on top of semantic search. You usually do **not** need `--pattern` for these exact identifier lookups anymore.
+> **Identifier queries:** If the query looks like a symbol or framework API (`defineNuxtRouteMiddleware`, `defineStore`, `OrderServiceImpl`), sensegrep auto-adds exact/literal fallback on top of semantic search. For short identifiers such as `emit`, `run`, or `sync`, prefer `--exact`; it promotes exact symbol-name matches and can avoid a slow/weak semantic search.
 
 > **Subdirectory roots:** If the repo root was indexed and you run `sensegrep` with `--root` pointing at a subdirectory, Sensegrep reuses the nearest indexed parent and scopes the query to that subdirectory. You no longer need to reindex every subfolder separately.
 
-> **JSON output:** `--json` returns structured data plus the human-readable `output`: `search` returns `results`, `survey` returns `groups`, and `cluster` returns `clusters`. Prefer these fields for automation instead of parsing Markdown text. stdout is reserved for JSON; progress and warnings go to stderr.
+> **JSON output:** `--json` returns structured data plus the human-readable `output`: `search` returns `results`, `survey` returns `groups`, and `cluster` returns `clusters`. Prefer these fields for automation instead of parsing Markdown text. stdout is reserved for JSON; progress and warnings go to stderr. Use `--log-format none` when stderr must not contain human progress logs.
 
 ## Commands
 
@@ -68,6 +68,7 @@ sensegrep search "error handling and retry logic" \
   --decorator "@route"     # filter by decorator
   --parent "UserService"   # scope to class/parent
   --imports express        # filter by imported module
+  --exact                  # prefer exact symbol lookup for identifier queries
   --semantic-kind convexMutation # framework-aware kind; aliases and wildcards like convex* work
   --explain-filters        # include whyMatched/filterMatches in JSON
   --strict-parent          # strict indexed parent metadata validation
@@ -76,6 +77,7 @@ sensegrep search "error handling and retry logic" \
   --min-score 0.5          # relevance threshold
   --max-per-file 2         # dedup per file (default: 2)
   --max-per-symbol 2       # dedup per symbol (default: 2)
+  --no-shake               # show full matched snippets when tree-shaking hides the target
   --limit 10               # max results (default: 10)
   --json                   # structured results + text output
 ```
@@ -131,7 +133,7 @@ sensegrep detect-duplicates \
 
 For broad monorepos, start with `--include`, `--language`, `--min-lines`, or `--min-complexity` before raising `--max-candidates`. If the candidate set is larger than the cap, Sensegrep truncates explicitly and reports `summary.truncated`, `summary.candidates`, and `summary.analyzedCandidates` in JSON.
 
-With `--json`, parse stdout directly. Use `--quiet --json` only when you also want to suppress stderr progress in interactive logs.
+With `--json`, parse stdout directly. Use `--quiet --json` or `--json --log-format none` when you also want to suppress stderr progress in interactive logs.
 
 Unknown flags are rejected by subcommand. If a command exits with `Unknown option`, fix the flag instead of assuming the search ran with that constraint.
 
@@ -163,7 +165,9 @@ sensegrep index                  # fast, only changed files — use by default (
 sensegrep index --full           # rebuild from scratch — only if index is corrupted or stale
 sensegrep index --no-watch       # index once and exit — use in automation
 sensegrep index --full --no-watch --timeout 5m --log-format jsonl
-sensegrep status                 # check index health without reindexing
+sensegrep status                 # fast metadata-only stats; does not scan freshness
+sensegrep status --verify        # compute changed/missing/removed freshness
+sensegrep status --verbose       # freshness plus changedFiles/missingFiles/removedFiles
 sensegrep verify --strict        # non-zero exit unless index is fresh and internally consistent
 sensegrep selftest --strict      # CLI/core health check without remote embedding calls
 ```
@@ -197,7 +201,9 @@ want to exercise search/duplicate JSON shape too.
 ```
 query + structural filters
         ↓
-  vector similarity search (AI embeddings)
+  exact symbol lookup for identifier queries
+        ↓
+  vector similarity search (AI embeddings, skipped when --exact has a strong symbol hit)
         ↓
   pattern (ripgrep post-filter — fetches limit×3 candidates internally to compensate)
         ↓
@@ -225,6 +231,10 @@ Applied at the vector store level, before embedding search:
 
 `--parent` and `--imports` are useful narrowing filters, not proof-grade AST audits. If a query must exhaustively prove every import or parent relationship, combine Sensegrep with `rg`, TypeScript tooling, or AST tooling.
 
+If file filters match no indexed files, Sensegrep returns zero results with a structured
+`warnings[]` entry such as `No indexed files matched the file filters (...)`. Treat that
+as a scope/glob problem, not as proof that the symbol or behavior does not exist.
+
 ### 2. `--pattern` — ripgrep regex post-filter (after semantic search)
 
 Ripgrep runs on result files after semantic ranking. Only chunks where the regex matches are kept. Use `--pattern` when you need to guarantee a specific identifier, call, or token appears. Keep `--limit` at the default — the pipeline already fetches `limit × 3` candidates internally before filtering, so raising limit adds little when pattern is set.
@@ -249,6 +259,7 @@ Tree-shaking collapses regions not relevant to your query. The more focused the 
 - **Raise `--min-score`** — eliminates low-confidence results; surrounding code gets collapsed more aggressively
 - **Lower `--max-per-file`** — prevents overlapping results from blocking contiguous collapse
 - **Combine query + `--pattern`** — anchors result to a specific call site
+- **Use `--no-shake`** — when a short or ambiguous query finds the right file but the important symbol is hidden behind collapsed output
 
 ```bash
 # Broad — large uncollapsed blocks

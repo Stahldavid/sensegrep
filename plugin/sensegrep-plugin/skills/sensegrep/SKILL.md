@@ -26,11 +26,11 @@ Start with these defaults and adjust based on what you find:
 
 > **Tip:** Use `include: "src/**/*.ts"` to focus on source folders, or add `exclude: "*.md"` / `exclude: "docs/**"` when you want to keep markdown, docs, and changelogs out of results. On Windows, prefer forward slashes in globs (`src/**/*.ts`), though backslash-based indexed paths are now normalized automatically.
 
-> **Identifier queries:** If the query looks like a symbol or framework API (`defineNuxtRouteMiddleware`, `defineStore`, `OrderServiceImpl`), sensegrep now auto-adds a literal fallback on top of semantic search. You usually do **not** need `pattern` for these exact identifier lookups anymore.
+> **Identifier queries:** If the query looks like a symbol or framework API (`defineNuxtRouteMiddleware`, `defineStore`, `OrderServiceImpl`), sensegrep auto-adds exact/literal fallback on top of semantic search. For short identifiers such as `emit`, `run`, or `sync`, pass `exact: true`; it promotes exact symbol-name matches and can avoid a slow/weak semantic search.
 
 > **Subdirectory roots:** If the repo root was indexed and a tool call uses `rootDir` pointing at a subdirectory, Sensegrep reuses the nearest indexed parent and scopes the query to that subdirectory. You no longer need to reindex every subfolder separately.
 
-> **Structured output:** MCP `structuredContent` includes the human-readable `output` plus structured fields: search returns `results`, survey returns `groups`, and cluster returns `clusters`. Prefer those fields for automation instead of parsing Markdown text.
+> **Structured output:** MCP `structuredContent` includes the human-readable `output` plus structured fields: search returns `results`, survey returns `groups`, and cluster returns `clusters`. Prefer those fields for automation instead of parsing Markdown text. Search responses can also include `warnings` and `metrics`; treat file-filter warnings as scope problems, not proof that code is absent.
 
 ## Tools Available
 
@@ -50,6 +50,7 @@ sensegrep_search({
   decorator: "@route",          // filter by decorator
   parentScope: "UserService",   // scope to class/parent
   imports: "express",           // filter by imported module
+  exact: true,                  // prefer exact symbol lookup for identifier queries
   semanticKind: "convexMutation", // framework-aware kind (Convex, React, route handlers)
   explainFilters: true,         // include whyMatched/filterMatches in structured output
   strictParent: true,           // strict indexed parent metadata validation
@@ -58,6 +59,7 @@ sensegrep_search({
   minScore: 0.5,                // relevance threshold
   maxPerFile: 2,                // dedup per file (default: 2)
   maxPerSymbol: 2,              // dedup per symbol (default: 2)
+  shake: false,                 // disable tree-shaking if collapsed output hides the target
   limit: 10                     // max results (default: 10)
 })
 ```
@@ -133,7 +135,9 @@ Language inventory and variant listing are intentionally CLI-only to keep the MC
 ```
 query + structural filters
         ↓
-  vector similarity search (AI embeddings)
+  exact symbol lookup for identifier queries
+        ↓
+  vector similarity search (AI embeddings, skipped when exact has a strong symbol hit)
         ↓
   pattern (ripgrep post-filter — fetches limit×3 candidates internally to compensate)
         ↓
@@ -161,6 +165,10 @@ Applied at the vector store level, before embedding search:
 
 `parentScope` matches parent/class scope by containment, so partial class names are acceptable. `imports` tries package-name variants (`@scope/pkg`, `scope/pkg`, `pkg`) to reduce false misses in scoped packages. Treat both as useful narrowing filters, not proof-grade AST audits; combine with `rg`, TypeScript tooling, or AST tooling when exhaustive proof is required.
 
+If file filters match no indexed files, Sensegrep returns zero results with a structured
+`warnings[]` entry such as `No indexed files matched the file filters (...)`. Fix the
+scope/glob before concluding the code is absent.
+
 ### 2. `pattern` — ripgrep regex post-filter (after semantic search)
 
 Ripgrep runs on result files after semantic ranking. Only chunks where the regex matches are kept. Use `pattern` when you need to guarantee a specific identifier, call, or token appears. Keep `limit` at the default (10) — the pipeline already fetches `limit × 3` candidates internally before filtering, so raising limit adds little when pattern is set.
@@ -185,6 +193,7 @@ Tree-shaking collapses regions not relevant to your query. The more focused the 
 - **Raise `minScore`** — eliminates low-confidence results; surrounding code gets collapsed more aggressively
 - **Lower `maxPerFile`** — prevents overlapping results from blocking contiguous collapse
 - **Combine `query` + `pattern`** — anchors result to a specific call site
+- **Set `shake: false`** — when a short or ambiguous query finds the right file but the important symbol is hidden behind collapsed output
 
 ```
 // Broad — large uncollapsed blocks
