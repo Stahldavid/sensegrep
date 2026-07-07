@@ -1,5 +1,16 @@
 # @sensegrep/mcp
 
+## 1.7.0
+
+### Minor Changes
+
+- Add local embedding provider support with Ollama and an experimental fastembed-rs sidecar, including CLI/configuration updates, documentation, duplicate-detection coverage, and provider-scoped config handling.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @sensegrep/core@1.7.0
+
 ## 1.6.12
 
 ### Patch Changes

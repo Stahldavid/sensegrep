@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const ENV_KEYS = [
   "SENSEGREP_PROVIDER",
@@ -45,6 +45,10 @@ function mockMissingGlobalConfig() {
 }
 
 describe("embedding config", () => {
+  beforeEach(() => {
+    clearEnv()
+  })
+
   afterEach(() => {
     clearEnv()
     vi.resetModules()

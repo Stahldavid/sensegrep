@@ -111,18 +111,21 @@ export function clearEmbeddingOverrides() {
 export function getEmbeddingConfig(overrides?: EmbeddingOverrides): EmbeddingConfig {
   const fileConfig = loadFileConfig()
   const mergedOverrides = { ...(runtimeOverrides || {}), ...(overrides || {}) }
+  const fileProvider = readConfiguredProvider(fileConfig.provider, `${CONFIG_FILENAME} provider`)
 
   const provider =
     readConfiguredProvider(mergedOverrides.provider, "embedding overrides") ||
     readConfiguredProvider(process.env.SENSEGREP_PROVIDER, "SENSEGREP_PROVIDER") ||
     readConfiguredProvider(process.env.OPENCODE_SEMANTIC_EMBEDDINGS, "OPENCODE_SEMANTIC_EMBEDDINGS") ||
-    readConfiguredProvider(fileConfig.provider, `${CONFIG_FILENAME} provider`) ||
+    fileProvider ||
     readProvider()
+
+  const fileConfigApplies = !fileProvider || fileProvider === provider
 
   const embedModel =
     mergedOverrides.embedModel ||
     process.env.SENSEGREP_EMBED_MODEL ||
-    (fileConfig.embedModel as string | undefined) ||
+    (fileConfigApplies ? (fileConfig.embedModel as string | undefined) : undefined) ||
     (provider === "gemini"
       ? process.env.OPENCODE_GEMINI_EMBED_MODEL || DEFAULTS.geminiModel
       : provider === "openai"
@@ -136,7 +139,7 @@ export function getEmbeddingConfig(overrides?: EmbeddingOverrides): EmbeddingCon
   const embedDim =
     mergedOverrides.embedDim ??
     parseNumber(process.env.SENSEGREP_EMBED_DIM) ??
-    parseNumber(fileConfig.embedDim) ??
+    (fileConfigApplies ? parseNumber(fileConfig.embedDim) : undefined) ??
     (provider === "gemini"
       ? parseNumber(process.env.OPENCODE_GEMINI_EMBED_DIM) ?? DEFAULTS.geminiDim
       : provider === "openai"
@@ -152,7 +155,7 @@ export function getEmbeddingConfig(overrides?: EmbeddingOverrides): EmbeddingCon
     (provider === "ollama" ? process.env.SENSEGREP_OLLAMA_BASE_URL : undefined) ||
     (provider === "fastembed" ? process.env.SENSEGREP_FASTEMBED_BASE_URL : undefined) ||
     process.env.SENSEGREP_OPENAI_BASE_URL ||
-    (fileConfig as any).baseUrl ||
+    (fileConfigApplies ? (fileConfig as any).baseUrl : undefined) ||
     (provider === "openai"
       ? DEFAULTS.openaiBaseUrl
       : provider === "ollama"
@@ -164,10 +167,10 @@ export function getEmbeddingConfig(overrides?: EmbeddingOverrides): EmbeddingCon
   const region =
     mergedOverrides.region ||
     process.env.SENSEGREP_BEDROCK_REGION ||
-    (fileConfig as any).region ||
+    (fileConfigApplies ? (fileConfig as any).region : undefined) ||
     (provider === "bedrock" ? process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION : undefined)
 
-  const fileApiKey = (fileConfig as any).apiKey as string | undefined
+  const fileApiKey = fileConfigApplies ? ((fileConfig as any).apiKey as string | undefined) : undefined
   const apiKey =
     mergedOverrides.apiKey ||
     (provider === "openai"
@@ -177,7 +180,9 @@ export function getEmbeddingConfig(overrides?: EmbeddingOverrides): EmbeddingCon
         fileApiKey
       : provider === "gemini"
         ? process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || fileApiKey
-        : fileApiKey)
+        : provider === "bedrock"
+          ? fileApiKey
+          : undefined)
 
   const rateLimit: RateLimitConfig = {}
   const fileRl = (fileConfig as any).rateLimit
