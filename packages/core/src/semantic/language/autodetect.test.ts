@@ -1,6 +1,20 @@
 import path from "node:path"
 import { mkdir, rm, writeFile } from "node:fs/promises"
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, vi } from "vitest"
+
+vi.mock("../../file/ripgrep.js", () => ({
+  Ripgrep: {
+    files: async function* () {
+      yield "a.ts"
+      yield "b.py"
+      yield "c.js"
+      yield "d.java"
+      yield "e.vue"
+      yield "README.txt"
+    },
+  },
+}))
+
 import "./index.js"
 import { detectProjectLanguages, formatDetectedLanguages } from "./autodetect.js"
 
