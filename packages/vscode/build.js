@@ -79,7 +79,7 @@ function copyCoreDependencies() {
   if (initialDeps.length === 0) return
 
   const visited = new Set()
-  const queue = [...initialDeps]
+  const queue = initialDeps.map((name) => ({ name, from: rootNodeModules, optional: false }))
 
   const readPkg = (pkgPath) => {
     try {
@@ -89,28 +89,44 @@ function copyCoreDependencies() {
     }
   }
 
-  while (queue.length > 0) {
-    const dep = queue.pop()
-    if (!dep || visited.has(dep)) continue
-    visited.add(dep)
+  const resolvePackageDir = (dep, fromDir = rootNodeModules) => {
+    const parts = dep.split("/")
+    const candidates = []
+    let current = fromDir
+    while (current && current.startsWith(rootNodeModules)) {
+      candidates.push(path.join(current, ...parts))
+      if (current === rootNodeModules) break
+      current = path.dirname(path.dirname(current))
+    }
+    candidates.push(path.join(rootNodeModules, ...parts))
+    return candidates.find((candidate) => fs.existsSync(path.join(candidate, "package.json"))) ?? null
+  }
 
-    const depPath = path.join(rootNodeModules, ...dep.split("/"))
+  while (queue.length > 0) {
+    const item = queue.pop()
+    if (!item || visited.has(item.name)) continue
+    const depPath = resolvePackageDir(item.name, item.from)
+    if (!depPath) {
+      if (!item.optional) console.warn(`[sensegrep] dependency not found: ${item.name}`)
+      continue
+    }
+    visited.add(item.name)
+
     const pkg = readPkg(path.join(depPath, "package.json"))
     if (!pkg) continue
 
-    const next = {
-      ...(pkg.dependencies || {}),
-      ...(pkg.optionalDependencies || {}),
-      ...(pkg.peerDependencies || {}),
+    for (const name of Object.keys(pkg.dependencies || {})) {
+      if (!visited.has(name)) queue.push({ name, from: path.join(depPath, "node_modules"), optional: false })
     }
-    for (const name of Object.keys(next)) {
-      if (!visited.has(name)) queue.push(name)
+    for (const name of Object.keys(pkg.optionalDependencies || {})) {
+      if (!visited.has(name)) queue.push({ name, from: path.join(depPath, "node_modules"), optional: true })
     }
   }
 
   fs.mkdirSync(destNodeModules, { recursive: true })
   for (const dep of visited) {
-    const src = path.join(rootNodeModules, ...dep.split("/"))
+    const src = resolvePackageDir(dep, rootNodeModules)
+    if (!src) continue
     const dest = path.join(destNodeModules, ...dep.split("/"))
     if (!fs.existsSync(src)) {
       console.warn(`[sensegrep] dependency not found: ${dep}`)

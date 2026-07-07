@@ -10,6 +10,10 @@
   "types": "./dist/server.d.ts",
   "files": [
     "dist",
+    "!dist/**/*.test.js",
+    "!dist/**/*.test.js.map",
+    "!dist/**/*.test.d.ts",
+    "!dist/**/*.test.d.ts.map",
     "README.md",
     "LICENSE"
   ],

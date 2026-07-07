@@ -100,8 +100,10 @@ cosine distance explicitly for stable scoring across embedding providers.
 |------|-------------|
 | `--embed-model <name>` | Override remote embedding model |
 | `--embed-dim <n>` | Override embedding dimension |
-| `--provider <name>` | `gemini`, `openai`, `bedrock` |
+| `--provider <name>` | `ollama`, `fastembed`, `gemini`, `openai`, `bedrock` |
 | `--rerank` / `--no-rerank` | Compatibility flag; remote-only mode keeps semantic ranking |
+
+Changing provider, model, base URL, embedding dimension, local server pooling behavior, or task-prefix strategy requires a full reindex. Same-dimensional embeddings from different models are not interchangeable.
 
 ### `sensegrep detect-duplicates`
 
@@ -211,9 +213,11 @@ sensegrep selftest --root . --deep
 ```
 
 Default selftest avoids remote embedding calls. It checks CLI version discovery,
-semantic-kind registration, language detection, status, and index verification.
-Use `--strict` to require a fresh healthy index. Use `--deep` to additionally run
-remote-embedding search and duplicate-result JSON shape checks.
+semantic-kind registration, embedding provider/model/dimension configuration,
+language detection, status, and index verification. When credentials are missing,
+it prints the exact environment variables to set without revealing any secret
+values. Use `--strict` to require a fresh healthy index. Use `--deep` to
+additionally run remote-embedding search and duplicate-result JSON shape checks.
 
 ## Examples
 

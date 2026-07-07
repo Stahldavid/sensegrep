@@ -3,6 +3,10 @@ bun.lock
 
 # build outputs
 dist/
+**/target/
+
+# local embedding/model caches
+.fastembed_cache/
 
 # never commit compiled artifacts under src
 **/src/**/*.js

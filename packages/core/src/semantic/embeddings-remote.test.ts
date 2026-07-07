@@ -181,3 +181,110 @@ describe("EmbeddingsRemote OpenAI-compatible", () => {
     expect(vector[1]).toBeCloseTo(0.8)
   })
 })
+
+describe("EmbeddingsRemote Ollama", () => {
+  const fetchMock = vi.fn()
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.resetModules()
+    mockMissingGlobalConfig()
+    vi.stubGlobal("fetch", fetchMock)
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+    vi.doUnmock("node:fs")
+    vi.unstubAllGlobals()
+    delete process.env.SENSEGREP_PROVIDER
+    delete process.env.SENSEGREP_EMBED_MODEL
+    delete process.env.SENSEGREP_EMBED_DIM
+    delete process.env.SENSEGREP_OLLAMA_BASE_URL
+  })
+
+  it("posts batches to Ollama's native embed endpoint without Authorization", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        embeddings: [
+          [3, 4],
+          [0, 5],
+        ],
+      }),
+    })
+
+    const { EmbeddingsRemote } = await import("./embeddings-remote.js")
+    EmbeddingsRemote.configure({
+      provider: "ollama",
+      embedModel: "nomic-embed-text:v1.5",
+      embedDim: 768,
+      baseUrl: "http://127.0.0.1:11434",
+    })
+
+    const vectors = await EmbeddingsRemote.embed(["find auth flow", "find billing"], { skipValidation: true })
+    const [, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(init.body)
+
+    expect(fetchMock.mock.calls[0][0]).toBe("http://127.0.0.1:11434/api/embed")
+    expect(init.headers.Authorization).toBeUndefined()
+    expect(body).toEqual({
+      model: "nomic-embed-text:v1.5",
+      input: ["find auth flow", "find billing"],
+    })
+    expect(vectors[0][0]).toBeCloseTo(0.6)
+    expect(vectors[0][1]).toBeCloseTo(0.8)
+    expect(vectors[1][0]).toBeCloseTo(0)
+    expect(vectors[1][1]).toBeCloseTo(1)
+  })
+})
+
+describe("EmbeddingsRemote fastembed-rs sidecar", () => {
+  const fetchMock = vi.fn()
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.resetModules()
+    mockMissingGlobalConfig()
+    vi.stubGlobal("fetch", fetchMock)
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+    vi.doUnmock("node:fs")
+    vi.unstubAllGlobals()
+    delete process.env.SENSEGREP_PROVIDER
+    delete process.env.SENSEGREP_EMBED_MODEL
+    delete process.env.SENSEGREP_EMBED_DIM
+    delete process.env.SENSEGREP_FASTEMBED_BASE_URL
+  })
+
+  it("posts to an OpenAI-compatible fastembed-rs sidecar with jina-code defaults and no Authorization", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: [
+          { index: 1, embedding: [0, 5] },
+          { index: 0, embedding: [3, 4] },
+        ],
+      }),
+    })
+
+    const { EmbeddingsRemote } = await import("./embeddings-remote.js")
+    EmbeddingsRemote.configure({ provider: "fastembed" })
+
+    const vectors = await EmbeddingsRemote.embed(["find auth flow", "find billing"], { skipValidation: true })
+    const [, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(init.body)
+
+    expect(fetchMock.mock.calls[0][0]).toBe("http://127.0.0.1:11435/v1/embeddings")
+    expect(init.headers.Authorization).toBeUndefined()
+    expect(body).toEqual({
+      model: "jinaai/jina-embeddings-v2-base-code",
+      input: ["find auth flow", "find billing"],
+    })
+    expect(vectors[0][0]).toBeCloseTo(0.6)
+    expect(vectors[0][1]).toBeCloseTo(0.8)
+    expect(vectors[1][0]).toBeCloseTo(0)
+    expect(vectors[1][1]).toBeCloseTo(1)
+  })
+})

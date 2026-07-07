@@ -270,7 +270,7 @@ export class SensegrepCore {
 
     // Only push embedding env vars when the user explicitly set them in VS Code.
     // Otherwise ~/.config/sensegrep/config.json is the source of truth (e.g. LM Studio).
-    if (explicitProvider === "gemini" || explicitProvider === "openai" || explicitProvider === "bedrock") {
+    if (explicitProvider === "gemini" || explicitProvider === "openai" || explicitProvider === "bedrock" || explicitProvider === "ollama" || explicitProvider === "fastembed") {
       process.env.SENSEGREP_PROVIDER = explicitProvider
     } else {
       delete process.env.SENSEGREP_PROVIDER
@@ -289,9 +289,23 @@ export class SensegrepCore {
     }
 
     if (explicitBaseUrl) {
-      process.env.SENSEGREP_OPENAI_BASE_URL = explicitBaseUrl
+      if (explicitProvider === "ollama") {
+        process.env.SENSEGREP_OLLAMA_BASE_URL = explicitBaseUrl
+        delete process.env.SENSEGREP_OPENAI_BASE_URL
+        delete process.env.SENSEGREP_FASTEMBED_BASE_URL
+      } else if (explicitProvider === "fastembed") {
+        process.env.SENSEGREP_FASTEMBED_BASE_URL = explicitBaseUrl
+        delete process.env.SENSEGREP_OPENAI_BASE_URL
+        delete process.env.SENSEGREP_OLLAMA_BASE_URL
+      } else {
+        process.env.SENSEGREP_OPENAI_BASE_URL = explicitBaseUrl
+        delete process.env.SENSEGREP_OLLAMA_BASE_URL
+        delete process.env.SENSEGREP_FASTEMBED_BASE_URL
+      }
     } else {
       delete process.env.SENSEGREP_OPENAI_BASE_URL
+      delete process.env.SENSEGREP_OLLAMA_BASE_URL
+      delete process.env.SENSEGREP_FASTEMBED_BASE_URL
     }
 
     if (explicitApiKey) {

@@ -539,18 +539,22 @@
           "type": "string",
           "enum": [
             "config",
+            "ollama",
+            "fastembed",
             "gemini",
             "openai",
             "bedrock"
           ],
           "enumDescriptions": [
             "Read ~/.config/sensegrep/config.json and environment variables.",
+            "Use local Ollama embeddings (default when no API credentials are configured).",
+            "Use an experimental local fastembed-rs sidecar with jinaai/jina-embeddings-v2-base-code.",
             "Use Gemini embeddings with the Gemini API key stored in VS Code secrets or environment.",
             "Use an OpenAI-compatible embeddings API such as LM Studio.",
             "Use Amazon Bedrock embeddings through config or environment credentials."
           ],
           "default": "config",
-          "description": "Remote embeddings provider. Use config to read ~/.config/sensegrep/config.json and environment variables"
+          "description": "Embeddings provider. Use config to read ~/.config/sensegrep/config.json and environment variables; defaults to local Ollama when no API credentials are configured"
         },
         "sensegrep.embeddings.model": {
           "type": "string",
@@ -565,7 +569,7 @@
         "sensegrep.embeddings.baseUrl": {
           "type": "string",
           "default": "",
-          "description": "OpenAI-compatible API base URL (e.g. http://127.0.0.1:1234/v1 for LM Studio). Leave empty to use ~/.config/sensegrep/config.json"
+          "description": "Embedding API base URL (e.g. http://127.0.0.1:11434 for Ollama, http://127.0.0.1:11435/v1 for fastembed-rs, or http://127.0.0.1:1234/v1 for LM Studio). Leave empty to use ~/.config/sensegrep/config.json"
         },
         "sensegrep.embeddings.region": {
           "type": "string",
@@ -603,8 +607,8 @@
     "@types/node": "^20.19.27",
     "@types/vscode": "^1.85.0",
     "@vscode/test-electron": "^2.5.2",
-    "@vscode/vsce": "^2.32.0",
-    "esbuild": "^0.27.2",
+    "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.28.1",
     "picomatch": "^4.0.4",
     "typescript": "^5.9.3"
   },

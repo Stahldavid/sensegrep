@@ -121,6 +121,8 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries: number, baseDelayM
 const TOKEN_LIMITS = {
   gemini: 2048,
   openai: 8192,
+  ollama: 8192,
+  fastembed: 8192,
   bedrock: 8192,
 } as const
 
@@ -131,7 +133,7 @@ const BEDROCK_DIMENSIONS = new Set([256, 512, 1024, 1536])
 
 async function validateTextLength(
   text: string,
-  provider: "gemini" | "openai" | "bedrock",
+  provider: "gemini" | "openai" | "bedrock" | "ollama" | "fastembed",
   _modelName: string,
 ): Promise<{ text: string; tokenCount: number; truncated: boolean }> {
   if (provider === "bedrock") {
@@ -154,7 +156,11 @@ async function validateTextLength(
   const limit =
     provider === "gemini"
       ? TOKEN_LIMITS.gemini
-      : TOKEN_LIMITS.openai
+      : provider === "ollama"
+        ? TOKEN_LIMITS.ollama
+        : provider === "fastembed"
+          ? TOKEN_LIMITS.fastembed
+          : TOKEN_LIMITS.openai
   const tokenCount = Math.ceil(text.length / 4)
 
   if (tokenCount <= limit) {
@@ -207,6 +213,22 @@ function batchTextsForBedrock(texts: string[]): string[][] {
   return batches.length > 0 ? batches : [[]]
 }
 
+function getLocalEmbeddingBatchSize(provider: "ollama" | "fastembed"): number {
+  const envName = provider === "ollama" ? "SENSEGREP_OLLAMA_BATCH_SIZE" : "SENSEGREP_FASTEMBED_BATCH_SIZE"
+  const configured = process.env[envName] || process.env.SENSEGREP_EMBED_BATCH_SIZE
+  if (configured) {
+    const parsed = Number(configured)
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      throw new Error(`${envName}/SENSEGREP_EMBED_BATCH_SIZE must be a positive number, got "${configured}".`)
+    }
+    return Math.max(1, Math.floor(parsed))
+  }
+
+  // Local CPU servers often time out or reject large 64/256-item requests.
+  // Keep requests small by default; hosted providers keep their larger batches.
+  return provider === "fastembed" ? 8 : 16
+}
+
 export namespace EmbeddingsRemote {
   const bedrockClients = new Map<string, BedrockRuntimeClient>()
 
@@ -240,6 +262,12 @@ export namespace EmbeddingsRemote {
     }
     if (config.provider === "bedrock") {
       return embedBedrock(input, options, config)
+    }
+    if (config.provider === "ollama") {
+      return embedOllama(input, options, config)
+    }
+    if (config.provider === "fastembed") {
+      return embedFastembed(input, options, config)
     }
     return embedOpenAI(input, options, config)
   }
@@ -581,6 +609,166 @@ export namespace EmbeddingsRemote {
 
     if (allVectors.length !== texts.length) {
       log.warn("OpenAI-compatible embeddings count mismatch", { expected: texts.length, got: allVectors.length })
+    }
+
+    return allVectors
+  }
+
+  async function embedOllama(
+    texts: string[],
+    options: (EmbedOptions & { skipValidation?: boolean }) | undefined,
+    config: EmbeddingConfig,
+  ): Promise<number[][]> {
+    const model = config.embedModel
+    const baseUrl = config.baseUrl || "http://127.0.0.1:11434"
+
+    let validatedTexts: string[]
+    if (options?.skipValidation) {
+      validatedTexts = texts
+    } else {
+      validatedTexts = []
+      let truncatedCount = 0
+      for (const text of texts) {
+        const validated = await validateTextLength(text, "ollama", model)
+        validatedTexts.push(validated.text)
+        if (validated.truncated) truncatedCount++
+      }
+
+      if (truncatedCount > 0) {
+        log.warn(`Truncated ${truncatedCount}/${texts.length} texts to fit token limit`, {
+          model,
+          limit: TOKEN_LIMITS.ollama,
+        })
+      }
+    }
+
+    const batchSize = getLocalEmbeddingBatchSize("ollama")
+    const allVectors: number[][] = []
+    const limiter = getLimiter(config)
+    const maxRetries = config.rateLimit?.maxRetries ?? 6
+    const retryBaseDelayMs = config.rateLimit?.retryBaseDelayMs ?? 1_000
+
+    for (let i = 0; i < validatedTexts.length; i += batchSize) {
+      const batch = validatedTexts.slice(i, i + batchSize)
+      const url = `${baseUrl.replace(/\/+$/, "")}/api/embed`
+      const estimatedTokens = batch.reduce((s, t) => s + Math.ceil(t.length / 4), 0)
+      await limiter.acquire(estimatedTokens)
+
+      const data = await withRetry(
+        async () => {
+          const resp = await fetch(url, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ model, input: batch }),
+          })
+          if (!resp.ok) {
+            const text = await resp.text().catch(() => "")
+            throw new Error(`Ollama embeddings request failed (${resp.status}): ${text || resp.statusText}`)
+          }
+          return resp.json().catch(() => ({})) as Promise<any>
+        },
+        maxRetries,
+        retryBaseDelayMs,
+        "Ollama",
+      )
+
+      const embeddings: any[] = Array.isArray(data.embeddings)
+        ? data.embeddings
+        : Array.isArray(data.embedding)
+          ? [data.embedding]
+          : []
+
+      const vectors = embeddings.map((embedding) => {
+        if (!Array.isArray(embedding)) return []
+        return normalize(embedding.map((value: any) => Number(value)))
+      })
+
+      allVectors.push(...vectors)
+    }
+
+    if (allVectors.length !== texts.length) {
+      log.warn("Ollama embeddings count mismatch", { expected: texts.length, got: allVectors.length })
+    }
+
+    return allVectors
+  }
+
+  async function embedFastembed(
+    texts: string[],
+    options: (EmbedOptions & { skipValidation?: boolean }) | undefined,
+    config: EmbeddingConfig,
+  ): Promise<number[][]> {
+    const model = config.embedModel
+    const baseUrl = config.baseUrl || "http://127.0.0.1:11435/v1"
+
+    let validatedTexts: string[]
+    if (options?.skipValidation) {
+      validatedTexts = texts
+    } else {
+      validatedTexts = []
+      let truncatedCount = 0
+      for (const text of texts) {
+        const validated = await validateTextLength(text, "fastembed", model)
+        validatedTexts.push(validated.text)
+        if (validated.truncated) truncatedCount++
+      }
+
+      if (truncatedCount > 0) {
+        log.warn(`Truncated ${truncatedCount}/${texts.length} texts to fit token limit`, {
+          model,
+          limit: TOKEN_LIMITS.fastembed,
+        })
+      }
+    }
+
+    const batchSize = getLocalEmbeddingBatchSize("fastembed")
+    const allVectors: number[][] = []
+    const limiter = getLimiter(config)
+    const maxRetries = config.rateLimit?.maxRetries ?? 6
+    const retryBaseDelayMs = config.rateLimit?.retryBaseDelayMs ?? 1_000
+
+    for (let i = 0; i < validatedTexts.length; i += batchSize) {
+      const batch = validatedTexts.slice(i, i + batchSize)
+      const url = `${baseUrl.replace(/\/+$/, "")}/embeddings`
+      const estimatedTokens = batch.reduce((s, t) => s + Math.ceil(t.length / 4), 0)
+      await limiter.acquire(estimatedTokens)
+
+      const data = await withRetry(
+        async () => {
+          const resp = await fetch(url, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ model, input: batch }),
+          })
+          if (!resp.ok) {
+            const text = await resp.text().catch(() => "")
+            throw new Error(`fastembed-rs embeddings request failed (${resp.status}): ${text || resp.statusText}`)
+          }
+          return resp.json().catch(() => ({})) as Promise<any>
+        },
+        maxRetries,
+        retryBaseDelayMs,
+        "fastembed-rs",
+      )
+
+      const embeddings: any[] = Array.isArray(data.data) ? data.data : []
+      embeddings.sort((a: any, b: any) => (a.index ?? 0) - (b.index ?? 0))
+
+      const vectors = embeddings.map((embedding) => {
+        const values = embedding?.embedding
+        if (!Array.isArray(values)) return []
+        return normalize(values.map((value: any) => Number(value)))
+      })
+
+      allVectors.push(...vectors)
+    }
+
+    if (allVectors.length !== texts.length) {
+      log.warn("fastembed-rs embeddings count mismatch", { expected: texts.length, got: allVectors.length })
     }
 
     return allVectors

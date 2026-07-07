@@ -5,6 +5,38 @@ import { createHumanLogger, writeJson, writeStderrLine, writeStdoutLine } from "
 
 type Flags = Record<string, string | boolean>
 
+class CliUsageError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "CliUsageError"
+  }
+}
+
+function parseRequiredNumberFlag(flags: Flags, name: string, options: { min?: number; max?: number } = {}): number | undefined {
+  const value = flags[name]
+  if (value === undefined) return undefined
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || (options.min !== undefined && parsed < options.min) || (options.max !== undefined && parsed > options.max)) {
+    const range = options.min !== undefined && options.max !== undefined
+      ? ` between ${options.min} and ${options.max}`
+      : options.min !== undefined
+        ? ` greater than or equal to ${options.min}`
+        : ""
+    throw new CliUsageError(`--${name} must be a number${range}`)
+  }
+  return parsed
+}
+
+function parsePositiveIntegerFlag(flags: Flags, name: string): number | undefined {
+  const value = flags[name]
+  if (value === undefined) return undefined
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new CliUsageError(`--${name} must be a positive integer`)
+  }
+  return parsed
+}
+
 type CoreModule = typeof import("@sensegrep/core")
 
 let corePromise: Promise<CoreModule> | null = null
@@ -80,7 +112,7 @@ Search options:
   --no-rerank               Disable reranking
   --embed-model <name>      Override remote embedding model
   --embed-dim <n>           Override embedding dimension
-  --provider <name>         gemini|openai|bedrock
+  --provider <name>         ollama|fastembed|gemini|openai|bedrock
   --semantic-kind <kind>    Framework-aware kind (convexMutation, reactComponent, routeHandler, etc.)
   --explain-filters         Include deterministic filter match explanations
   --strict-parent           Mark parent filter as strict indexed-metadata validation
@@ -324,10 +356,10 @@ function applyEmbeddingOverrides(flags: Flags, Embeddings: CoreModule["Embedding
   const provider = flags.provider ? String(flags.provider).toLowerCase() : undefined
 
   if (flags.device || flags["rerank-model"] || flags.rerankModel) {
-    throw new Error("Device and reranker overrides were removed. Use remote Gemini, OpenAI-compatible, or Bedrock embeddings only.")
+    throw new Error("Device and reranker overrides were removed. Use Ollama, fastembed-rs, Gemini, OpenAI-compatible, or Bedrock embeddings only.")
   }
-  if (provider && provider !== "gemini" && provider !== "openai" && provider !== "bedrock") {
-    throw new Error(`Unsupported provider "${provider}". Use --provider gemini, --provider openai, or --provider bedrock.`)
+  if (provider && provider !== "gemini" && provider !== "openai" && provider !== "bedrock" && provider !== "ollama" && provider !== "fastembed") {
+    throw new Error(`Unsupported provider "${provider}". Use --provider ollama, --provider fastembed, --provider gemini, --provider openai, or --provider bedrock.`)
   }
   if (flags["embed-model"]) overrides.embedModel = String(flags["embed-model"])
   if (flags.embedModel) overrides.embedModel = String(flags.embedModel)
@@ -962,7 +994,7 @@ if (flags.pattern) params.pattern = String(flags.pattern)
     await ensureFreshIfRequested(flags, rootDir, Instance, Indexer)
 
     // Parse threshold
-    const minThreshold = flags.threshold ? Number(flags.threshold) : 0.85
+    const minThreshold = parseRequiredNumberFlag(flags, "threshold", { min: 0, max: 1 }) ?? 0.85
 
     // Parse scope filter
     let scopeFilter: Array<"function" | "method"> | undefined
@@ -970,13 +1002,13 @@ if (flags.pattern) params.pattern = String(flags.pattern)
       const scopeStr = String(flags.scope).toLowerCase()
       if (scopeStr === "all") {
         scopeFilter = [] // no filter (all)
-      } else if (scopeStr === "function") {
-        scopeFilter = ["function"]
-      } else if (scopeStr === "method") {
-        scopeFilter = ["method"]
       } else {
-        // comma-separated
-        scopeFilter = scopeStr.split(",").map((s) => s.trim()) as any
+        const tokens = scopeStr.split(",").map((s) => s.trim()).filter(Boolean)
+        const invalid = tokens.filter((token) => token !== "function" && token !== "method")
+        if (tokens.length === 0 || invalid.length > 0) {
+          throw new CliUsageError("--scope must contain only function, method, or all")
+        }
+        scopeFilter = tokens as Array<"function" | "method">
       }
     } else {
       // Default: function + method
@@ -1006,9 +1038,9 @@ if (flags.pattern) params.pattern = String(flags.pattern)
       language: flags.language ? String(flags.language) : undefined,
       onlyExported: toBool(flags["only-exported"]) ?? false,
       excludePattern: flags["exclude-pattern"] ? String(flags["exclude-pattern"]) : undefined,
-      minLines: flags["min-lines"] ? Number(flags["min-lines"]) : 10,
-      minComplexity: flags["min-complexity"] ? Number(flags["min-complexity"]) : 0,
-      maxCandidates: flags["max-candidates"] ? Number(flags["max-candidates"]) : undefined,
+      minLines: parsePositiveIntegerFlag(flags, "min-lines") ?? 10,
+      minComplexity: parseRequiredNumberFlag(flags, "min-complexity", { min: 0 }) ?? 0,
+      maxCandidates: parsePositiveIntegerFlag(flags, "max-candidates"),
       include: flags.include ? String(flags.include) : undefined,
       exclude: flags.exclude ? String(flags.exclude) : undefined,
       ignoreAcceptablePatterns: toBool(flags["ignore-acceptable-patterns"]) ?? false,
@@ -1020,7 +1052,7 @@ if (flags.pattern) params.pattern = String(flags.pattern)
     const fullCode = toBool(flags["full-code"]) ?? false
     const verbose = toBool(flags.verbose) ?? false
     const quiet = toBool(flags.quiet) ?? false
-    const limit = flags.limit ? Number(flags.limit) : 10
+    const limit = parsePositiveIntegerFlag(flags, "limit") ?? 10
     const thresholds: Required<NonNullable<DuplicateDetectOptions["thresholds"]>> = {
       exact: 0.98,
       high: 0.9,
@@ -1277,6 +1309,37 @@ async function runSelftestCommand(
     return { message: `${semanticKinds.length} semantic kinds`, details: semanticKinds.map((kind) => kind.name) }
   })
 
+  await check("embeddings.config", async () => {
+    const { Embeddings } = await loadCore()
+    const config = Embeddings.getConfig()
+    const credentialGuidance = config.provider === "ollama"
+      ? "No API key required; start Ollama and pull the configured embedding model before indexing."
+      : config.provider === "fastembed"
+        ? "No API key required; start the fastembed-rs sidecar before indexing. Initial support expects jinaai/jina-embeddings-v2-base-code."
+      : config.provider === "gemini"
+        ? "Set GEMINI_API_KEY or GOOGLE_API_KEY before indexing."
+        : config.provider === "openai"
+          ? "Set SENSEGREP_OPENAI_API_KEY, FIREWORKS_API_KEY, OPENAI_API_KEY, or configure apiKey in ~/.config/sensegrep/config.json before indexing."
+          : "Set AWS credentials/AWS_REGION for Bedrock, or configure apiKey/region in ~/.config/sensegrep/config.json before indexing."
+    const credentialState = config.provider === "ollama" || config.provider === "fastembed"
+      ? "credentials=not-required"
+      : config.apiKey ? "credentials=present" : `credentials=missing (${credentialGuidance})`
+    const endpoint = (config.provider === "openai" || config.provider === "ollama" || config.provider === "fastembed") && config.baseUrl ? ` baseUrl=${config.baseUrl}` : ""
+    const region = config.provider === "bedrock" && config.region ? ` region=${config.region}` : ""
+    return {
+      message: `provider=${config.provider} model=${config.embedModel} dim=${config.embedDim}${endpoint}${region} ${credentialState}`,
+      details: {
+        provider: config.provider,
+        embedModel: config.embedModel,
+        embedDim: config.embedDim,
+        baseUrl: config.provider === "openai" || config.provider === "ollama" || config.provider === "fastembed" ? config.baseUrl : undefined,
+        region: config.provider === "bedrock" ? config.region : undefined,
+        credentialsPresent: Boolean(config.apiKey),
+        credentialGuidance: config.apiKey ? undefined : credentialGuidance,
+      },
+    }
+  })
+
   await check("languages.detect", async () => {
     const { detectProjectLanguages } = await loadCore()
     const detected = await detectProjectLanguages(rootDir)
@@ -1401,6 +1464,10 @@ async function runSemanticKindsCommand(flags: Flags) {
 }
 
 run().catch((error) => {
-  writeStderrLine(error instanceof Error ? error.stack ?? error.message : String(error))
+  if (error instanceof CliUsageError) {
+    writeStderrLine(error.message)
+  } else {
+    writeStderrLine(error instanceof Error ? error.stack ?? error.message : String(error))
+  }
   process.exitCode = 1
 })

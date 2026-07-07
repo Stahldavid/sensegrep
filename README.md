@@ -61,7 +61,11 @@ This automatically sets up the MCP server and teaches Claude when and how to use
 ```bash
 npm i -g @sensegrep/cli
 
-# Index your project
+# Smoke-test local CLI/core/config without calling embeddings
+sensegrep selftest --root .
+
+# Default local embeddings use Ollama when no API key/provider is configured
+ollama pull nomic-embed-text:v1.5
 sensegrep index --root .
 
 # Search by meaning
@@ -144,7 +148,7 @@ npm install -g @sensegrep/mcp
 }
 ```
 
-The MCP server provides `sensegrep.search`, `sensegrep.survey`, `sensegrep.cluster`, `sensegrep.index`, and `sensegrep.detect_duplicates` tools.
+The MCP server provides canonical `sensegrep_search`, `sensegrep_survey`, `sensegrep_cluster`, `sensegrep_index`, and `sensegrep_detect_duplicates` tools. Legacy dotted names such as `sensegrep.search` remain available as compatibility aliases where supported.
 
 ### Agent Skill — CLI (no MCP server)
 
@@ -185,8 +189,8 @@ Source Code
     ▼
 ┌─────────────┐    ┌──────────────┐    ┌──────────────┐
 │  Tree-Sitter │───▶│   Chunker    │───▶│  Embeddings  │
-│  AST Parser  │    │  (symbols +  │    │ (Gemini or   │
-│              │    │   metadata)  │    │ OpenAI-comp) │
+│  AST Parser  │    │  (symbols +  │    │ (Ollama,     │
+│              │    │   metadata)  │    │ Gemini, etc.)│
 └─────────────┘    └──────────────┘    └──────────────┘
                                               │
                                               ▼
@@ -205,7 +209,7 @@ Source Code
 
 1. **Parse**: Tree-sitter extracts AST nodes with full metadata (symbol type, exports, complexity, docs, decorators)
 2. **Chunk**: Code is split into semantic chunks aligned to symbol boundaries
-3. **Embed**: Each chunk is embedded using Gemini or an OpenAI-compatible embeddings API.
+3. **Embed**: Each chunk is embedded using Ollama, Gemini, an OpenAI-compatible embeddings API, or Amazon Bedrock.
 4. **Store**: Embeddings + metadata are stored in LanceDB for fast vector search
 5. **Search**: Your query is embedded and matched against the index with optional structural filters
 6. **Tree-shake**: Results are collapsed to show only relevant code, hiding unrelated symbols
@@ -247,37 +251,53 @@ sensegrep cluster "price list commission ncm uf packaging" --language java --inc
 
 ## Embeddings Configuration
 
- sensegrep uses remote embedding providers: Gemini, OpenAI-compatible APIs, or Amazon Bedrock.
+sensegrep supports local Ollama by default plus Gemini, OpenAI-compatible APIs, and Amazon Bedrock. If no API key or provider is configured, it defaults to Ollama at `http://127.0.0.1:11434` with `nomic-embed-text:v1.5` (768 dimensions). Run `sensegrep selftest --root .` before indexing to confirm the selected provider/model/dimension and credential/endpoint guidance without making embedding calls.
 
 ```bash
+# Default local Ollama embeddings (no API key)
+ollama pull nomic-embed-text:v1.5
+sensegrep search "auth flow"
+
 # Recommended: Gemini embeddings (best quality)
+export SENSEGREP_PROVIDER=gemini
 export GEMINI_API_KEY="your_ai_studio_key"
 sensegrep search "auth flow" --provider gemini --embed-model gemini-embedding-001
 
 # OpenAI-compatible provider
+export SENSEGREP_PROVIDER=openai
 export SENSEGREP_OPENAI_API_KEY="your_api_key"
+export SENSEGREP_OPENAI_BASE_URL="https://api.fireworks.ai/inference/v1"
 sensegrep search "auth flow" --provider openai --embed-model fireworks/qwen3-embedding-8b
+
+# Experimental fastembed-rs sidecar for Jina code embeddings
+export SENSEGREP_PROVIDER=fastembed
+export SENSEGREP_FASTEMBED_BASE_URL="http://127.0.0.1:11435/v1"
+sensegrep search "auth flow" --provider fastembed --embed-model jinaai/jina-embeddings-v2-base-code --embed-dim 768
 
 # Amazon Bedrock + Cohere Embed v4
 export AWS_REGION="us-east-1"
 sensegrep search "auth flow" --provider bedrock --embed-model cohere.embed-v4:0 --embed-dim 1536
 ```
 
+Local OpenAI-compatible embedding servers also work if they implement `/v1/embeddings`; set `SENSEGREP_PROVIDER=openai`, `SENSEGREP_OPENAI_BASE_URL` to the server's `/v1` base URL, and `SENSEGREP_EMBED_DIM` to the exact returned vector dimension. For native Ollama, use `SENSEGREP_PROVIDER=ollama`, `SENSEGREP_OLLAMA_BASE_URL` if not using the default, and the exact `SENSEGREP_EMBED_DIM` for your Ollama model. For the experimental fastembed-rs sidecar, use `SENSEGREP_PROVIDER=fastembed` and `SENSEGREP_FASTEMBED_BASE_URL`; initial support is intentionally limited to `jinaai/jina-embeddings-v2-base-code` at 768 dimensions. See [docs/fastembed-rs-sidecar.md](docs/fastembed-rs-sidecar.md).
+
 Global defaults via `~/.config/sensegrep/config.json`:
 
 ```json
 {
-  "provider": "gemini",
-  "embedModel": "gemini-embedding-001",
+  "provider": "ollama",
+  "embedModel": "nomic-embed-text:v1.5",
   "embedDim": 768
 }
 ```
 
 Common environment variables:
 
-- `SENSEGREP_PROVIDER` (`gemini`, `openai`, `bedrock`)
+- `SENSEGREP_PROVIDER` (`ollama`, `fastembed`, `gemini`, `openai`, `bedrock`)
 - `SENSEGREP_EMBED_MODEL`
 - `SENSEGREP_EMBED_DIM`
+- `SENSEGREP_OLLAMA_BASE_URL` (Ollama, default `http://127.0.0.1:11434`)
+- `SENSEGREP_FASTEMBED_BASE_URL` (experimental fastembed-rs sidecar, default `http://127.0.0.1:11435/v1`)
 - `GEMINI_API_KEY` / `GOOGLE_API_KEY` (Gemini)
 - `SENSEGREP_OPENAI_API_KEY` / `FIREWORKS_API_KEY` / `OPENAI_API_KEY` (OpenAI-compatible)
 - `SENSEGREP_BEDROCK_REGION` / `AWS_REGION` / `AWS_DEFAULT_REGION` (Amazon Bedrock)
@@ -285,6 +305,10 @@ Common environment variables:
 - `SENSEGREP_WATCH` (MCP watcher toggle)
 
 For the complete and official runtime variable list, see `docs/mcp-setup.md`.
+
+### Index compatibility
+
+Each index records the embedding provider, model, dimension, and distance metric used to create it. If you change provider, model, base URL, dimension, local server pooling behavior, or task-prefix strategy, rebuild the index with `sensegrep index --root . --full --no-watch`. Same dimension does **not** make embeddings interchangeable; two 768-dimensional models still produce different vector spaces.
 
 More embedding providers and API integrations may be added in the future.
 

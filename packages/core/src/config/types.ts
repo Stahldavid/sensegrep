@@ -31,7 +31,7 @@ export interface SensegrepConfig {
     /** Embedding dimensions */
     dimensions?: number
     /** Embedding provider */
-    provider?: "gemini" | "openai" | "bedrock"
+    provider?: "gemini" | "openai" | "bedrock" | "ollama" | "fastembed"
     /** AWS region override for Amazon Bedrock */
     region?: string
   }

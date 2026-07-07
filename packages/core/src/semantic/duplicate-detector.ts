@@ -745,8 +745,14 @@ export namespace DuplicateDetector {
     }
 
     const excludeRegex = options.excludePattern ? new RegExp(options.excludePattern) : null
-    const includeMatcher = options.include ? picomatch(options.include, { dot: true }) : null
-    const excludeMatcher = options.exclude ? picomatch(options.exclude, { dot: true }) : null
+    const createGlobMatcher = (pattern?: string) => {
+      if (!pattern) return null
+      const normalizedPattern = pattern.replace(/\\/g, "/").replace(/^\.\//, "")
+      const hasPathSeparator = normalizedPattern.includes("/")
+      return picomatch(normalizedPattern, { dot: true, basename: !hasPathSeparator })
+    }
+    const includeMatcher = createGlobMatcher(options.include)
+    const excludeMatcher = createGlobMatcher(options.exclude)
     let candidates = rows
       .filter((row) => Array.isArray(row.vector) && row.vector.length > 0)
       .map((row) => {

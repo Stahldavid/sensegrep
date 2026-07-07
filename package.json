@@ -29,7 +29,7 @@
     "cursor:install-link": "node scripts/mcp/generate-cursor-install-link.mjs"
   },
   "overrides": {
-    "onnxruntime-node": "1.23.2"
+    "js-yaml": "^4.3.0"
   },
   "devDependencies": {
     "@changesets/changelog-github": "^0.5.2",

@@ -128,7 +128,7 @@ Variables below are supported by the current runtime.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SENSEGREP_PROVIDER` | `gemini` | Embedding provider (`gemini`, `openai`, `bedrock`) |
+| `SENSEGREP_PROVIDER` | `ollama` when no API key/provider is configured | Embedding provider (`ollama`, `fastembed`, `gemini`, `openai`, `bedrock`) |
 | `SENSEGREP_EMBED_MODEL` | Provider-dependent | Embedding model name override |
 | `SENSEGREP_EMBED_DIM` | Provider-dependent | Embedding dimension override |
 | `SENSEGREP_BEDROCK_REGION` | - | Amazon Bedrock region override |
@@ -143,8 +143,12 @@ Variables below are supported by the current runtime.
 | `FIREWORKS_API_KEY` | - | OpenAI-compatible key fallback |
 | `OPENAI_API_KEY` | - | OpenAI-compatible key fallback |
 | `SENSEGREP_OPENAI_BASE_URL` | `https://api.fireworks.ai/inference/v1` | OpenAI-compatible base URL |
+| `SENSEGREP_OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Native Ollama base URL |
+| `SENSEGREP_FASTEMBED_BASE_URL` | `http://127.0.0.1:11435/v1` | Experimental fastembed-rs sidecar base URL |
 | `AWS_REGION` | - | AWS SDK region for Amazon Bedrock |
 | `AWS_DEFAULT_REGION` | - | AWS SDK fallback region for Amazon Bedrock |
+
+For default local Ollama, run `ollama pull nomic-embed-text:v1.5` and leave provider/API keys unset, or set `SENSEGREP_PROVIDER=ollama` explicitly. For experimental fastembed-rs Jina code embeddings, start the sidecar from `docs/fastembed-rs-sidecar.md`, set `SENSEGREP_PROVIDER=fastembed`, and keep `SENSEGREP_EMBED_DIM=768`. For local OpenAI-compatible embedding servers, set `SENSEGREP_PROVIDER=openai`, point `SENSEGREP_OPENAI_BASE_URL` at the local `/v1` base URL, and set `SENSEGREP_EMBED_DIM` to the exact vector dimension returned by the server. The API key can be a dummy value only if your local server accepts it.
 
 ### Language Selection
 
@@ -213,7 +217,9 @@ Find logical code duplicates.
 
 - The MCP server automatically indexes the project on first tool call
 - File watching is enabled by default - the server reindexes at most once per minute when changes are detected
-- Embedding configuration is read from the index metadata, so searches always use the same model used for indexing
+- Embedding configuration is read from the index metadata, so searches always use the same provider/model/dimension used for indexing
+- If you change provider, model, base URL, dimension, local server pooling behavior, or task-prefix strategy, rebuild the index with `sensegrep index --root <project> --full --no-watch`
+- Same dimension does **not** imply compatibility; two 768-dimensional embedding models produce different vector spaces
 - The server loads `@sensegrep/core` lazily on first use
 
 ## Next Steps

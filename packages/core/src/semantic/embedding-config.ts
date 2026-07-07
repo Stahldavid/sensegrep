@@ -2,7 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { Global } from "../global/index.js"
 
-export type EmbeddingProvider = "gemini" | "openai" | "bedrock"
+export type EmbeddingProvider = "gemini" | "openai" | "bedrock" | "ollama" | "fastembed"
 
 export type RateLimitConfig = {
   /** Max requests per minute. Default: 3000 (Gemini free tier). */
@@ -33,6 +33,12 @@ const DEFAULTS = {
   openaiModel: "fireworks/qwen3-embedding-8b",
   openaiDim: 768,
   openaiBaseUrl: "https://api.fireworks.ai/inference/v1",
+  ollamaModel: "nomic-embed-text:v1.5",
+  ollamaDim: 768,
+  ollamaBaseUrl: "http://127.0.0.1:11434",
+  fastembedModel: "jinaai/jina-embeddings-v2-base-code",
+  fastembedDim: 768,
+  fastembedBaseUrl: "http://127.0.0.1:11435/v1",
   bedrockModel: "cohere.embed-v4:0",
   bedrockDim: 1536,
 } as const
@@ -46,6 +52,16 @@ function parseNumber(value: unknown): number | undefined {
   const num = typeof value === "number" ? value : Number(value)
   if (!Number.isFinite(num) || num <= 0) return undefined
   return num
+}
+
+function parsePositiveEnvNumber(name: string): number | undefined {
+  const value = process.env[name]
+  if (value === undefined || value === "") return undefined
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be a positive number, got "${value}".`)
+  }
+  return parsed
 }
 
 function loadFileConfig(): Partial<EmbeddingConfig> {
@@ -68,9 +84,9 @@ function loadFileConfig(): Partial<EmbeddingConfig> {
 function readConfiguredProvider(value: unknown, source: string): EmbeddingProvider | undefined {
   if (typeof value !== "string" || value.length === 0) return undefined
   const normalized = value.toLowerCase()
-  if (normalized === "gemini" || normalized === "openai" || normalized === "bedrock") return normalized
+  if (normalized === "gemini" || normalized === "openai" || normalized === "bedrock" || normalized === "ollama" || normalized === "fastembed") return normalized
   throw new Error(
-    `Unsupported embeddings provider in ${source}: "${value}". Use "gemini", "openai", or "bedrock".`,
+    `Unsupported embeddings provider in ${source}: "${value}". Use "gemini", "openai", "bedrock", "ollama", or "fastembed".`,
   )
 }
 
@@ -81,7 +97,7 @@ function readProvider(): EmbeddingProvider {
 
   if (process.env.SENSEGREP_OPENAI_API_KEY || process.env.FIREWORKS_API_KEY) return "openai"
   if (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) return "gemini"
-  return "gemini"
+  return "ollama"
 }
 
 export function configureEmbedding(overrides: EmbeddingOverrides) {
@@ -111,7 +127,11 @@ export function getEmbeddingConfig(overrides?: EmbeddingOverrides): EmbeddingCon
       ? process.env.OPENCODE_GEMINI_EMBED_MODEL || DEFAULTS.geminiModel
       : provider === "openai"
         ? DEFAULTS.openaiModel
-        : DEFAULTS.bedrockModel)
+        : provider === "ollama"
+          ? DEFAULTS.ollamaModel
+          : provider === "fastembed"
+            ? DEFAULTS.fastembedModel
+            : DEFAULTS.bedrockModel)
 
   const embedDim =
     mergedOverrides.embedDim ??
@@ -121,13 +141,25 @@ export function getEmbeddingConfig(overrides?: EmbeddingOverrides): EmbeddingCon
       ? parseNumber(process.env.OPENCODE_GEMINI_EMBED_DIM) ?? DEFAULTS.geminiDim
       : provider === "openai"
         ? DEFAULTS.openaiDim
-        : DEFAULTS.bedrockDim)
+        : provider === "ollama"
+          ? DEFAULTS.ollamaDim
+          : provider === "fastembed"
+            ? DEFAULTS.fastembedDim
+            : DEFAULTS.bedrockDim)
 
   const baseUrl =
     mergedOverrides.baseUrl ||
+    (provider === "ollama" ? process.env.SENSEGREP_OLLAMA_BASE_URL : undefined) ||
+    (provider === "fastembed" ? process.env.SENSEGREP_FASTEMBED_BASE_URL : undefined) ||
     process.env.SENSEGREP_OPENAI_BASE_URL ||
     (fileConfig as any).baseUrl ||
-    (provider === "openai" ? DEFAULTS.openaiBaseUrl : undefined)
+    (provider === "openai"
+      ? DEFAULTS.openaiBaseUrl
+      : provider === "ollama"
+        ? DEFAULTS.ollamaBaseUrl
+        : provider === "fastembed"
+          ? DEFAULTS.fastembedBaseUrl
+          : undefined)
 
   const region =
     mergedOverrides.region ||
@@ -152,16 +184,16 @@ export function getEmbeddingConfig(overrides?: EmbeddingOverrides): EmbeddingCon
   if (fileRl && typeof fileRl === "object") Object.assign(rateLimit, fileRl)
   const overrideRl = (mergedOverrides as any).rateLimit
   if (overrideRl && typeof overrideRl === "object") Object.assign(rateLimit, overrideRl)
-  if (process.env.SENSEGREP_RATE_LIMIT_RPM) rateLimit.rpm = Number(process.env.SENSEGREP_RATE_LIMIT_RPM)
-  if (process.env.SENSEGREP_RATE_LIMIT_TPM) rateLimit.tpm = Number(process.env.SENSEGREP_RATE_LIMIT_TPM)
-  if (process.env.SENSEGREP_MAX_RETRIES) rateLimit.maxRetries = Number(process.env.SENSEGREP_MAX_RETRIES)
-  if (process.env.SENSEGREP_RETRY_BASE_DELAY_MS) rateLimit.retryBaseDelayMs = Number(process.env.SENSEGREP_RETRY_BASE_DELAY_MS)
+  if (process.env.SENSEGREP_RATE_LIMIT_RPM) rateLimit.rpm = parsePositiveEnvNumber("SENSEGREP_RATE_LIMIT_RPM")
+  if (process.env.SENSEGREP_RATE_LIMIT_TPM) rateLimit.tpm = parsePositiveEnvNumber("SENSEGREP_RATE_LIMIT_TPM")
+  if (process.env.SENSEGREP_MAX_RETRIES) rateLimit.maxRetries = parsePositiveEnvNumber("SENSEGREP_MAX_RETRIES")
+  if (process.env.SENSEGREP_RETRY_BASE_DELAY_MS) rateLimit.retryBaseDelayMs = parsePositiveEnvNumber("SENSEGREP_RETRY_BASE_DELAY_MS")
 
   const merged: EmbeddingConfig = {
     provider,
     embedModel,
     embedDim,
-    ...(provider === "openai" && baseUrl ? { baseUrl } : {}),
+    ...((provider === "openai" || provider === "ollama" || provider === "fastembed") && baseUrl ? { baseUrl } : {}),
     ...(provider === "bedrock" && region ? { region } : {}),
     ...(apiKey ? { apiKey } : {}),
     ...(Object.keys(rateLimit).length > 0 ? { rateLimit } : {}),

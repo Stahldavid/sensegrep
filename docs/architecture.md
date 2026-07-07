@@ -22,7 +22,7 @@ Source files
          ▼
 ┌─────────────────┐
 │  Embeddings     │  Generate vector embeddings
-│  (HF / Gemini)  │  for each chunk
+│  (remote APIs)  │  for each chunk
 └────────┬────────┘
          │
          ▼
@@ -35,7 +35,7 @@ Source files
          ▼
 ┌─────────────────┐
 │  Search +       │  Vector similarity + structural filters
-│  Reranking      │  Optional cross-encoder reranking
+│  Filtering      │  Literal fallback + result diversification
 └────────┬────────┘
          │
          ▼
@@ -65,7 +65,7 @@ Language parsers live in `packages/core/src/semantic/language/`.
 
 ### Chunker
 
-The chunker (`packages/core/src/semantic/chunker.ts`) splits source code into chunks that align with symbol boundaries. Each chunk contains:
+The chunker (`packages/core/src/semantic/chunking.ts`) splits source code into chunks that align with symbol boundaries. Each chunk contains:
 
 - The full source code of a symbol (function, class, etc.)
 - All extracted metadata
@@ -75,7 +75,11 @@ This ensures that search results return complete, meaningful code units rather t
 
 ### Embeddings
 
-sensegrep supports remote embedding providers:
+sensegrep supports local and remote embedding providers:
+
+**Ollama**: Default local provider when no API key/provider is configured. Uses Ollama's native `/api/embed` endpoint, no API key required. Default model: `nomic-embed-text:v1.5` (768 dimensions) at `http://127.0.0.1:11434`.
+
+**fastembed-rs sidecar**: Experimental local provider for code embeddings. Initial support is intentionally limited to `jinaai/jina-embeddings-v2-base-code` (768 dimensions) through an OpenAI-compatible sidecar at `http://127.0.0.1:11435/v1`, keeping ONNX/fastembed dependencies outside the Node packages.
 
 **Gemini**: Uses Google's Gemini Embedding API for cloud-based embeddings. Requires a `GEMINI_API_KEY`.
 
@@ -83,11 +87,11 @@ sensegrep supports remote embedding providers:
 
 **Amazon Bedrock**: Uses the AWS Bedrock Runtime API for models such as Cohere Embed v4, authenticated with standard AWS credentials and region configuration.
 
-For most production workloads, Gemini is strongly recommended because it supports much larger token contexts and generally yields better semantic retrieval quality.
+For lowest-friction local usage, Ollama is the default. For managed production workloads, Gemini/OpenAI-compatible/Bedrock providers can be configured explicitly.
 
 Support for additional embedding providers and APIs is planned.
 
-Configuration is managed through `packages/core/src/semantic/embeddings-remote.ts` and stored per-index so searches always use the same model that was used for indexing.
+Configuration is managed through `packages/core/src/semantic/embedding-config.ts` and `packages/core/src/semantic/embeddings-remote.ts`, then stored per-index so searches always use the same provider/model/dimension that created the index. Changing provider, model, base URL, dimension, pooling behavior, or task-prefix strategy requires a full reindex; same-dimensional vectors from different models are not interchangeable.
 
 ### LanceDB Vector Store
 

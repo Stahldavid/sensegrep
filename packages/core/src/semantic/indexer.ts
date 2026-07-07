@@ -84,8 +84,29 @@ export namespace Indexer {
 
   // Max file size to index (500KB)
   const MAX_FILE_SIZE = 500 * 1024
-  // Batch documents to reduce embedding overhead during full indexing
-  const ADD_BATCH_SIZE = 256
+  // Batch documents to reduce embedding overhead during full indexing. Local
+  // embedding servers (Ollama / fastembed-rs) can be much slower per large
+  // request than hosted APIs, so keep their request batches intentionally small.
+  // SENSEGREP_EMBED_BATCH_SIZE is primarily an operational escape hatch for
+  // constrained droplets; persistence still reuses the same size safely.
+  const DEFAULT_ADD_BATCH_SIZE = 256
+  const LOCAL_ADD_BATCH_SIZE = 16
+  const ADD_BATCH_SIZE = (() => {
+    const configured = process.env.SENSEGREP_EMBED_BATCH_SIZE
+    if (configured) {
+      const parsed = Number(configured)
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        throw new Error(`SENSEGREP_EMBED_BATCH_SIZE must be a positive number, got "${configured}".`)
+      }
+      return Math.max(1, Math.floor(parsed))
+    }
+    // Full-index batches feed EmbeddingsRemote, which further slices local-provider
+    // HTTP calls. Keeping this at the historical hosted default avoids slowing cloud
+    // providers while still allowing droplets to override it explicitly.
+    return process.env.SENSEGREP_PROVIDER === "ollama" || process.env.SENSEGREP_PROVIDER === "fastembed"
+      ? LOCAL_ADD_BATCH_SIZE
+      : DEFAULT_ADD_BATCH_SIZE
+  })()
   const INDEX_LOCK_TIMEOUT_MS = 10 * 60_000
   const INDEX_LOCK_STALE_MS = 30 * 60_000
   let inProcessLockDepth = 0
@@ -246,7 +267,7 @@ export namespace Indexer {
       throw new Error(
         "Gemini embeddings are configured but no API key was found. " +
           "Set GEMINI_API_KEY or GOOGLE_API_KEY, configure `sensegrep.geminiApiKey` in VS Code, " +
-          "or switch to `--provider openai` or `--provider bedrock`.",
+          "or switch to `--provider ollama`, `--provider fastembed`, `--provider openai`, or `--provider bedrock`.",
       )
     }
 
