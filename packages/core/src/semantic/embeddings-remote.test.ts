@@ -151,6 +151,7 @@ describe("EmbeddingsRemote OpenAI-compatible", () => {
     vi.doUnmock("node:fs")
     vi.unstubAllGlobals()
     delete process.env.SENSEGREP_OPENAI_API_KEY
+    delete process.env.SENSEGREP_OPENAI_BATCH_SIZE
     delete process.env.FIREWORKS_API_KEY
     delete process.env.OPENAI_API_KEY
   })
@@ -179,6 +180,67 @@ describe("EmbeddingsRemote OpenAI-compatible", () => {
     expect(fetchMock.mock.calls[0][0]).toBe("http://127.0.0.1:1234/v1/embeddings")
     expect(vector[0]).toBeCloseTo(0.6)
     expect(vector[1]).toBeCloseTo(0.8)
+  })
+
+  it("uses OpenRouter Qwen defaults for batch size, dimensions, and metadata headers", async () => {
+    fetchMock.mockImplementation(async (_url: string, init: any) => {
+      const body = JSON.parse(init.body)
+      return {
+        ok: true,
+        json: async () => ({
+          data: body.input.map((_text: string, index: number) => ({ index, embedding: [1, 0] })),
+        }),
+      }
+    })
+
+    const { EmbeddingsRemote } = await import("./embeddings-remote.js")
+    EmbeddingsRemote.configure({
+      provider: "openai",
+      embedModel: "qwen/qwen3-embedding-8b",
+      embedDim: 1024,
+      baseUrl: "https://openrouter.ai/api/v1",
+      apiKey: "openrouter-key",
+      openRouterReferer: "https://example.com",
+      openRouterTitle: "example-app",
+    })
+
+    const texts = Array.from({ length: 100 }, (_, index) => `chunk ${index}`)
+    const vectors = await EmbeddingsRemote.embed(texts, { skipValidation: true })
+    const firstBody = JSON.parse(fetchMock.mock.calls[0][1].body)
+    const secondBody = JSON.parse(fetchMock.mock.calls[1][1].body)
+    const headers = fetchMock.mock.calls[0][1].headers
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(firstBody.input).toHaveLength(96)
+    expect(secondBody.input).toHaveLength(4)
+    expect(firstBody.dimensions).toBe(1024)
+    expect(headers["HTTP-Referer"]).toBe("https://example.com")
+    expect(headers["X-Title"]).toBe("example-app")
+    expect(vectors).toHaveLength(100)
+  })
+
+  it("keeps Qwen3 embedding inputs within the 32K token limit", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: [{ index: 0, embedding: [1, 0] }],
+      }),
+    })
+
+    const { EmbeddingsRemote } = await import("./embeddings-remote.js")
+    EmbeddingsRemote.configure({
+      provider: "openai",
+      embedModel: "qwen/qwen3-embedding-8b",
+      embedDim: 1024,
+      baseUrl: "https://openrouter.ai/api/v1",
+      apiKey: "openrouter-key",
+    })
+
+    const longText = "x".repeat(40_000)
+    await EmbeddingsRemote.embed(longText)
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body)
+
+    expect(body.input[0]).toHaveLength(40_000)
   })
 })
 

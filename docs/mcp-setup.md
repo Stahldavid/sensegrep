@@ -131,6 +131,7 @@ Variables below are supported by the current runtime.
 | `SENSEGREP_PROVIDER` | `ollama` when no API key/provider is configured | Embedding provider (`ollama`, `gemini`, `openai`, `bedrock`) |
 | `SENSEGREP_EMBED_MODEL` | Provider-dependent | Embedding model name override |
 | `SENSEGREP_EMBED_DIM` | Provider-dependent | Embedding dimension override |
+| `SENSEGREP_OPENAI_BATCH_SIZE` | `96` for OpenRouter Qwen3 embeddings, otherwise `64` | OpenAI-compatible embeddings request batch size |
 | `SENSEGREP_BEDROCK_REGION` | - | Amazon Bedrock region override |
 
 ### API Keys and Endpoints
@@ -143,11 +144,13 @@ Variables below are supported by the current runtime.
 | `FIREWORKS_API_KEY` | - | OpenAI-compatible key fallback |
 | `OPENAI_API_KEY` | - | OpenAI-compatible key fallback |
 | `SENSEGREP_OPENAI_BASE_URL` | `https://api.fireworks.ai/inference/v1` | OpenAI-compatible base URL |
+| `SENSEGREP_OPENROUTER_REFERER` | `https://github.com/Stahldavid/sensegrep` | Optional OpenRouter attribution header |
+| `SENSEGREP_OPENROUTER_TITLE` | `sensegrep` | Optional OpenRouter attribution header |
 | `SENSEGREP_OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Native Ollama base URL |
 | `AWS_REGION` | - | AWS SDK region for Amazon Bedrock |
 | `AWS_DEFAULT_REGION` | - | AWS SDK fallback region for Amazon Bedrock |
 
-For default local Ollama, run `ollama pull qwen3-embedding:0.6b` and leave provider/API keys unset, or set `SENSEGREP_PROVIDER=ollama` explicitly. For local OpenAI-compatible embedding servers, set `SENSEGREP_PROVIDER=openai`, point `SENSEGREP_OPENAI_BASE_URL` at the local `/v1` base URL, and set `SENSEGREP_EMBED_DIM` to the exact vector dimension returned by the server. The API key can be a dummy value only if your local server accepts it.
+For default local Ollama, run `ollama pull qwen3-embedding:0.6b` and leave provider/API keys unset, or set `SENSEGREP_PROVIDER=ollama` explicitly. For local OpenAI-compatible embedding servers, set `SENSEGREP_PROVIDER=openai`, point `SENSEGREP_OPENAI_BASE_URL` at the local `/v1` base URL, and set `SENSEGREP_EMBED_DIM` to the exact vector dimension returned by the server. OpenRouter Qwen3 embedding models default to a `96` item request batch and use the Qwen3 32K token limit. The API key can be a dummy value only if your local server accepts it.
 
 ### Language Selection
 

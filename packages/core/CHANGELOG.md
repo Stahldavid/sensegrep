@@ -1,5 +1,11 @@
 # @sensegrep/core
 
+## 1.7.2
+
+### Patch Changes
+
+- Improve OpenRouter Qwen3 embedding support with configurable batch sizing, OpenRouter metadata headers, smaller output dimensions, and the model's 32K token limit.
+
 ## 1.7.1
 
 ### Patch Changes

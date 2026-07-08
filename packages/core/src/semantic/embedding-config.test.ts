@@ -7,6 +7,9 @@ const ENV_KEYS = [
   "SENSEGREP_BEDROCK_REGION",
   "SENSEGREP_OPENAI_API_KEY",
   "SENSEGREP_OPENAI_BASE_URL",
+  "SENSEGREP_OPENAI_BATCH_SIZE",
+  "SENSEGREP_OPENROUTER_REFERER",
+  "SENSEGREP_OPENROUTER_TITLE",
   "SENSEGREP_OLLAMA_BASE_URL",
   "FIREWORKS_API_KEY",
   "OPENAI_API_KEY",
@@ -148,6 +151,31 @@ describe("embedding config", () => {
 
     expect(config.provider).toBe("openai")
     expect(config.apiKey).toBe("openai-key")
+  })
+
+  it("reads OpenAI-compatible batch size and OpenRouter metadata", async () => {
+    mockMissingGlobalConfig()
+    process.env.SENSEGREP_PROVIDER = "openai"
+    process.env.SENSEGREP_OPENAI_API_KEY = "openrouter-key"
+    process.env.SENSEGREP_OPENAI_BASE_URL = "https://openrouter.ai/api/v1"
+    process.env.SENSEGREP_EMBED_MODEL = "qwen/qwen3-embedding-8b"
+    process.env.SENSEGREP_EMBED_DIM = "1024"
+    process.env.SENSEGREP_OPENAI_BATCH_SIZE = "96"
+    process.env.SENSEGREP_OPENROUTER_REFERER = "https://example.com"
+    process.env.SENSEGREP_OPENROUTER_TITLE = "example-app"
+
+    const { getEmbeddingConfig } = await import("./embedding-config.js")
+    const config = getEmbeddingConfig()
+
+    expect(config).toMatchObject({
+      provider: "openai",
+      embedModel: "qwen/qwen3-embedding-8b",
+      embedDim: 1024,
+      baseUrl: "https://openrouter.ai/api/v1",
+      batchSize: 96,
+      openRouterReferer: "https://example.com",
+      openRouterTitle: "example-app",
+    })
   })
 
   it("rejects invalid numeric rate limit environment variables", async () => {

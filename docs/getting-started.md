@@ -60,6 +60,14 @@ export SENSEGREP_OPENAI_BASE_URL="https://api.fireworks.ai/inference/v1"
 export SENSEGREP_EMBED_MODEL="fireworks/qwen3-embedding-8b"
 export SENSEGREP_EMBED_DIM=768
 
+# OpenRouter + Qwen3 Embedding 8B
+export SENSEGREP_PROVIDER=openai
+export SENSEGREP_OPENAI_API_KEY="your_openrouter_key"
+export SENSEGREP_OPENAI_BASE_URL="https://openrouter.ai/api/v1"
+export SENSEGREP_EMBED_MODEL="qwen/qwen3-embedding-8b"
+export SENSEGREP_EMBED_DIM=1024
+export SENSEGREP_OPENAI_BATCH_SIZE=96
+
 # Amazon Bedrock
 export SENSEGREP_PROVIDER=bedrock
 export AWS_REGION="us-east-1"
@@ -67,7 +75,7 @@ export SENSEGREP_EMBED_MODEL="cohere.embed-v4:0"
 export SENSEGREP_EMBED_DIM=1536
 ```
 
-For local OpenAI-compatible embedding servers, set `SENSEGREP_PROVIDER=openai`, point `SENSEGREP_OPENAI_BASE_URL` at the local `/v1` endpoint, and set `SENSEGREP_EMBED_DIM` to the exact dimension returned by that server. For native Ollama, use `SENSEGREP_PROVIDER=ollama` and point `SENSEGREP_OLLAMA_BASE_URL` at the Ollama base URL if it is not the default.
+For local OpenAI-compatible embedding servers, set `SENSEGREP_PROVIDER=openai`, point `SENSEGREP_OPENAI_BASE_URL` at the local `/v1` endpoint, and set `SENSEGREP_EMBED_DIM` to the exact dimension returned by that server. Qwen3 embedding models support smaller Matryoshka output dimensions; changing dimensions requires a full reindex. For native Ollama, use `SENSEGREP_PROVIDER=ollama` and point `SENSEGREP_OLLAMA_BASE_URL` at the Ollama base URL if it is not the default.
 
 ## Index Your Project
 

@@ -269,6 +269,14 @@ export SENSEGREP_OPENAI_API_KEY="your_api_key"
 export SENSEGREP_OPENAI_BASE_URL="https://api.fireworks.ai/inference/v1"
 sensegrep search "auth flow" --provider openai --embed-model fireworks/qwen3-embedding-8b
 
+# OpenRouter + Qwen3 Embedding 8B with smaller Matryoshka vectors
+export SENSEGREP_PROVIDER=openai
+export SENSEGREP_OPENAI_API_KEY="your_openrouter_key"
+export SENSEGREP_OPENAI_BASE_URL="https://openrouter.ai/api/v1"
+export SENSEGREP_EMBED_MODEL="qwen/qwen3-embedding-8b"
+export SENSEGREP_EMBED_DIM=1024
+export SENSEGREP_OPENAI_BATCH_SIZE=96
+
 # Amazon Bedrock + Cohere Embed v4
 export AWS_REGION="us-east-1"
 sensegrep search "auth flow" --provider bedrock --embed-model cohere.embed-v4:0 --embed-dim 1536
@@ -294,6 +302,9 @@ Common environment variables:
 - `SENSEGREP_OLLAMA_BASE_URL` (Ollama, default `http://127.0.0.1:11434`)
 - `GEMINI_API_KEY` / `GOOGLE_API_KEY` (Gemini)
 - `SENSEGREP_OPENAI_API_KEY` / `FIREWORKS_API_KEY` / `OPENAI_API_KEY` (OpenAI-compatible)
+- `SENSEGREP_OPENAI_BASE_URL` (OpenAI-compatible, default `https://api.fireworks.ai/inference/v1`)
+- `SENSEGREP_OPENAI_BATCH_SIZE` (OpenAI-compatible request batch size)
+- `SENSEGREP_OPENROUTER_REFERER` / `SENSEGREP_OPENROUTER_TITLE` (optional OpenRouter attribution headers)
 - `SENSEGREP_BEDROCK_REGION` / `AWS_REGION` / `AWS_DEFAULT_REGION` (Amazon Bedrock)
 - `SENSEGREP_ROOT` (MCP root directory)
 - `SENSEGREP_WATCH` (MCP watcher toggle)

@@ -75,6 +75,8 @@ Store it at `~/.config/sensegrep/config.json`, or configure equivalent environme
 
 For LM Studio or another OpenAI-compatible embeddings server, set `provider` to `openai`, `baseUrl` to the server `/v1` endpoint, and `embedModel`/`embedDim` to the running embedding model.
 
+For OpenRouter Qwen3 embeddings, set `provider` to `openai`, `baseUrl` to `https://openrouter.ai/api/v1`, `embedModel` to `qwen/qwen3-embedding-8b`, `embedDim` to a supported Matryoshka dimension such as `1024`, and `batchSize` to `96`.
+
 For local Ollama, set `provider` to `ollama` or leave the provider unset; the default model is `qwen3-embedding:0.6b` with `embedDim` `1024`.
 
 For Gemini, set `sensegrep.embeddings.provider` to `"gemini"` and run **Sensegrep: Set Gemini API Key** or set `GEMINI_API_KEY`.

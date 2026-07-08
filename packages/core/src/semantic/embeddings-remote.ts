@@ -121,6 +121,7 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries: number, baseDelayM
 const TOKEN_LIMITS = {
   gemini: 2048,
   openai: 8192,
+  qwen3Embedding: 32768,
   ollama: 32768,
   bedrock: 8192,
 } as const
@@ -130,10 +131,26 @@ const BEDROCK_MAX_CHARS = 8192
 
 const BEDROCK_DIMENSIONS = new Set([256, 512, 1024, 1536])
 
+function isQwen3EmbeddingModel(modelName: string): boolean {
+  return /(?:^|[/:-])qwen3-embedding(?:-|:)/i.test(modelName)
+}
+
+function isOpenRouterBaseUrl(baseUrl: string): boolean {
+  try {
+    return new URL(baseUrl).hostname.toLowerCase() === "openrouter.ai"
+  } catch (_) {
+    return baseUrl.toLowerCase().includes("openrouter.ai")
+  }
+}
+
+function getOpenAiTokenLimit(modelName: string): number {
+  return isQwen3EmbeddingModel(modelName) ? TOKEN_LIMITS.qwen3Embedding : TOKEN_LIMITS.openai
+}
+
 async function validateTextLength(
   text: string,
   provider: "gemini" | "openai" | "bedrock" | "ollama",
-  _modelName: string,
+  modelName: string,
 ): Promise<{ text: string; tokenCount: number; truncated: boolean }> {
   if (provider === "bedrock") {
     const tokenCount = Math.ceil(text.length / 4)
@@ -157,7 +174,7 @@ async function validateTextLength(
       ? TOKEN_LIMITS.gemini
       : provider === "ollama"
         ? TOKEN_LIMITS.ollama
-        : TOKEN_LIMITS.openai
+        : getOpenAiTokenLimit(modelName)
   const tokenCount = Math.ceil(text.length / 4)
 
   if (tokenCount <= limit) {
@@ -224,6 +241,41 @@ function getLocalEmbeddingBatchSize(provider: "ollama"): number {
   // Local CPU servers often time out or reject large 64/256-item requests.
   // Keep requests small by default; hosted providers keep their larger batches.
   return 16
+}
+
+function readPositiveIntegerEnv(name: string): number | undefined {
+  const value = process.env[name]
+  if (value === undefined || value === "") return undefined
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be a positive number, got "${value}".`)
+  }
+  return Math.max(1, Math.floor(parsed))
+}
+
+function getOpenAiEmbeddingBatchSize(config: EmbeddingConfig, baseUrl: string, model: string): number {
+  if (config.batchSize && Number.isFinite(config.batchSize) && config.batchSize > 0) {
+    return Math.max(1, Math.floor(config.batchSize))
+  }
+
+  const envBatchSize = readPositiveIntegerEnv("SENSEGREP_OPENAI_BATCH_SIZE")
+  if (envBatchSize) return envBatchSize
+
+  return isOpenRouterBaseUrl(baseUrl) && isQwen3EmbeddingModel(model) ? 96 : 64
+}
+
+function getOpenAiEmbeddingHeaders(apiKey: string, config: EmbeddingConfig, baseUrl: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${apiKey}`,
+    "Content-Type": "application/json",
+  }
+
+  if (isOpenRouterBaseUrl(baseUrl)) {
+    headers["HTTP-Referer"] = config.openRouterReferer || "https://github.com/Stahldavid/sensegrep"
+    headers["X-Title"] = config.openRouterTitle || "sensegrep"
+  }
+
+  return headers
 }
 
 export namespace EmbeddingsRemote {
@@ -527,6 +579,8 @@ export namespace EmbeddingsRemote {
     const model = config.embedModel
     const baseUrl = config.baseUrl || "https://api.fireworks.ai/inference/v1"
     const outputDimensionality = Number(config.embedDim || options?.outputDimensionality || 768)
+    const tokenLimit = getOpenAiTokenLimit(model)
+    const batchSize = getOpenAiEmbeddingBatchSize(config, baseUrl, model)
 
     let validatedTexts: string[]
     if (options?.skipValidation) {
@@ -543,12 +597,11 @@ export namespace EmbeddingsRemote {
       if (truncatedCount > 0) {
         log.warn(`Truncated ${truncatedCount}/${texts.length} texts to fit token limit`, {
           model,
-          limit: TOKEN_LIMITS.openai,
+          limit: tokenLimit,
         })
       }
     }
 
-    const batchSize = 64
     const allVectors: number[][] = []
     const limiter = getLimiter(config)
     const maxRetries = config.rateLimit?.maxRetries ?? 6
@@ -572,10 +625,7 @@ export namespace EmbeddingsRemote {
         async () => {
           const resp = await fetch(url, {
             method: "POST",
-            headers: {
-              Authorization: `Bearer ${apiKey}`,
-              "Content-Type": "application/json",
-            },
+            headers: getOpenAiEmbeddingHeaders(apiKey, config, baseUrl),
             body: JSON.stringify(body),
           })
           if (!resp.ok) {

@@ -22,6 +22,9 @@ export type EmbeddingConfig = {
   baseUrl?: string
   region?: string
   apiKey?: string
+  batchSize?: number
+  openRouterReferer?: string
+  openRouterTitle?: string
   rateLimit?: RateLimitConfig
 }
 
@@ -160,6 +163,21 @@ export function getEmbeddingConfig(overrides?: EmbeddingOverrides): EmbeddingCon
     (fileConfigApplies ? (fileConfig as any).region : undefined) ||
     (provider === "bedrock" ? process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION : undefined)
 
+  const batchSize =
+    mergedOverrides.batchSize ??
+    (provider === "openai" ? parsePositiveEnvNumber("SENSEGREP_OPENAI_BATCH_SIZE") : undefined) ??
+    (fileConfigApplies ? parseNumber((fileConfig as any).batchSize) : undefined)
+
+  const openRouterReferer =
+    (mergedOverrides as any).openRouterReferer ||
+    process.env.SENSEGREP_OPENROUTER_REFERER ||
+    (fileConfigApplies ? (fileConfig as any).openRouterReferer : undefined)
+
+  const openRouterTitle =
+    (mergedOverrides as any).openRouterTitle ||
+    process.env.SENSEGREP_OPENROUTER_TITLE ||
+    (fileConfigApplies ? (fileConfig as any).openRouterTitle : undefined)
+
   const fileApiKey = fileConfigApplies ? ((fileConfig as any).apiKey as string | undefined) : undefined
   const apiKey =
     mergedOverrides.apiKey ||
@@ -191,6 +209,9 @@ export function getEmbeddingConfig(overrides?: EmbeddingOverrides): EmbeddingCon
     ...((provider === "openai" || provider === "ollama") && baseUrl ? { baseUrl } : {}),
     ...(provider === "bedrock" && region ? { region } : {}),
     ...(apiKey ? { apiKey } : {}),
+    ...(batchSize ? { batchSize } : {}),
+    ...(provider === "openai" && openRouterReferer ? { openRouterReferer } : {}),
+    ...(provider === "openai" && openRouterTitle ? { openRouterTitle } : {}),
     ...(Object.keys(rateLimit).length > 0 ? { rateLimit } : {}),
   }
 
