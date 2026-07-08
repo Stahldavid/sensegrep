@@ -128,7 +128,7 @@ Variables below are supported by the current runtime.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SENSEGREP_PROVIDER` | `ollama` when no API key/provider is configured | Embedding provider (`ollama`, `fastembed`, `gemini`, `openai`, `bedrock`) |
+| `SENSEGREP_PROVIDER` | `ollama` when no API key/provider is configured | Embedding provider (`ollama`, `gemini`, `openai`, `bedrock`) |
 | `SENSEGREP_EMBED_MODEL` | Provider-dependent | Embedding model name override |
 | `SENSEGREP_EMBED_DIM` | Provider-dependent | Embedding dimension override |
 | `SENSEGREP_BEDROCK_REGION` | - | Amazon Bedrock region override |
@@ -144,11 +144,10 @@ Variables below are supported by the current runtime.
 | `OPENAI_API_KEY` | - | OpenAI-compatible key fallback |
 | `SENSEGREP_OPENAI_BASE_URL` | `https://api.fireworks.ai/inference/v1` | OpenAI-compatible base URL |
 | `SENSEGREP_OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Native Ollama base URL |
-| `SENSEGREP_FASTEMBED_BASE_URL` | `http://127.0.0.1:11435/v1` | Experimental fastembed-rs sidecar base URL |
 | `AWS_REGION` | - | AWS SDK region for Amazon Bedrock |
 | `AWS_DEFAULT_REGION` | - | AWS SDK fallback region for Amazon Bedrock |
 
-For default local Ollama, run `ollama pull nomic-embed-text:v1.5` and leave provider/API keys unset, or set `SENSEGREP_PROVIDER=ollama` explicitly. For experimental fastembed-rs Jina code embeddings, start the sidecar from `docs/fastembed-rs-sidecar.md`, set `SENSEGREP_PROVIDER=fastembed`, and keep `SENSEGREP_EMBED_DIM=768`. For local OpenAI-compatible embedding servers, set `SENSEGREP_PROVIDER=openai`, point `SENSEGREP_OPENAI_BASE_URL` at the local `/v1` base URL, and set `SENSEGREP_EMBED_DIM` to the exact vector dimension returned by the server. The API key can be a dummy value only if your local server accepts it.
+For default local Ollama, run `ollama pull qwen3-embedding:0.6b` and leave provider/API keys unset, or set `SENSEGREP_PROVIDER=ollama` explicitly. For local OpenAI-compatible embedding servers, set `SENSEGREP_PROVIDER=openai`, point `SENSEGREP_OPENAI_BASE_URL` at the local `/v1` base URL, and set `SENSEGREP_EMBED_DIM` to the exact vector dimension returned by the server. The API key can be a dummy value only if your local server accepts it.
 
 ### Language Selection
 

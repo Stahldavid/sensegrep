@@ -2,7 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { Global } from "../global/index.js"
 
-export type EmbeddingProvider = "gemini" | "openai" | "bedrock" | "ollama" | "fastembed"
+export type EmbeddingProvider = "gemini" | "openai" | "bedrock" | "ollama"
 
 export type RateLimitConfig = {
   /** Max requests per minute. Default: 3000 (Gemini free tier). */
@@ -33,12 +33,9 @@ const DEFAULTS = {
   openaiModel: "fireworks/qwen3-embedding-8b",
   openaiDim: 768,
   openaiBaseUrl: "https://api.fireworks.ai/inference/v1",
-  ollamaModel: "nomic-embed-text:v1.5",
-  ollamaDim: 768,
+  ollamaModel: "qwen3-embedding:0.6b",
+  ollamaDim: 1024,
   ollamaBaseUrl: "http://127.0.0.1:11434",
-  fastembedModel: "jinaai/jina-embeddings-v2-base-code",
-  fastembedDim: 768,
-  fastembedBaseUrl: "http://127.0.0.1:11435/v1",
   bedrockModel: "cohere.embed-v4:0",
   bedrockDim: 1536,
 } as const
@@ -84,9 +81,9 @@ function loadFileConfig(): Partial<EmbeddingConfig> {
 function readConfiguredProvider(value: unknown, source: string): EmbeddingProvider | undefined {
   if (typeof value !== "string" || value.length === 0) return undefined
   const normalized = value.toLowerCase()
-  if (normalized === "gemini" || normalized === "openai" || normalized === "bedrock" || normalized === "ollama" || normalized === "fastembed") return normalized
+  if (normalized === "gemini" || normalized === "openai" || normalized === "bedrock" || normalized === "ollama") return normalized
   throw new Error(
-    `Unsupported embeddings provider in ${source}: "${value}". Use "gemini", "openai", "bedrock", "ollama", or "fastembed".`,
+    `Unsupported embeddings provider in ${source}: "${value}". Use "gemini", "openai", "bedrock", or "ollama".`,
   )
 }
 
@@ -132,9 +129,7 @@ export function getEmbeddingConfig(overrides?: EmbeddingOverrides): EmbeddingCon
         ? DEFAULTS.openaiModel
         : provider === "ollama"
           ? DEFAULTS.ollamaModel
-          : provider === "fastembed"
-            ? DEFAULTS.fastembedModel
-            : DEFAULTS.bedrockModel)
+          : DEFAULTS.bedrockModel)
 
   const embedDim =
     mergedOverrides.embedDim ??
@@ -146,23 +141,18 @@ export function getEmbeddingConfig(overrides?: EmbeddingOverrides): EmbeddingCon
         ? DEFAULTS.openaiDim
         : provider === "ollama"
           ? DEFAULTS.ollamaDim
-          : provider === "fastembed"
-            ? DEFAULTS.fastembedDim
-            : DEFAULTS.bedrockDim)
+          : DEFAULTS.bedrockDim)
 
   const baseUrl =
     mergedOverrides.baseUrl ||
     (provider === "ollama" ? process.env.SENSEGREP_OLLAMA_BASE_URL : undefined) ||
-    (provider === "fastembed" ? process.env.SENSEGREP_FASTEMBED_BASE_URL : undefined) ||
     process.env.SENSEGREP_OPENAI_BASE_URL ||
     (fileConfigApplies ? (fileConfig as any).baseUrl : undefined) ||
     (provider === "openai"
       ? DEFAULTS.openaiBaseUrl
       : provider === "ollama"
         ? DEFAULTS.ollamaBaseUrl
-        : provider === "fastembed"
-          ? DEFAULTS.fastembedBaseUrl
-          : undefined)
+        : undefined)
 
   const region =
     mergedOverrides.region ||
@@ -198,7 +188,7 @@ export function getEmbeddingConfig(overrides?: EmbeddingOverrides): EmbeddingCon
     provider,
     embedModel,
     embedDim,
-    ...((provider === "openai" || provider === "ollama" || provider === "fastembed") && baseUrl ? { baseUrl } : {}),
+    ...((provider === "openai" || provider === "ollama") && baseUrl ? { baseUrl } : {}),
     ...(provider === "bedrock" && region ? { region } : {}),
     ...(apiKey ? { apiKey } : {}),
     ...(Object.keys(rateLimit).length > 0 ? { rateLimit } : {}),

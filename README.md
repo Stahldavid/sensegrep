@@ -65,7 +65,7 @@ npm i -g @sensegrep/cli
 sensegrep selftest --root .
 
 # Default local embeddings use Ollama when no API key/provider is configured
-ollama pull nomic-embed-text:v1.5
+ollama pull qwen3-embedding:0.6b
 sensegrep index --root .
 
 # Search by meaning
@@ -251,11 +251,11 @@ sensegrep cluster "price list commission ncm uf packaging" --language java --inc
 
 ## Embeddings Configuration
 
-sensegrep supports local Ollama by default plus Gemini, OpenAI-compatible APIs, and Amazon Bedrock. If no API key or provider is configured, it defaults to Ollama at `http://127.0.0.1:11434` with `nomic-embed-text:v1.5` (768 dimensions). Run `sensegrep selftest --root .` before indexing to confirm the selected provider/model/dimension and credential/endpoint guidance without making embedding calls.
+sensegrep supports local Ollama by default plus Gemini, OpenAI-compatible APIs, and Amazon Bedrock. If no API key or provider is configured, it defaults to Ollama at `http://127.0.0.1:11434` with `qwen3-embedding:0.6b` (1024 dimensions, 32K context). Run `sensegrep selftest --root .` before indexing to confirm the selected provider/model/dimension and credential/endpoint guidance without making embedding calls.
 
 ```bash
 # Default local Ollama embeddings (no API key)
-ollama pull nomic-embed-text:v1.5
+ollama pull qwen3-embedding:0.6b
 sensegrep search "auth flow"
 
 # Recommended: Gemini embeddings (best quality)
@@ -269,35 +269,29 @@ export SENSEGREP_OPENAI_API_KEY="your_api_key"
 export SENSEGREP_OPENAI_BASE_URL="https://api.fireworks.ai/inference/v1"
 sensegrep search "auth flow" --provider openai --embed-model fireworks/qwen3-embedding-8b
 
-# Experimental fastembed-rs sidecar for Jina code embeddings
-export SENSEGREP_PROVIDER=fastembed
-export SENSEGREP_FASTEMBED_BASE_URL="http://127.0.0.1:11435/v1"
-sensegrep search "auth flow" --provider fastembed --embed-model jinaai/jina-embeddings-v2-base-code --embed-dim 768
-
 # Amazon Bedrock + Cohere Embed v4
 export AWS_REGION="us-east-1"
 sensegrep search "auth flow" --provider bedrock --embed-model cohere.embed-v4:0 --embed-dim 1536
 ```
 
-Local OpenAI-compatible embedding servers also work if they implement `/v1/embeddings`; set `SENSEGREP_PROVIDER=openai`, `SENSEGREP_OPENAI_BASE_URL` to the server's `/v1` base URL, and `SENSEGREP_EMBED_DIM` to the exact returned vector dimension. For native Ollama, use `SENSEGREP_PROVIDER=ollama`, `SENSEGREP_OLLAMA_BASE_URL` if not using the default, and the exact `SENSEGREP_EMBED_DIM` for your Ollama model. For the experimental fastembed-rs sidecar, use `SENSEGREP_PROVIDER=fastembed` and `SENSEGREP_FASTEMBED_BASE_URL`; initial support is intentionally limited to `jinaai/jina-embeddings-v2-base-code` at 768 dimensions. See [docs/fastembed-rs-sidecar.md](docs/fastembed-rs-sidecar.md).
+Local OpenAI-compatible embedding servers also work if they implement `/v1/embeddings`; set `SENSEGREP_PROVIDER=openai`, `SENSEGREP_OPENAI_BASE_URL` to the server's `/v1` base URL, and `SENSEGREP_EMBED_DIM` to the exact returned vector dimension. For native Ollama, use `SENSEGREP_PROVIDER=ollama`, `SENSEGREP_OLLAMA_BASE_URL` if not using the default, and the exact `SENSEGREP_EMBED_DIM` for your Ollama model.
 
 Global defaults via `~/.config/sensegrep/config.json`:
 
 ```json
 {
   "provider": "ollama",
-  "embedModel": "nomic-embed-text:v1.5",
-  "embedDim": 768
+  "embedModel": "qwen3-embedding:0.6b",
+  "embedDim": 1024
 }
 ```
 
 Common environment variables:
 
-- `SENSEGREP_PROVIDER` (`ollama`, `fastembed`, `gemini`, `openai`, `bedrock`)
+- `SENSEGREP_PROVIDER` (`ollama`, `gemini`, `openai`, `bedrock`)
 - `SENSEGREP_EMBED_MODEL`
 - `SENSEGREP_EMBED_DIM`
 - `SENSEGREP_OLLAMA_BASE_URL` (Ollama, default `http://127.0.0.1:11434`)
-- `SENSEGREP_FASTEMBED_BASE_URL` (experimental fastembed-rs sidecar, default `http://127.0.0.1:11435/v1`)
 - `GEMINI_API_KEY` / `GOOGLE_API_KEY` (Gemini)
 - `SENSEGREP_OPENAI_API_KEY` / `FIREWORKS_API_KEY` / `OPENAI_API_KEY` (OpenAI-compatible)
 - `SENSEGREP_BEDROCK_REGION` / `AWS_REGION` / `AWS_DEFAULT_REGION` (Amazon Bedrock)

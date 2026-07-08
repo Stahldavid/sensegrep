@@ -1,5 +1,11 @@
 # @sensegrep/core
 
+## 1.7.1
+
+### Patch Changes
+
+- Remove the experimental fastembed-rs sidecar provider and switch the default local Ollama embedding model to `qwen3-embedding:0.6b` at 1024 dimensions.
+
 ## 1.7.0
 
 ### Minor Changes

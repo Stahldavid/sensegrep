@@ -85,7 +85,7 @@ export namespace Indexer {
   // Max file size to index (500KB)
   const MAX_FILE_SIZE = 500 * 1024
   // Batch documents to reduce embedding overhead during full indexing. Local
-  // embedding servers (Ollama / fastembed-rs) can be much slower per large
+  // embedding servers such as Ollama can be much slower per large
   // request than hosted APIs, so keep their request batches intentionally small.
   // SENSEGREP_EMBED_BATCH_SIZE is primarily an operational escape hatch for
   // constrained droplets; persistence still reuses the same size safely.
@@ -103,7 +103,7 @@ export namespace Indexer {
     // Full-index batches feed EmbeddingsRemote, which further slices local-provider
     // HTTP calls. Keeping this at the historical hosted default avoids slowing cloud
     // providers while still allowing droplets to override it explicitly.
-    return process.env.SENSEGREP_PROVIDER === "ollama" || process.env.SENSEGREP_PROVIDER === "fastembed"
+    return process.env.SENSEGREP_PROVIDER === "ollama"
       ? LOCAL_ADD_BATCH_SIZE
       : DEFAULT_ADD_BATCH_SIZE
   })()
@@ -267,7 +267,7 @@ export namespace Indexer {
       throw new Error(
         "Gemini embeddings are configured but no API key was found. " +
           "Set GEMINI_API_KEY or GOOGLE_API_KEY, configure `sensegrep.geminiApiKey` in VS Code, " +
-          "or switch to `--provider ollama`, `--provider fastembed`, `--provider openai`, or `--provider bedrock`.",
+          "or switch to `--provider ollama`, `--provider openai`, or `--provider bedrock`.",
       )
     }
 

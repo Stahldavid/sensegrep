@@ -107,8 +107,8 @@ describe("CLI JSON stdout contract", () => {
     const { stdout } = await runCli(["selftest", "--root", tempRoot, "--json"], {
       env: {
         SENSEGREP_PROVIDER: "ollama",
-        SENSEGREP_EMBED_MODEL: "nomic-embed-text:v1.5",
-        SENSEGREP_EMBED_DIM: "768",
+        SENSEGREP_EMBED_MODEL: "qwen3-embedding:0.6b",
+        SENSEGREP_EMBED_DIM: "1024",
         SENSEGREP_OLLAMA_BASE_URL: "http://127.0.0.1:11434",
       },
     })
@@ -121,14 +121,14 @@ describe("CLI JSON stdout contract", () => {
     })
     expect(embeddingCheck.details).toMatchObject({
       provider: "ollama",
-      embedModel: "nomic-embed-text:v1.5",
-      embedDim: 768,
+      embedModel: "qwen3-embedding:0.6b",
+      embedDim: 1024,
       baseUrl: "http://127.0.0.1:11434",
       credentialsPresent: false,
     })
     expect(embeddingCheck.message).toContain("provider=ollama")
-    expect(embeddingCheck.message).toContain("model=nomic-embed-text:v1.5")
-    expect(embeddingCheck.message).toContain("dim=768")
+    expect(embeddingCheck.message).toContain("model=qwen3-embedding:0.6b")
+    expect(embeddingCheck.message).toContain("dim=1024")
     expect(embeddingCheck.message).toContain("baseUrl=http://127.0.0.1:11434")
     expect(embeddingCheck.message).toContain("credentials=not-required")
   })

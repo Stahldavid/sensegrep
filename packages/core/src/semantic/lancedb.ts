@@ -175,7 +175,7 @@ export namespace VectorStore {
 
   export function isSupportedIndexMeta(meta?: IndexMeta | null): meta is IndexMeta {
     const provider = meta?.embeddings?.provider
-    return provider === "gemini" || provider === "openai" || provider === "bedrock" || provider === "ollama" || provider === "fastembed"
+    return provider === "gemini" || provider === "openai" || provider === "bedrock" || provider === "ollama"
   }
 
   export function distanceToSimilarity(distance: number, metric: DistanceMetric = DEFAULT_DISTANCE_METRIC): number {

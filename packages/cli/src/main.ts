@@ -112,7 +112,7 @@ Search options:
   --no-rerank               Disable reranking
   --embed-model <name>      Override remote embedding model
   --embed-dim <n>           Override embedding dimension
-  --provider <name>         ollama|fastembed|gemini|openai|bedrock
+  --provider <name>         ollama|gemini|openai|bedrock
   --semantic-kind <kind>    Framework-aware kind (convexMutation, reactComponent, routeHandler, etc.)
   --explain-filters         Include deterministic filter match explanations
   --strict-parent           Mark parent filter as strict indexed-metadata validation
@@ -356,10 +356,10 @@ function applyEmbeddingOverrides(flags: Flags, Embeddings: CoreModule["Embedding
   const provider = flags.provider ? String(flags.provider).toLowerCase() : undefined
 
   if (flags.device || flags["rerank-model"] || flags.rerankModel) {
-    throw new Error("Device and reranker overrides were removed. Use Ollama, fastembed-rs, Gemini, OpenAI-compatible, or Bedrock embeddings only.")
+    throw new Error("Device and reranker overrides were removed. Use Ollama, Gemini, OpenAI-compatible, or Bedrock embeddings only.")
   }
-  if (provider && provider !== "gemini" && provider !== "openai" && provider !== "bedrock" && provider !== "ollama" && provider !== "fastembed") {
-    throw new Error(`Unsupported provider "${provider}". Use --provider ollama, --provider fastembed, --provider gemini, --provider openai, or --provider bedrock.`)
+  if (provider && provider !== "gemini" && provider !== "openai" && provider !== "bedrock" && provider !== "ollama") {
+    throw new Error(`Unsupported provider "${provider}". Use --provider ollama, --provider gemini, --provider openai, or --provider bedrock.`)
   }
   if (flags["embed-model"]) overrides.embedModel = String(flags["embed-model"])
   if (flags.embedModel) overrides.embedModel = String(flags.embedModel)
@@ -1314,17 +1314,15 @@ async function runSelftestCommand(
     const config = Embeddings.getConfig()
     const credentialGuidance = config.provider === "ollama"
       ? "No API key required; start Ollama and pull the configured embedding model before indexing."
-      : config.provider === "fastembed"
-        ? "No API key required; start the fastembed-rs sidecar before indexing. Initial support expects jinaai/jina-embeddings-v2-base-code."
       : config.provider === "gemini"
         ? "Set GEMINI_API_KEY or GOOGLE_API_KEY before indexing."
         : config.provider === "openai"
           ? "Set SENSEGREP_OPENAI_API_KEY, FIREWORKS_API_KEY, OPENAI_API_KEY, or configure apiKey in ~/.config/sensegrep/config.json before indexing."
           : "Set AWS credentials/AWS_REGION for Bedrock, or configure apiKey/region in ~/.config/sensegrep/config.json before indexing."
-    const credentialState = config.provider === "ollama" || config.provider === "fastembed"
+    const credentialState = config.provider === "ollama"
       ? "credentials=not-required"
       : config.apiKey ? "credentials=present" : `credentials=missing (${credentialGuidance})`
-    const endpoint = (config.provider === "openai" || config.provider === "ollama" || config.provider === "fastembed") && config.baseUrl ? ` baseUrl=${config.baseUrl}` : ""
+    const endpoint = (config.provider === "openai" || config.provider === "ollama") && config.baseUrl ? ` baseUrl=${config.baseUrl}` : ""
     const region = config.provider === "bedrock" && config.region ? ` region=${config.region}` : ""
     return {
       message: `provider=${config.provider} model=${config.embedModel} dim=${config.embedDim}${endpoint}${region} ${credentialState}`,
@@ -1332,7 +1330,7 @@ async function runSelftestCommand(
         provider: config.provider,
         embedModel: config.embedModel,
         embedDim: config.embedDim,
-        baseUrl: config.provider === "openai" || config.provider === "ollama" || config.provider === "fastembed" ? config.baseUrl : undefined,
+        baseUrl: config.provider === "openai" || config.provider === "ollama" ? config.baseUrl : undefined,
         region: config.provider === "bedrock" ? config.region : undefined,
         credentialsPresent: Boolean(config.apiKey),
         credentialGuidance: config.apiKey ? undefined : credentialGuidance,

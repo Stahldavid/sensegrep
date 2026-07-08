@@ -1,6 +1,6 @@
 {
   "name": "@sensegrep/cli",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "type": "module",
   "bin": {
     "sensegrep": "dist/main.js"
@@ -24,7 +24,7 @@
     "node": ">=18"
   },
   "dependencies": {
-    "@sensegrep/core": "^1.7.0"
+    "@sensegrep/core": "^1.7.1"
   },
   "publishConfig": {
     "access": "public"

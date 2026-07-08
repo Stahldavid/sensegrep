@@ -55,7 +55,7 @@ Search your codebase by meaning, not just text. Sensegrep uses AI embeddings and
 | `sensegrep.showDiagnostics` | `true` | Show duplicate warnings in Problems panel |
 | `sensegrep.semanticFolding` | `true` | Collapse unrelated code on navigation |
 | `sensegrep.duplicateThreshold` | `0.85` | Similarity threshold for duplicates |
-| `sensegrep.embeddings.provider` | `config` | `config`, `ollama`, `fastembed`, `gemini`, `openai`, or `bedrock` |
+| `sensegrep.embeddings.provider` | `config` | `config`, `ollama`, `gemini`, `openai`, or `bedrock` |
 | `sensegrep.embeddings.model` | empty | Embedding model override |
 
 ### Embeddings Configuration
@@ -75,7 +75,7 @@ Store it at `~/.config/sensegrep/config.json`, or configure equivalent environme
 
 For LM Studio or another OpenAI-compatible embeddings server, set `provider` to `openai`, `baseUrl` to the server `/v1` endpoint, and `embedModel`/`embedDim` to the running embedding model.
 
-For the experimental fastembed-rs Jina code sidecar, set `provider` to `fastembed`, `baseUrl` to `http://127.0.0.1:11435/v1`, `embedModel` to `jinaai/jina-embeddings-v2-base-code`, and `embedDim` to `768`.
+For local Ollama, set `provider` to `ollama` or leave the provider unset; the default model is `qwen3-embedding:0.6b` with `embedDim` `1024`.
 
 For Gemini, set `sensegrep.embeddings.provider` to `"gemini"` and run **Sensegrep: Set Gemini API Key** or set `GEMINI_API_KEY`.
 

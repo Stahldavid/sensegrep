@@ -77,9 +77,7 @@ This ensures that search results return complete, meaningful code units rather t
 
 sensegrep supports local and remote embedding providers:
 
-**Ollama**: Default local provider when no API key/provider is configured. Uses Ollama's native `/api/embed` endpoint, no API key required. Default model: `nomic-embed-text:v1.5` (768 dimensions) at `http://127.0.0.1:11434`.
-
-**fastembed-rs sidecar**: Experimental local provider for code embeddings. Initial support is intentionally limited to `jinaai/jina-embeddings-v2-base-code` (768 dimensions) through an OpenAI-compatible sidecar at `http://127.0.0.1:11435/v1`, keeping ONNX/fastembed dependencies outside the Node packages.
+**Ollama**: Default local provider when no API key/provider is configured. Uses Ollama's native `/api/embed` endpoint, no API key required. Default model: `qwen3-embedding:0.6b` (1024 dimensions, 32K context) at `http://127.0.0.1:11434`.
 
 **Gemini**: Uses Google's Gemini Embedding API for cloud-based embeddings. Requires a `GEMINI_API_KEY`.
 

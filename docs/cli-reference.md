@@ -100,7 +100,7 @@ cosine distance explicitly for stable scoring across embedding providers.
 |------|-------------|
 | `--embed-model <name>` | Override remote embedding model |
 | `--embed-dim <n>` | Override embedding dimension |
-| `--provider <name>` | `ollama`, `fastembed`, `gemini`, `openai`, `bedrock` |
+| `--provider <name>` | `ollama`, `gemini`, `openai`, `bedrock` |
 | `--rerank` / `--no-rerank` | Compatibility flag; remote-only mode keeps semantic ranking |
 
 Changing provider, model, base URL, embedding dimension, local server pooling behavior, or task-prefix strategy requires a full reindex. Same-dimensional embeddings from different models are not interchangeable.

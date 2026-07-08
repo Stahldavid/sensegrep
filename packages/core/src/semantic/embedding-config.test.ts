@@ -8,7 +8,6 @@ const ENV_KEYS = [
   "SENSEGREP_OPENAI_API_KEY",
   "SENSEGREP_OPENAI_BASE_URL",
   "SENSEGREP_OLLAMA_BASE_URL",
-  "SENSEGREP_FASTEMBED_BASE_URL",
   "FIREWORKS_API_KEY",
   "OPENAI_API_KEY",
   "GEMINI_API_KEY",
@@ -63,8 +62,8 @@ describe("embedding config", () => {
 
     expect(config).toMatchObject({
       provider: "ollama",
-      embedModel: "nomic-embed-text:v1.5",
-      embedDim: 768,
+      embedModel: "qwen3-embedding:0.6b",
+      embedDim: 1024,
       baseUrl: "http://127.0.0.1:11434",
     })
     expect(config.apiKey).toBeUndefined()
@@ -99,36 +98,13 @@ describe("embedding config", () => {
     })
   })
 
-  it("supports initial fastembed-rs jina-code provider defaults", async () => {
+  it("rejects unsupported embedding providers", async () => {
     mockMissingGlobalConfig()
     process.env.SENSEGREP_PROVIDER = "fastembed"
 
     const { getEmbeddingConfig } = await import("./embedding-config.js")
-    const config = getEmbeddingConfig()
 
-    expect(config).toMatchObject({
-      provider: "fastembed",
-      embedModel: "jinaai/jina-embeddings-v2-base-code",
-      embedDim: 768,
-      baseUrl: "http://127.0.0.1:11435/v1",
-    })
-    expect(config.apiKey).toBeUndefined()
-  })
-
-  it("allows explicit fastembed-rs sidecar base URL for jina-code", async () => {
-    mockMissingGlobalConfig()
-    process.env.SENSEGREP_PROVIDER = "fastembed"
-    process.env.SENSEGREP_FASTEMBED_BASE_URL = "http://localhost:18080/v1"
-
-    const { getEmbeddingConfig } = await import("./embedding-config.js")
-    const config = getEmbeddingConfig()
-
-    expect(config).toMatchObject({
-      provider: "fastembed",
-      embedModel: "jinaai/jina-embeddings-v2-base-code",
-      embedDim: 768,
-      baseUrl: "http://localhost:18080/v1",
-    })
+    expect(() => getEmbeddingConfig()).toThrow(/Use "gemini", "openai", "bedrock", or "ollama"/)
   })
 
   it("resolves Bedrock defaults from environment", async () => {

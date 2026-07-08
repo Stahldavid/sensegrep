@@ -42,11 +42,11 @@ sensegrep defaults to local Ollama when no API key/provider is configured. You c
 
 ```bash
 # Default local Ollama (no API key)
-ollama pull nomic-embed-text:v1.5
+ollama pull qwen3-embedding:0.6b
 # Optional if you use a non-default Ollama model/URL:
 export SENSEGREP_PROVIDER=ollama
-export SENSEGREP_EMBED_MODEL="nomic-embed-text:v1.5"
-export SENSEGREP_EMBED_DIM=768
+export SENSEGREP_EMBED_MODEL="qwen3-embedding:0.6b"
+export SENSEGREP_EMBED_DIM=1024
 export SENSEGREP_OLLAMA_BASE_URL="http://127.0.0.1:11434"
 
 # Gemini
@@ -60,12 +60,6 @@ export SENSEGREP_OPENAI_BASE_URL="https://api.fireworks.ai/inference/v1"
 export SENSEGREP_EMBED_MODEL="fireworks/qwen3-embedding-8b"
 export SENSEGREP_EMBED_DIM=768
 
-# Experimental fastembed-rs sidecar (Jina code embeddings only)
-export SENSEGREP_PROVIDER=fastembed
-export SENSEGREP_FASTEMBED_BASE_URL="http://127.0.0.1:11435/v1"
-export SENSEGREP_EMBED_MODEL="jinaai/jina-embeddings-v2-base-code"
-export SENSEGREP_EMBED_DIM=768
-
 # Amazon Bedrock
 export SENSEGREP_PROVIDER=bedrock
 export AWS_REGION="us-east-1"
@@ -73,7 +67,7 @@ export SENSEGREP_EMBED_MODEL="cohere.embed-v4:0"
 export SENSEGREP_EMBED_DIM=1536
 ```
 
-For local OpenAI-compatible embedding servers, set `SENSEGREP_PROVIDER=openai`, point `SENSEGREP_OPENAI_BASE_URL` at the local `/v1` endpoint, and set `SENSEGREP_EMBED_DIM` to the exact dimension returned by that server. For native Ollama, use `SENSEGREP_PROVIDER=ollama` and point `SENSEGREP_OLLAMA_BASE_URL` at the Ollama base URL if it is not the default. For the experimental fastembed-rs sidecar, use `SENSEGREP_PROVIDER=fastembed`; initial support is limited to `jinaai/jina-embeddings-v2-base-code`. See [fastembed-rs sidecar](fastembed-rs-sidecar.md).
+For local OpenAI-compatible embedding servers, set `SENSEGREP_PROVIDER=openai`, point `SENSEGREP_OPENAI_BASE_URL` at the local `/v1` endpoint, and set `SENSEGREP_EMBED_DIM` to the exact dimension returned by that server. For native Ollama, use `SENSEGREP_PROVIDER=ollama` and point `SENSEGREP_OLLAMA_BASE_URL` at the Ollama base URL if it is not the default.
 
 ## Index Your Project
 
