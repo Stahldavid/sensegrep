@@ -7,6 +7,8 @@ const TEST_DIR = path.join(process.cwd(), ".test-indexer")
 const readIndexMeta = vi.fn()
 const getCollection = vi.fn()
 const getStats = vi.fn()
+const getCollectionUnsafe = vi.fn()
+const hasCollection = vi.fn()
 const deleteByFile = vi.fn()
 const embedDocuments = vi.fn()
 const addEmbeddedDocuments = vi.fn()
@@ -23,7 +25,9 @@ vi.mock("./lancedb.js", () => ({
   VectorStore: {
     readIndexMeta,
     getCollection,
+    getCollectionUnsafe,
     getStats,
+    hasCollection,
     deleteByFile,
     embedDocuments,
     addEmbeddedDocuments,
@@ -100,6 +104,8 @@ describe("Indexer incremental updates", () => {
       updatedAt: Date.now(),
     })
     getCollection.mockResolvedValue({})
+    getCollectionUnsafe.mockResolvedValue({})
+    hasCollection.mockResolvedValue(true)
     getStats.mockResolvedValue({ count: 1, name: "chunks" })
     extractRegions.mockResolvedValue([])
     chunkAsync.mockResolvedValue([
@@ -169,5 +175,35 @@ describe("Indexer incremental updates", () => {
     expect(embedDocuments).not.toHaveBeenCalled()
     expect(writeIndexMeta).toHaveBeenCalledTimes(1)
     expect(writeIndexMeta.mock.calls[0][1].files["src/a.ts"]).toBeUndefined()
+  })
+
+  it("removes stale metadata when a watched file is no longer indexable", async () => {
+    readIndexMeta.mockResolvedValueOnce({
+      version: 1,
+      root: TEST_DIR,
+      embeddings: {
+        provider: "openai",
+        model: "test-model",
+        dimension: 3,
+      },
+      files: {
+        "src/a.ts.map": {
+          size: 1,
+          mtimeMs: 1,
+          hash: "old-hash",
+          chunks: ["old-chunk-hash"],
+        },
+      },
+      updatedAt: Date.now(),
+    })
+    const { Indexer } = await import("./indexer.js")
+
+    await Indexer.updateFile("src/a.ts.map")
+
+    expect(deleteByFile).toHaveBeenCalledWith({}, "src/a.ts.map")
+    expect(embedDocuments).not.toHaveBeenCalled()
+    expect(getConfig).not.toHaveBeenCalled()
+    expect(writeIndexMeta).toHaveBeenCalledTimes(1)
+    expect(writeIndexMeta.mock.calls[0][1].files["src/a.ts.map"]).toBeUndefined()
   })
 })

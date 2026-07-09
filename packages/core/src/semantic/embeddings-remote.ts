@@ -222,10 +222,17 @@ function assertEmbeddingShape(input: {
       vector.some((value) => !Number.isFinite(value)),
   )
   if (invalidIndex >= 0) {
-    const actualDim = Array.isArray(vectors[invalidIndex]) ? vectors[invalidIndex].length : 0
+    const invalidVector = vectors[invalidIndex]
+    const actualDim = Array.isArray(invalidVector) ? invalidVector.length : 0
+    const reason = !Array.isArray(invalidVector)
+      ? "returned a non-array vector"
+      : actualDim !== expectedDim
+        ? `returned vector dimension ${actualDim}`
+        : "returned non-finite vector values"
     throw new Error(
-      `${provider} embeddings response returned vector dimension ${actualDim} at index ${invalidIndex}; ` +
-        `expected ${expectedDim} (model=${model}).`,
+      `${provider} embeddings response ${reason} at index ${invalidIndex}; ` +
+        `expected ${expectedDim} (model=${model}). ` +
+        "If this is an OpenAI-compatible endpoint, verify that the model supports the requested dimensions or update embedDim to the provider's actual output.",
     )
   }
 }
@@ -644,9 +651,25 @@ export namespace EmbeddingsRemote {
     const limiter = getLimiter(config)
     const maxRetries = config.rateLimit?.maxRetries ?? 6
     const retryBaseDelayMs = config.rateLimit?.retryBaseDelayMs ?? 1_000
+    const requestCount = Math.ceil(validatedTexts.length / batchSize)
+    const estimatedTotalTokens = validatedTexts.reduce((sum, text) => sum + Math.ceil(text.length / 4), 0)
+    if (requestCount > 0) {
+      log.info("OpenAI-compatible embeddings batching", {
+        provider: config.provider,
+        model,
+        baseUrl,
+        inputs: validatedTexts.length,
+        batchSize,
+        requests: requestCount,
+        concurrency: 1,
+        estimatedTokens: estimatedTotalTokens,
+        dimensions: outputDimensionality,
+      })
+    }
 
     for (let i = 0; i < validatedTexts.length; i += batchSize) {
       const batch = validatedTexts.slice(i, i + batchSize)
+      const batchNumber = Math.floor(i / batchSize) + 1
       const url = `${baseUrl.replace(/\/+$/, "")}/embeddings`
       const body: Record<string, unknown> = {
         model,
@@ -658,6 +681,14 @@ export namespace EmbeddingsRemote {
 
       const estimatedTokens = batch.reduce((s, t) => s + Math.ceil(t.length / 4), 0)
       await limiter.acquire(estimatedTokens)
+      log.debug("OpenAI-compatible embeddings batch request", {
+        model,
+        batch: batchNumber,
+        requests: requestCount,
+        inputs: batch.length,
+        estimatedTokens,
+        dimensions: outputDimensionality,
+      })
 
       const data = await withRetry(
         async () => {

@@ -113,6 +113,12 @@ type ToolLikeResult = {
   [key: string]: unknown
 }
 
+const CODE_EXTENSIONS = new Set([
+  ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
+  ".py", ".go", ".rs", ".java", ".c", ".cpp", ".h", ".hpp", ".cs",
+  ".rb", ".php", ".swift", ".kt", ".scala", ".vue", ".svelte",
+])
+
 type FileFilterContext = {
   includeMatcher?: ReturnType<typeof createGlobMatcher>
   excludeMatcher?: ReturnType<typeof createGlobMatcher>
@@ -584,7 +590,7 @@ function resolveFileFiltering(
   return { includeMatcher, excludeMatcher, candidateFiles }
 }
 
-function queryLooksLikeIdentifier(query: string): boolean {
+export function queryLooksLikeIdentifier(query: string): boolean {
   const trimmed = query.trim()
   if (trimmed.length < 3 || trimmed.length > 120) return false
   if (/\s/.test(trimmed)) return false
@@ -598,6 +604,10 @@ function queryLooksLikeIdentifier(query: string): boolean {
     trimmed.includes(".") ||
     /^(use|define|get|set|is|has)[A-Z_]/.test(trimmed)
   )
+}
+
+function isCodeFile(filePath: string): boolean {
+  return CODE_EXTENSIONS.has(path.extname(filePath).toLowerCase())
 }
 
 function buildFiltersWithFileVariants(filters: VectorStore.SearchFilters, filePath: string): VectorStore.SearchFilters {
@@ -631,7 +641,7 @@ function pickBestLiteralDocument(
   })[0]
 }
 
-async function collectRipgrepFallbackResults(
+export async function collectRipgrepFallbackResults(
   pattern: string,
   files: string[],
   collection: Awaited<ReturnType<typeof VectorStore.getCollectionUnsafe>>,
@@ -677,14 +687,19 @@ async function collectRipgrepFallbackResults(
         endLine: selected.metadata.endLine as number,
         semanticScore: options?.semanticScore ?? 1.04,
         metadata: selected.metadata,
+        isWeakMatch: !isCodeFile(selected.metadata.file as string),
       })
     }
   }
 
-  return [...results.values()]
+  const resultList = [...results.values()]
+  return [
+    ...resultList.filter((result) => isCodeFile(result.file)),
+    ...resultList.filter((result) => !isCodeFile(result.file)),
+  ]
 }
 
-async function collectLiteralFallbackResults(
+export async function collectLiteralFallbackResults(
   query: string,
   files: string[],
   collection: Awaited<ReturnType<typeof VectorStore.getCollectionUnsafe>>,
@@ -1348,6 +1363,159 @@ export function formatCodeFence(content: string, maxLines: number): string[] {
   }
   output.push("```")
   return output
+}
+
+export async function formatRepresentativeSnippets(
+  resources: SearchResources,
+  representatives: WorkingResult[],
+  options: {
+    shake: boolean
+    shakedMaxLines?: number
+    rawMaxLines?: number
+  },
+): Promise<string[]> {
+  const lines: string[] = []
+  if (options.shake) {
+    const shaked = await shakeRepresentativeResults(resources, representatives)
+    for (const fileResult of shaked) {
+      const statsInfo = fileResult.stats.collapsedRegions > 0
+        ? ` (${fileResult.stats.hiddenLines} lines hidden in ${fileResult.stats.collapsedRegions} regions)`
+        : ""
+      lines.push(`### ${fileResult.file}${statsInfo}`)
+      const matchLabels = fileResult.originalResults
+        .map((result) => [result.metadata.symbolName, result.metadata.symbolType].filter(Boolean).join(" "))
+        .filter(Boolean)
+      if (matchLabels.length > 0) lines.push(`Matches: ${matchLabels.join(", ")}`)
+      lines.push(...formatCodeFence(fileResult.shakedContent, options.shakedMaxLines ?? 100))
+    }
+    return lines
+  }
+
+  for (const representative of representatives) {
+    const symbolLabel = [representative.metadata.symbolName, representative.metadata.symbolType].filter(Boolean).join(", ")
+    const heading = symbolLabel
+      ? `${representative.file}:${representative.startLine} (${symbolLabel})`
+      : `${representative.file}:${representative.startLine}-${representative.endLine}`
+    lines.push(`### ${heading}`)
+    lines.push(...formatCodeFence(representative.content, options.rawMaxLines ?? 40))
+  }
+  return lines
+}
+
+export function formatGroupedResultHeader(input: {
+  title: string
+  hits: number
+  files: number
+  symbolTypes: string[]
+  imports: string[]
+  signals: string[]
+  whyGrouped: string[]
+  domains?: string[]
+}): string[] {
+  const metaParts = [`Hits: ${input.hits}`, `Files: ${input.files}`]
+  if (input.domains?.length) metaParts.push(`Domains: ${input.domains.join(", ")}`)
+  if (input.symbolTypes.length > 0) metaParts.push(`Symbols: ${input.symbolTypes.join(", ")}`)
+  if (input.imports.length > 0) metaParts.push(`Imports: ${input.imports.join(", ")}`)
+  if (input.signals.length > 0) metaParts.push(`Signals: ${input.signals.join(", ")}`)
+
+  return [
+    `## ${input.title}`,
+    metaParts.join(" | "),
+    `Why grouped: ${input.whyGrouped.join(" | ")}`,
+  ]
+}
+
+export function getGroupingReasons(input: {
+  fallback: string
+  imports: string[]
+  symbols: string[]
+  symbolTypes?: string[]
+  domains?: string[]
+  includeSimilarityReason?: boolean
+}): string[] {
+  const reasons: string[] = []
+  const domains = input.domains ? topCounts(input.domains, 3) : []
+  const imports = topCounts(input.imports, 3)
+  const symbols = topCounts(input.symbols, 3)
+  const symbolTypes = input.symbolTypes ? topCounts(input.symbolTypes, 2) : []
+
+  if (domains.length > 0) reasons.push(`shared domains: ${domains.join(", ")}`)
+  if (imports.length > 0) reasons.push(`shared imports/signals: ${imports.join(", ")}`)
+  if (symbols.length > 0) reasons.push(`shared symbol terms: ${symbols.join(", ")}`)
+  if (symbolTypes.length > 0) reasons.push(`dominant symbol types: ${symbolTypes.join(", ")}`)
+  if (input.includeSimilarityReason) reasons.push("embedding/path/metadata similarity")
+  if (reasons.length === 0) reasons.push(input.fallback)
+  return reasons
+}
+
+export async function runGroupedSearch<TGroup>(input: {
+  params: CommonSensegrepParams & {
+    limit?: number
+    rawLimit?: number
+    shake?: boolean
+  }
+  heading: string
+  groupLabel: string
+  resultKey: "groups" | "clusters"
+  defaultRawLimit: number
+  rawLimitMultiplier: number
+  prepareResults?: (resources: SearchResources, results: WorkingResult[]) => Promise<WorkingResult[]>
+  buildGroups: (results: WorkingResult[]) => TGroup[]
+  formatGroup: (resources: SearchResources, group: TGroup) => Promise<string[]>
+  mapGroup: (group: TGroup) => Record<string, unknown>
+  metadata?: (groups: TGroup[]) => Record<string, unknown>
+}) {
+  return withIndexedSearchResources(input.params.query, async (resources) => {
+    const limit = input.params.limit ?? 5
+    const rawLimit = Math.max(input.params.rawLimit ?? input.defaultRawLimit, limit * input.rawLimitMultiplier)
+    const collected = await collectWorkingResults(resources, input.params, {
+      rawLimit,
+      diversify: false,
+    })
+
+    if ("output" in collected) return collected
+    const rawResults = collected.results.slice(0, rawLimit)
+    if (rawResults.length === 0) {
+      return {
+        title: input.params.query,
+        metadata: { matches: 0, indexed: true, [input.resultKey]: 0, freshness: resources.freshness },
+        freshness: resources.freshness,
+        output: prependFreshnessWarning("No matching results found for your query.", resources.freshness),
+      }
+    }
+
+    const preparedResults = input.prepareResults
+      ? await input.prepareResults(resources, rawResults)
+      : rawResults
+    const groups = input.buildGroups(preparedResults).slice(0, limit)
+    const fileCount = new Set(preparedResults.map((result) => result.file)).size
+    const outputLines = [
+      `${input.heading} for: ${input.params.query}`,
+      "",
+      `Found ${groups.length} ${input.groupLabel} from ${preparedResults.length} matches across ${fileCount} files`,
+      "",
+    ]
+
+    for (const group of groups) {
+      outputLines.push(...(await input.formatGroup(resources, group)))
+    }
+
+    return {
+      title: input.params.query,
+      metadata: {
+        indexed: true,
+        [input.resultKey]: groups.length,
+        matches: preparedResults.length,
+        files: fileCount,
+        shaked: input.params.shake !== false,
+        freshness: resources.freshness,
+        ...(input.metadata?.(groups) ?? {}),
+      },
+      freshness: resources.freshness,
+      [input.resultKey]: groups.map(input.mapGroup),
+      output: prependFreshnessWarning(outputLines.join("\n"), resources.freshness),
+    }
+  })
 }
 
 export function toStructuredSearchResult(result: WorkingResult): StructuredSearchResult {

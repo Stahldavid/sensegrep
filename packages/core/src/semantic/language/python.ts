@@ -203,121 +203,59 @@ function isDataclass(node: SyntaxNode): boolean {
   return decorators.some(d => d === "@dataclass" || d === "@dataclasses.dataclass")
 }
 
-/**
- * Check if class is abstract (inherits from ABC)
- */
-function isAbstractClass(node: SyntaxNode): boolean {
-  // Check if class inherits from ABC
+function getClassBaseText(node: SyntaxNode): string {
   const actualNode = node.type === "decorated_definition"
     ? node.childForFieldName("definition")
     : node
 
-  if (actualNode?.type !== "class_definition") return false
+  if (actualNode?.type !== "class_definition") return ""
 
-  // Look for argument_list (base classes)
   for (let i = 0; i < actualNode.childCount; i++) {
     const child = actualNode.child(i)
-    if (child?.type === "argument_list") {
-      const text = child.text
-      if (text.includes("ABC") || text.includes("ABCMeta")) {
-        return true
-      }
-    }
+    if (child?.type === "argument_list") return child.text
   }
 
-  return false
+  return ""
+}
+
+function classExtendsAny(node: SyntaxNode, baseNames: string[]): boolean {
+  const baseText = getClassBaseText(node)
+  return baseText.length > 0 && baseNames.some((baseName) => baseText.includes(baseName))
+}
+
+/**
+ * Check if class is abstract (inherits from ABC)
+ */
+function isAbstractClass(node: SyntaxNode): boolean {
+  return classExtendsAny(node, ["ABC", "ABCMeta"])
 }
 
 /**
  * Check if class is a Protocol
  */
 function isProtocol(node: SyntaxNode): boolean {
-  const actualNode = node.type === "decorated_definition"
-    ? node.childForFieldName("definition")
-    : node
-
-  if (actualNode?.type !== "class_definition") return false
-
-  for (let i = 0; i < actualNode.childCount; i++) {
-    const child = actualNode.child(i)
-    if (child?.type === "argument_list") {
-      const text = child.text
-      if (text.includes("Protocol")) {
-        return true
-      }
-    }
-  }
-
-  return false
+  return classExtendsAny(node, ["Protocol"])
 }
 
 /**
  * Check if class is a TypedDict
  */
 function isTypedDict(node: SyntaxNode): boolean {
-  const actualNode = node.type === "decorated_definition"
-    ? node.childForFieldName("definition")
-    : node
-
-  if (actualNode?.type !== "class_definition") return false
-
-  for (let i = 0; i < actualNode.childCount; i++) {
-    const child = actualNode.child(i)
-    if (child?.type === "argument_list") {
-      const text = child.text
-      if (text.includes("TypedDict")) {
-        return true
-      }
-    }
-  }
-
-  return false
+  return classExtendsAny(node, ["TypedDict"])
 }
 
 /**
  * Check if class is a NamedTuple
  */
 function isNamedTuple(node: SyntaxNode): boolean {
-  const actualNode = node.type === "decorated_definition"
-    ? node.childForFieldName("definition")
-    : node
-
-  if (actualNode?.type !== "class_definition") return false
-
-  for (let i = 0; i < actualNode.childCount; i++) {
-    const child = actualNode.child(i)
-    if (child?.type === "argument_list") {
-      const text = child.text
-      if (text.includes("NamedTuple")) {
-        return true
-      }
-    }
-  }
-
-  return false
+  return classExtendsAny(node, ["NamedTuple"])
 }
 
 /**
  * Check if class is an Enum
  */
 function isEnumClass(node: SyntaxNode): boolean {
-  const actualNode = node.type === "decorated_definition"
-    ? node.childForFieldName("definition")
-    : node
-
-  if (actualNode?.type !== "class_definition") return false
-
-  for (let i = 0; i < actualNode.childCount; i++) {
-    const child = actualNode.child(i)
-    if (child?.type === "argument_list") {
-      const text = child.text
-      if (text.includes("Enum") || text.includes("IntEnum") || text.includes("StrEnum")) {
-        return true
-      }
-    }
-  }
-
-  return false
+  return classExtendsAny(node, ["Enum", "IntEnum", "StrEnum"])
 }
 
 /**

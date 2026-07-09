@@ -4,11 +4,12 @@ import {
   type CommonSensegrepParams,
   type SearchResources,
   type WorkingResult,
-  collectWorkingResults,
   cosineSimilarity,
   deriveDomainLabel,
-  formatCodeFence,
+  formatGroupedResultHeader,
+  formatRepresentativeSnippets,
   getDominantSymbolPhrases,
+  getGroupingReasons,
   getImportHints,
   getQueryTokens,
   getSymbolTokens,
@@ -16,12 +17,10 @@ import {
   jaccardSimilarity,
   metadataSimilarity,
   pathSimilarity,
-  prependFreshnessWarning,
+  runGroupedSearch,
   selectRepresentatives,
-  shakeRepresentativeResults,
   topCounts,
   toStructuredSearchResult,
-  withIndexedSearchResources,
 } from "./sensegrep-pipeline.js"
 
 const DESCRIPTION = [
@@ -261,15 +260,13 @@ function getClusterRepresentativeTerms(group: ClusterGroup): string[] {
 }
 
 function getClusterWhyGrouped(group: ClusterGroup): string[] {
-  const reasons: string[] = []
-  const domains = topCounts(group.domainHints, 3)
-  const imports = topCounts(group.importHints, 3)
-  const symbols = topCounts(group.symbolHints, 3)
-  if (domains.length > 0) reasons.push(`shared domains: ${domains.join(", ")}`)
-  if (imports.length > 0) reasons.push(`shared imports/signals: ${imports.join(", ")}`)
-  if (symbols.length > 0) reasons.push(`shared symbol terms: ${symbols.join(", ")}`)
-  reasons.push("embedding/path/metadata similarity")
-  return reasons
+  return getGroupingReasons({
+    fallback: "embedding/path/metadata similarity",
+    imports: group.importHints,
+    symbols: group.symbolHints,
+    domains: group.domainHints,
+    includeSimilarityReason: true,
+  })
 }
 
 function buildClusterGroups(
@@ -312,95 +309,40 @@ async function formatClusterGroup(
   const symbolTypes = topCounts(cluster.dominantSymbolTypes, 3)
   const domains = topCounts(cluster.domainHints, 2)
 
-  lines.push(`## ${cluster.title}`)
-  const metaParts = [`Hits: ${cluster.members.length}`, `Files: ${cluster.files.size}`]
-  if (domains.length > 0) metaParts.push(`Domains: ${domains.join(", ")}`)
-  if (symbolTypes.length > 0) metaParts.push(`Symbols: ${symbolTypes.join(", ")}`)
-  if (importHints.length > 0) metaParts.push(`Imports: ${importHints.join(", ")}`)
-  if (symbolHints.length > 0) metaParts.push(`Signals: ${symbolHints.join(", ")}`)
-  lines.push(metaParts.join(" | "))
-  lines.push(`Why grouped: ${getClusterWhyGrouped(cluster).join(" | ")}`)
+  lines.push(...formatGroupedResultHeader({
+    title: cluster.title,
+    hits: cluster.members.length,
+    files: cluster.files.size,
+    symbolTypes,
+    imports: importHints,
+    signals: symbolHints,
+    domains,
+    whyGrouped: getClusterWhyGrouped(cluster),
+  }))
 
-  if (shake) {
-    const shaked = await shakeRepresentativeResults(resources, representatives)
-    for (const fileResult of shaked) {
-      const statsInfo =
-        fileResult.stats.collapsedRegions > 0
-          ? ` (${fileResult.stats.hiddenLines} lines hidden in ${fileResult.stats.collapsedRegions} regions)`
-          : ""
-      lines.push(`### ${fileResult.file}${statsInfo}`)
-      const matchLabels = fileResult.originalResults
-        .map((result) => [result.metadata.symbolName, result.metadata.symbolType].filter(Boolean).join(" "))
-        .filter(Boolean)
-      if (matchLabels.length > 0) lines.push(`Matches: ${matchLabels.join(", ")}`)
-      lines.push(...formatCodeFence(fileResult.shakedContent, 100))
-    }
-  } else {
-    for (const representative of representatives) {
-      const symbolLabel = [representative.metadata.symbolName, representative.metadata.symbolType].filter(Boolean).join(", ")
-      const heading = symbolLabel
-        ? `${representative.file}:${representative.startLine} (${symbolLabel})`
-        : `${representative.file}:${representative.startLine}-${representative.endLine}`
-      lines.push(`### ${heading}`)
-      lines.push(...formatCodeFence(representative.content, 40))
-    }
-  }
+  lines.push(...(await formatRepresentativeSnippets(resources, representatives, { shake })))
 
   lines.push("")
   return lines
 }
 
 async function runCluster(params: ClusterParams) {
-  return withIndexedSearchResources(params.query, async (resources) => {
-    const limit = params.limit ?? 5
-    const rawLimit = Math.max(params.rawLimit ?? 70, limit * 8)
-    const perCluster = Math.max(1, params.perCluster ?? 2)
-    const clusterThreshold = Math.min(0.95, Math.max(0.4, params.clusterThreshold ?? 0.72))
-    const minClusterSize = Math.max(1, params.minClusterSize ?? 2)
+  const perCluster = Math.max(1, params.perCluster ?? 2)
+  const clusterThreshold = Math.min(0.95, Math.max(0.4, params.clusterThreshold ?? 0.72))
+  const minClusterSize = Math.max(1, params.minClusterSize ?? 2)
 
-    const collected = await collectWorkingResults(resources, params as CommonSensegrepParams, {
-      rawLimit,
-      diversify: false,
-    })
-
-    if ("output" in collected) return collected
-
-    const rawResults = collected.results.slice(0, rawLimit)
-    if (rawResults.length === 0) {
-      return {
-        title: params.query,
-        metadata: { matches: 0, indexed: true, clusters: 0, freshness: resources.freshness },
-        freshness: resources.freshness,
-        output: prependFreshnessWarning("No matching results found for your query.", resources.freshness),
-      }
-    }
-
-    const hydrated = await hydrateResultsWithVectors(resources.collection, rawResults)
-    const groups = buildClusterGroups(hydrated, params.query, clusterThreshold, minClusterSize).slice(0, limit)
-    const outputLines = [
-      `Clusters for: ${params.query}`,
-      "",
-      `Found ${groups.length} clusters from ${hydrated.length} matches across ${new Set(hydrated.map((result) => result.file)).size} files`,
-      "",
-    ]
-
-    for (const group of groups) {
-      outputLines.push(...(await formatClusterGroup(resources, group, perCluster, params.shake !== false)))
-    }
-
-    return {
-      title: params.query,
-      metadata: {
-        indexed: true,
-        clusters: groups.length,
-        matches: hydrated.length,
-        files: new Set(hydrated.map((result) => result.file)).size,
-        shaked: params.shake !== false,
-        clusterThreshold,
-        freshness: resources.freshness,
-      },
-      freshness: resources.freshness,
-      clusters: groups.map((group) => ({
+  return runGroupedSearch({
+    params: params as CommonSensegrepParams & ClusterParams,
+    heading: "Clusters",
+    groupLabel: "clusters",
+    resultKey: "clusters",
+    defaultRawLimit: 70,
+    rawLimitMultiplier: 8,
+    prepareResults: (resources, results) => hydrateResultsWithVectors(resources.collection, results),
+    buildGroups: (results) => buildClusterGroups(results as ClusterNode[], params.query, clusterThreshold, minClusterSize),
+    formatGroup: (resources, group) => formatClusterGroup(resources, group, perCluster, params.shake !== false),
+    metadata: () => ({ clusterThreshold }),
+    mapGroup: (group) => ({
         title: group.title,
         score: Number(group.score.toFixed(6)),
         matches: group.members.length,
@@ -416,9 +358,7 @@ async function runCluster(params: ClusterParams) {
           symbols: new Set(group.members.map((member) => member.metadata.symbolName).filter(Boolean)).size,
         },
         results: group.members.map(toStructuredSearchResult),
-      })),
-      output: prependFreshnessWarning(outputLines.join("\n"), resources.freshness),
-    }
+      }),
   })
 }
 

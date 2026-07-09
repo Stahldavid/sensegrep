@@ -9,7 +9,7 @@ Usage:
   sensegrep survey <query...> [options]
   sensegrep cluster <query...> [options]
   sensegrep detect-duplicates [--root <dir>] [options]
-  sensegrep languages [--detect] [--variants]
+  sensegrep languages [--detect] [--variants] [--json]
   sensegrep semantic-kinds [--json]
   sensegrep selftest [--root <dir>] [--strict] [--deep] [--json]
 

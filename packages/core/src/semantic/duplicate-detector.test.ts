@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const rows = [
+const baseRows = [
   {
     id: "a",
     content: "export function alpha(value: number) {\n  return value + 1\n}\n",
@@ -51,6 +51,8 @@ const rows = [
   },
 ]
 
+let rows = [...baseRows]
+
 vi.mock("./lancedb.js", () => ({
   VectorStore: {
     resolveIndexedProject: vi.fn(async (root: string) => ({
@@ -77,6 +79,10 @@ vi.mock("./lancedb.js", () => ({
 }))
 
 describe("DuplicateDetector", () => {
+  beforeEach(() => {
+    rows = [...baseRows]
+  })
+
   it("matches basename globs against nested files for include/exclude filters", async () => {
     const { DuplicateDetector } = await import("./duplicate-detector.js")
 
@@ -89,6 +95,27 @@ describe("DuplicateDetector", () => {
     })
 
     expect(result.summary.candidates).toBe(1)
+    expect(result.summary.analyzedCandidates).toBe(1)
+    expect(result.duplicates).toEqual([])
+  })
+
+  it("does not report multiple chunks from the same source range as duplicates", async () => {
+    rows = [
+      baseRows[0],
+      {
+        ...baseRows[0],
+        id: "a-overlap",
+      },
+    ]
+    const { DuplicateDetector } = await import("./duplicate-detector.js")
+
+    const result = await DuplicateDetector.detect({
+      path: process.cwd(),
+      minLines: 1,
+      thresholds: { low: 0.5 },
+    })
+
+    expect(result.summary.candidates).toBe(2)
     expect(result.summary.analyzedCandidates).toBe(1)
     expect(result.duplicates).toEqual([])
   })

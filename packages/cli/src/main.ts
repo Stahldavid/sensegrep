@@ -1,10 +1,16 @@
 #!/usr/bin/env node
-import type { Tool as ToolType, DuplicateDetector as DuplicateDetectorType } from "@sensegrep/core"
+import type { DuplicateDetector as DuplicateDetectorType } from "@sensegrep/core"
 import { readFileSync } from "node:fs"
 import { createHumanLogger, writeJson, writeStderrLine, writeStdoutLine } from "./output.js"
 import { CLI_USAGE } from "./usage.js"
-
-type Flags = Record<string, string | boolean>
+import {
+  assignNumberParam,
+  buildCommonSearchParams,
+  executeSearchLikeTool,
+  getSearchQuery,
+  toBool,
+  type Flags,
+} from "./search-commands.js"
 
 class CliUsageError extends Error {
   constructor(message: string) {
@@ -233,12 +239,6 @@ function validateKnownFlags(command: string, flags: Flags): string | undefined {
   const allowed = ALLOWED_FLAGS_BY_COMMAND[command]
   if (!allowed) return undefined
   return Object.keys(flags).find((key) => !allowed.has(key))
-}
-
-function toBool(value: string | boolean | undefined) {
-  if (typeof value === "boolean") return value
-  if (!value) return undefined
-  return ["1", "true", "yes", "y", "on"].includes(value.toLowerCase())
 }
 
 function applyEmbeddingOverrides(flags: Flags, Embeddings: CoreModule["Embeddings"]) {
@@ -642,7 +642,7 @@ async function run() {
   }
 
   if (command === "search") {
-    const query = (flags.query as string | undefined) || positional.join(" ")
+    const query = getSearchQuery(flags, positional)
     if (!query) {
       writeStderrLine("Missing query")
       usage()
@@ -650,52 +650,10 @@ async function run() {
       return
     }
 
-    const params: ToolType.InferParameters<typeof SenseGrepTool> = {
-      query,
-      rerank: false,
-      shake: true,
-    }
-
-if (flags.pattern) params.pattern = String(flags.pattern)
-    if (flags.limit) params.limit = Number(flags.limit)
-    if (flags.include) params.include = String(flags.include)
-    if (flags.exclude) params.exclude = String(flags.exclude)
-    if (flags.type) params.symbolType = String(flags.type) as any
-    if (flags.symbolType) params.symbolType = String(flags.symbolType) as any
-    if (flags.variant) params.variant = String(flags.variant)
-    if (flags.decorator) params.decorator = String(flags.decorator)
-    if (flags.async !== undefined) params.isAsync = true
-    if (flags.static !== undefined) params.isStatic = true
-    if (flags.abstract !== undefined) params.isAbstract = true
-    if (flags.exported !== undefined) params.isExported = toBool(flags.exported)
-    if (flags.minComplexity) params.minComplexity = Number(flags.minComplexity)
-    if (flags["min-complexity"]) params.minComplexity = Number(flags["min-complexity"])
-    if (flags.maxComplexity) params.maxComplexity = Number(flags.maxComplexity)
-    if (flags["max-complexity"]) params.maxComplexity = Number(flags["max-complexity"])
-    if (flags.hasDocs !== undefined) params.hasDocumentation = toBool(flags.hasDocs)
-    if (flags["has-docs"] !== undefined) params.hasDocumentation = toBool(flags["has-docs"])
-    if (flags.language) params.language = String(flags.language) as any
-    if (flags.parent) params.parentScope = String(flags.parent)
-    if (flags.parentScope) params.parentScope = String(flags.parentScope)
-    if (flags.imports) params.imports = String(flags.imports)
-    if (flags["semantic-kind"]) (params as any).semanticKind = String(flags["semantic-kind"])
-    if (flags.semanticKind) (params as any).semanticKind = String(flags.semanticKind)
-    if (flags["explain-filters"] !== undefined) (params as any).explainFilters = true
-    if (flags.explainFilters !== undefined) (params as any).explainFilters = true
-    if (flags["strict-parent"] !== undefined) (params as any).strictParent = true
-    if (flags.strictParent !== undefined) (params as any).strictParent = true
-    if (flags["strict-imports"] !== undefined) (params as any).strictImports = true
-    if (flags.strictImports !== undefined) (params as any).strictImports = true
-    if (flags.symbol) params.symbol = String(flags.symbol)
-    if (flags.name) params.symbol = String(flags.name)
-    if (flags.exact !== undefined) (params as any).exact = true
-    if (flags["no-shake"] !== undefined) params.shake = false
-    if (flags["min-score"]) params.minScore = Number(flags["min-score"])
-    if (flags.minScore) params.minScore = Number(flags.minScore)
-    if (flags["max-per-file"]) params.maxPerFile = Number(flags["max-per-file"])
-    if (flags.maxPerFile) params.maxPerFile = Number(flags.maxPerFile)
-    if (flags["max-per-symbol"]) params.maxPerSymbol = Number(flags["max-per-symbol"])
-    if (flags.maxPerSymbol) params.maxPerSymbol = Number(flags.maxPerSymbol)
+    const params = buildCommonSearchParams(query, flags, { rerank: false, shake: true })
+    if (flags.exact !== undefined) params.exact = true
+    assignNumberParam(params, flags, "maxPerFile", ["max-per-file", "maxPerFile"])
+    assignNumberParam(params, flags, "maxPerSymbol", ["max-per-symbol", "maxPerSymbol"])
     if (flags.rerank !== undefined) {
       const rerankFlag = toBool(flags.rerank)
       if (rerankFlag !== undefined) params.rerank = rerankFlag
@@ -703,29 +661,12 @@ if (flags.pattern) params.pattern = String(flags.pattern)
     if (flags["no-rerank"] !== undefined) params.rerank = false
 
     await ensureFreshIfRequested(flags, rootDir, Instance, Indexer)
-    const tool = await SenseGrepTool.init()
-    const res = await Instance.provide({
-      directory: rootDir,
-      fn: () =>
-        tool.execute(params, {
-          sessionID: "cli",
-          messageID: "cli",
-          agent: "sensegrep-cli",
-          abort: new AbortController().signal,
-          metadata(_input: { title?: string; metadata?: unknown }) {},
-        }),
-    })
-
-    if (flags.json) {
-      writeJson(res)
-      return
-    }
-    writeStdoutLine(res.output)
+    await executeSearchLikeTool({ flags, rootDir, Instance, toolFactory: SenseGrepTool, params })
     return
   }
 
   if (command === "survey") {
-    const query = (flags.query as string | undefined) || positional.join(" ")
+    const query = getSearchQuery(flags, positional)
     if (!query) {
       writeStderrLine("Missing query")
       usage()
@@ -733,75 +674,17 @@ if (flags.pattern) params.pattern = String(flags.pattern)
       return
     }
 
-    const params: ToolType.InferParameters<typeof SenseGrepSurveyTool> = {
-      query,
-      shake: true,
-    }
-
-    if (flags.pattern) params.pattern = String(flags.pattern)
-    if (flags.limit) params.limit = Number(flags.limit)
-    if (flags["raw-limit"]) params.rawLimit = Number(flags["raw-limit"])
-    if (flags.rawLimit) params.rawLimit = Number(flags.rawLimit)
-    if (flags["per-group"]) params.perGroup = Number(flags["per-group"])
-    if (flags.perGroup) params.perGroup = Number(flags.perGroup)
-    if (flags.include) params.include = String(flags.include)
-    if (flags.exclude) params.exclude = String(flags.exclude)
-    if (flags.type) params.symbolType = String(flags.type) as any
-    if (flags.symbolType) params.symbolType = String(flags.symbolType) as any
-    if (flags.variant) params.variant = String(flags.variant)
-    if (flags.decorator) params.decorator = String(flags.decorator)
-    if (flags.async !== undefined) params.isAsync = true
-    if (flags.static !== undefined) params.isStatic = true
-    if (flags.abstract !== undefined) params.isAbstract = true
-    if (flags.exported !== undefined) params.isExported = toBool(flags.exported)
-    if (flags.minComplexity) params.minComplexity = Number(flags.minComplexity)
-    if (flags["min-complexity"]) params.minComplexity = Number(flags["min-complexity"])
-    if (flags.maxComplexity) params.maxComplexity = Number(flags.maxComplexity)
-    if (flags["max-complexity"]) params.maxComplexity = Number(flags["max-complexity"])
-    if (flags.hasDocs !== undefined) params.hasDocumentation = toBool(flags.hasDocs)
-    if (flags["has-docs"] !== undefined) params.hasDocumentation = toBool(flags["has-docs"])
-    if (flags.language) params.language = String(flags.language) as any
-    if (flags.parent) params.parentScope = String(flags.parent)
-    if (flags.parentScope) params.parentScope = String(flags.parentScope)
-    if (flags.imports) params.imports = String(flags.imports)
-    if (flags["semantic-kind"]) (params as any).semanticKind = String(flags["semantic-kind"])
-    if (flags.semanticKind) (params as any).semanticKind = String(flags.semanticKind)
-    if (flags["explain-filters"] !== undefined) (params as any).explainFilters = true
-    if (flags.explainFilters !== undefined) (params as any).explainFilters = true
-    if (flags["strict-parent"] !== undefined) (params as any).strictParent = true
-    if (flags.strictParent !== undefined) (params as any).strictParent = true
-    if (flags["strict-imports"] !== undefined) (params as any).strictImports = true
-    if (flags.strictImports !== undefined) (params as any).strictImports = true
-    if (flags.symbol) params.symbol = String(flags.symbol)
-    if (flags.name) params.symbol = String(flags.name)
-    if (flags["no-shake"] !== undefined) params.shake = false
-    if (flags["min-score"]) params.minScore = Number(flags["min-score"])
-    if (flags.minScore) params.minScore = Number(flags.minScore)
+    const params = buildCommonSearchParams(query, flags, { shake: true })
+    assignNumberParam(params, flags, "rawLimit", ["raw-limit", "rawLimit"])
+    assignNumberParam(params, flags, "perGroup", ["per-group", "perGroup"])
 
     await ensureFreshIfRequested(flags, rootDir, Instance, Indexer)
-    const tool = await SenseGrepSurveyTool.init()
-    const res = await Instance.provide({
-      directory: rootDir,
-      fn: () =>
-        tool.execute(params, {
-          sessionID: "cli",
-          messageID: "cli",
-          agent: "sensegrep-cli",
-          abort: new AbortController().signal,
-          metadata(_input: { title?: string; metadata?: unknown }) {},
-        }),
-    })
-
-    if (flags.json) {
-      writeJson(res)
-      return
-    }
-    writeStdoutLine(res.output)
+    await executeSearchLikeTool({ flags, rootDir, Instance, toolFactory: SenseGrepSurveyTool, params })
     return
   }
 
   if (command === "cluster") {
-    const query = (flags.query as string | undefined) || positional.join(" ")
+    const query = getSearchQuery(flags, positional)
     if (!query) {
       writeStderrLine("Missing query")
       usage()
@@ -809,74 +692,14 @@ if (flags.pattern) params.pattern = String(flags.pattern)
       return
     }
 
-    const params: ToolType.InferParameters<typeof SenseGrepClusterTool> = {
-      query,
-      shake: true,
-    }
-
-    if (flags.pattern) params.pattern = String(flags.pattern)
-    if (flags.limit) params.limit = Number(flags.limit)
-    if (flags["raw-limit"]) params.rawLimit = Number(flags["raw-limit"])
-    if (flags.rawLimit) params.rawLimit = Number(flags.rawLimit)
-    if (flags["per-cluster"]) params.perCluster = Number(flags["per-cluster"])
-    if (flags.perCluster) params.perCluster = Number(flags.perCluster)
-    if (flags["cluster-threshold"]) params.clusterThreshold = Number(flags["cluster-threshold"])
-    if (flags.clusterThreshold) params.clusterThreshold = Number(flags.clusterThreshold)
-    if (flags["min-cluster-size"]) params.minClusterSize = Number(flags["min-cluster-size"])
-    if (flags.minClusterSize) params.minClusterSize = Number(flags.minClusterSize)
-    if (flags.include) params.include = String(flags.include)
-    if (flags.exclude) params.exclude = String(flags.exclude)
-    if (flags.type) params.symbolType = String(flags.type) as any
-    if (flags.symbolType) params.symbolType = String(flags.symbolType) as any
-    if (flags.variant) params.variant = String(flags.variant)
-    if (flags.decorator) params.decorator = String(flags.decorator)
-    if (flags.async !== undefined) params.isAsync = true
-    if (flags.static !== undefined) params.isStatic = true
-    if (flags.abstract !== undefined) params.isAbstract = true
-    if (flags.exported !== undefined) params.isExported = toBool(flags.exported)
-    if (flags.minComplexity) params.minComplexity = Number(flags.minComplexity)
-    if (flags["min-complexity"]) params.minComplexity = Number(flags["min-complexity"])
-    if (flags.maxComplexity) params.maxComplexity = Number(flags.maxComplexity)
-    if (flags["max-complexity"]) params.maxComplexity = Number(flags["max-complexity"])
-    if (flags.hasDocs !== undefined) params.hasDocumentation = toBool(flags.hasDocs)
-    if (flags["has-docs"] !== undefined) params.hasDocumentation = toBool(flags["has-docs"])
-    if (flags.language) params.language = String(flags.language) as any
-    if (flags.parent) params.parentScope = String(flags.parent)
-    if (flags.parentScope) params.parentScope = String(flags.parentScope)
-    if (flags.imports) params.imports = String(flags.imports)
-    if (flags["semantic-kind"]) (params as any).semanticKind = String(flags["semantic-kind"])
-    if (flags.semanticKind) (params as any).semanticKind = String(flags.semanticKind)
-    if (flags["explain-filters"] !== undefined) (params as any).explainFilters = true
-    if (flags.explainFilters !== undefined) (params as any).explainFilters = true
-    if (flags["strict-parent"] !== undefined) (params as any).strictParent = true
-    if (flags.strictParent !== undefined) (params as any).strictParent = true
-    if (flags["strict-imports"] !== undefined) (params as any).strictImports = true
-    if (flags.strictImports !== undefined) (params as any).strictImports = true
-    if (flags.symbol) params.symbol = String(flags.symbol)
-    if (flags.name) params.symbol = String(flags.name)
-    if (flags["no-shake"] !== undefined) params.shake = false
-    if (flags["min-score"]) params.minScore = Number(flags["min-score"])
-    if (flags.minScore) params.minScore = Number(flags.minScore)
+    const params = buildCommonSearchParams(query, flags, { shake: true })
+    assignNumberParam(params, flags, "rawLimit", ["raw-limit", "rawLimit"])
+    assignNumberParam(params, flags, "perCluster", ["per-cluster", "perCluster"])
+    assignNumberParam(params, flags, "clusterThreshold", ["cluster-threshold", "clusterThreshold"])
+    assignNumberParam(params, flags, "minClusterSize", ["min-cluster-size", "minClusterSize"])
 
     await ensureFreshIfRequested(flags, rootDir, Instance, Indexer)
-    const tool = await SenseGrepClusterTool.init()
-    const res = await Instance.provide({
-      directory: rootDir,
-      fn: () =>
-        tool.execute(params, {
-          sessionID: "cli",
-          messageID: "cli",
-          agent: "sensegrep-cli",
-          abort: new AbortController().signal,
-          metadata(_input: { title?: string; metadata?: unknown }) {},
-        }),
-    })
-
-    if (flags.json) {
-      writeJson(res)
-      return
-    }
-    writeStdoutLine(res.output)
+    await executeSearchLikeTool({ flags, rootDir, Instance, toolFactory: SenseGrepClusterTool, params })
     return
   }
 
@@ -1101,7 +924,7 @@ if (flags.pattern) params.pattern = String(flags.pattern)
     return
   }
 
-writeStderrLine(`Unknown command: ${command}`)
+  writeStderrLine(`Unknown command: ${command}`)
   usage()
   process.exitCode = 1
 }
@@ -1116,8 +939,14 @@ async function runLanguagesCommand(flags: Flags, rootDir: string) {
   } = await loadCore()
 
   if (flags.detect) {
-    writeStdoutLine("Detecting languages in project...\n")
     const detected = await detectProjectLanguages(rootDir)
+
+    if (flags.json) {
+      writeJson({ languages: detected })
+      return
+    }
+
+    writeStdoutLine("Detecting languages in project...\n")
 
     if (detected.length === 0) {
       writeStdoutLine("No supported languages detected.")
@@ -1129,6 +958,13 @@ async function runLanguagesCommand(flags: Flags, rootDir: string) {
 
   if (flags.variants) {
     const variantsByLang = getVariantsGroupedByLanguage()
+    if (flags.json) {
+      writeJson({
+        variants: Object.fromEntries([...variantsByLang.entries()]),
+      })
+      return
+    }
+
     writeStdoutLine("Variants by language:\n")
     for (const [lang, variants] of variantsByLang) {
       writeStdoutLine(`  ${lang}:`)
@@ -1143,6 +979,11 @@ async function runLanguagesCommand(flags: Flags, rootDir: string) {
   // Default: list languages
   const all = getAllLanguages()
   const caps = getLanguageCapabilities()
+
+  if (flags.json) {
+    writeJson({ languages: all, capabilities: caps })
+    return
+  }
 
   writeStdoutLine("Supported languages:\n")
   for (const lang of all) {

@@ -8,12 +8,12 @@
     "url": "https://github.com/Stahldavid/sensegrep",
     "source": "github"
   },
-  "version": "1.7.3",
+  "version": "1.7.4",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@sensegrep/mcp",
-      "version": "1.7.3",
+      "version": "1.7.4",
       "transport": {
         "type": "stdio"
       },

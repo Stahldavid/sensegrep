@@ -87,6 +87,51 @@ export namespace DuplicateDetector {
     acceptableDuplicates?: DuplicateGroup[]
   }
 
+  type VectorCandidate = CodeInstance & {
+    id: string
+    vector: number[]
+    normalized?: string
+    rawContent: string
+  }
+
+  function candidateLocationKey(candidate: Pick<CodeInstance, "file" | "startLine" | "endLine" | "symbol" | "symbolType">): string {
+    return [
+      candidate.file.replace(/\\/g, "/").replace(/^\.\//, ""),
+      candidate.startLine,
+      candidate.endLine,
+      candidate.symbol,
+      candidate.symbolType ?? "",
+    ].join(":")
+  }
+
+  function sameSourceLocation(
+    a: Pick<CodeInstance, "file" | "startLine" | "endLine" | "symbol" | "symbolType">,
+    b: Pick<CodeInstance, "file" | "startLine" | "endLine" | "symbol" | "symbolType">,
+  ): boolean {
+    return candidateLocationKey(a) === candidateLocationKey(b)
+  }
+
+  function preferRicherCandidate(current: VectorCandidate, next: VectorCandidate): VectorCandidate {
+    const currentLines = current.endLine - current.startLine + 1
+    const nextLines = next.endLine - next.startLine + 1
+    const complexityDiff = (next.complexity ?? 0) - (current.complexity ?? 0)
+    if (complexityDiff > 0) return next
+    if (complexityDiff < 0) return current
+    if (nextLines > currentLines) return next
+    if (nextLines < currentLines) return current
+    return next.rawContent.length > current.rawContent.length ? next : current
+  }
+
+  function dedupeCandidatesBySourceLocation(candidates: VectorCandidate[]): VectorCandidate[] {
+    const byLocation = new Map<string, VectorCandidate>()
+    for (const candidate of candidates) {
+      const key = candidateLocationKey(candidate)
+      const existing = byLocation.get(key)
+      byLocation.set(key, existing ? preferRicherCandidate(existing, candidate) : candidate)
+    }
+    return [...byLocation.values()]
+  }
+
   // Padrões aceitáveis de duplicação
   const ACCEPTABLE_PATTERNS = [
     {
@@ -753,7 +798,7 @@ export namespace DuplicateDetector {
     }
     const includeMatcher = createGlobMatcher(options.include)
     const excludeMatcher = createGlobMatcher(options.exclude)
-    let candidates = rows
+    let candidates: VectorCandidate[] = rows
       .filter((row) => Array.isArray(row.vector) && row.vector.length > 0)
       .map((row) => {
         const startLine = Number(row.metadata.startLine ?? 0)
@@ -774,7 +819,7 @@ export namespace DuplicateDetector {
           language: row.metadata.language ? String(row.metadata.language) : undefined,
           vector: row.vector as number[],
           normalized,
-        } as CodeInstance & { id: string; vector: number[]; normalized?: string; rawContent: string }
+        } as VectorCandidate
       })
       .filter((c) => {
         if (!isInScopedPath(c.file)) return false
@@ -794,6 +839,14 @@ export namespace DuplicateDetector {
       })
 
     const originalCandidateCount = candidates.length
+    candidates = dedupeCandidatesBySourceLocation(candidates)
+    if (candidates.length !== originalCandidateCount) {
+      log.info("deduplicated overlapping duplicate candidates", {
+        before: originalCandidateCount,
+        after: candidates.length,
+      })
+    }
+
     if (candidates.length > maxCandidates) {
       log.warn("duplicate candidate set too large; truncating", {
         candidates: candidates.length,
@@ -849,6 +902,7 @@ export namespace DuplicateDetector {
         if (!candidateIds.has(neighbor.id)) continue
         const other = candidateById.get(neighbor.id)
         if (!other) continue
+        if (sameSourceLocation(candidate, other)) continue
         if (options.crossFileOnly && other.file === candidate.file) continue
         if (!options.crossLanguage && candidate.language && other.language && candidate.language !== other.language) continue
 

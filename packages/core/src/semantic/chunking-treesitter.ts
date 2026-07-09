@@ -5,7 +5,7 @@ import type { Tree } from "web-tree-sitter"
 import { createRequire } from "module"
 import path from "path"
 import type { Chunking } from "./chunking.js"
-import { getEmbeddingConfig } from "./embedding-config.js"
+import { getTreeSitterChunkLimits } from "./chunk-limits.js"
 
 // SyntaxNode type from web-tree-sitter (not directly exported, so we define it)
 type SyntaxNode = {
@@ -29,44 +29,11 @@ type TreeCursor = {
 
 const log = Log.create({ service: "semantic.chunking-treesitter" })
 
-const REMOTE_CHUNK_LIMITS = {
-  max: 7500,
-  min: 200,
-  overlap: 3,
-  config: {
-    simple: 7500,
-    medium: 5500,
-    complex: 3500,
-  },
-} as const
-
-function getChunkLimits() {
-  try {
-    const config = getEmbeddingConfig()
-    log.info("treesitter chunk limits provider detected", {
-      provider: config.provider,
-      max: REMOTE_CHUNK_LIMITS.max,
-      envProvider: process.env.SENSEGREP_PROVIDER,
-    })
-    return REMOTE_CHUNK_LIMITS
-  } catch (error) {
-    log.warn("treesitter failed to detect provider, using remote chunk limits", { error: String(error) })
-    return REMOTE_CHUNK_LIMITS
-  }
-}
-
-let cachedLimits: typeof REMOTE_CHUNK_LIMITS | null = null
-function getLimits() {
-  if (!cachedLimits) {
-    cachedLimits = getChunkLimits()
-  }
-  return cachedLimits
-}
-
-const MAX_CHUNK_SIZE = getLimits().max
-const MIN_CHUNK_SIZE = getLimits().min
-const STATEMENT_OVERLAP = getLimits().overlap
-const CHUNK_SIZE_CONFIG = getLimits().config
+const CHUNK_LIMITS = getTreeSitterChunkLimits()
+const MAX_CHUNK_SIZE = CHUNK_LIMITS.max
+const MIN_CHUNK_SIZE = CHUNK_LIMITS.min
+const STATEMENT_OVERLAP = CHUNK_LIMITS.overlap
+const CHUNK_SIZE_CONFIG = CHUNK_LIMITS.config
 
 const require = createRequire(import.meta.url)
 const resolveWasmPath = (id: string) => require.resolve(id)

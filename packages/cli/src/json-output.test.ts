@@ -100,6 +100,16 @@ describe("CLI JSON stdout contract", () => {
     expect(stderr).toBe("")
   })
 
+  itIfBuilt("keeps languages --json parseable without human text", async () => {
+    const { stdout, stderr } = await runCli(["languages", "--json"])
+
+    const parsed = JSON.parse(stdout)
+    expect(Array.isArray(parsed.languages)).toBe(true)
+    expect(parsed.capabilities).toHaveProperty("symbolTypes")
+    expect(stderr).toBe("")
+    expect(stdout).not.toContain("Supported languages")
+  })
+
   itIfBuilt("selftest reports embedding provider, model, dimension, and credential guidance", async () => {
     tempRoot = await mkdtemp(path.join(tmpdir(), "sensegrep-selftest-output-"))
     await writeFile(path.join(tempRoot, "sample.ts"), "export function sample() {\n  return 1\n}\n")

@@ -4,19 +4,18 @@ import {
   type CommonSensegrepParams,
   type SearchResources,
   type WorkingResult,
-  collectWorkingResults,
   deriveDomainLabel,
-  formatCodeFence,
+  formatGroupedResultHeader,
+  formatRepresentativeSnippets,
   getDominantSymbolPhrases,
-  prependFreshnessWarning,
+  getGroupingReasons,
   getImportHints,
   getQueryTokens,
   getSymbolTokens,
+  runGroupedSearch,
   selectRepresentatives,
-  shakeRepresentativeResults,
   topCounts,
   toStructuredSearchResult,
-  withIndexedSearchResources,
 } from "./sensegrep-pipeline.js"
 
 const DESCRIPTION = [
@@ -115,15 +114,12 @@ function getRepresentativeTerms(group: SurveyGroup): string[] {
 }
 
 function getSurveyWhyGrouped(group: SurveyGroup): string[] {
-  const reasons: string[] = []
-  const imports = topCounts(group.importHints, 3)
-  const symbols = topCounts(group.symbolHints, 3)
-  const symbolTypes = topCounts(group.dominantSymbolTypes, 2)
-  if (imports.length > 0) reasons.push(`shared imports/signals: ${imports.join(", ")}`)
-  if (symbols.length > 0) reasons.push(`shared symbol terms: ${symbols.join(", ")}`)
-  if (symbolTypes.length > 0) reasons.push(`dominant symbol types: ${symbolTypes.join(", ")}`)
-  if (reasons.length === 0) reasons.push(`shared domain label: ${group.title}`)
-  return reasons
+  return getGroupingReasons({
+    fallback: `shared domain label: ${group.title}`,
+    imports: group.importHints,
+    symbols: group.symbolHints,
+    symbolTypes: group.dominantSymbolTypes,
+  })
 }
 
 function chooseSurveyTitle(group: SurveyGroup, query: string): string {
@@ -159,90 +155,34 @@ async function formatSurveyGroup(
   const symbolHints = topCounts(group.symbolHints, 3)
   const symbolTypes = topCounts(group.dominantSymbolTypes, 3)
 
-  lines.push(`## ${chooseSurveyTitle(group, query)}`)
-  const metaParts = [`Hits: ${group.members.length}`, `Files: ${group.files.size}`]
-  if (symbolTypes.length > 0) metaParts.push(`Symbols: ${symbolTypes.join(", ")}`)
-  if (importHints.length > 0) metaParts.push(`Imports: ${importHints.join(", ")}`)
-  if (symbolHints.length > 0) metaParts.push(`Signals: ${symbolHints.join(", ")}`)
-  lines.push(metaParts.join(" | "))
-  lines.push(`Why grouped: ${getSurveyWhyGrouped(group).join(" | ")}`)
+  lines.push(...formatGroupedResultHeader({
+    title: chooseSurveyTitle(group, query),
+    hits: group.members.length,
+    files: group.files.size,
+    symbolTypes,
+    imports: importHints,
+    signals: symbolHints,
+    whyGrouped: getSurveyWhyGrouped(group),
+  }))
 
-  if (shake) {
-    const shaked = await shakeRepresentativeResults(resources, representatives)
-    for (const fileResult of shaked) {
-      const statsInfo =
-        fileResult.stats.collapsedRegions > 0
-          ? ` (${fileResult.stats.hiddenLines} lines hidden in ${fileResult.stats.collapsedRegions} regions)`
-          : ""
-      lines.push(`### ${fileResult.file}${statsInfo}`)
-      const matchLabels = fileResult.originalResults
-        .map((result) => [result.metadata.symbolName, result.metadata.symbolType].filter(Boolean).join(" "))
-        .filter(Boolean)
-      if (matchLabels.length > 0) {
-        lines.push(`Matches: ${matchLabels.join(", ")}`)
-      }
-      lines.push(...formatCodeFence(fileResult.shakedContent, 100))
-    }
-  } else {
-    for (const representative of representatives) {
-      const symbolLabel = [representative.metadata.symbolName, representative.metadata.symbolType].filter(Boolean).join(", ")
-      const heading = symbolLabel
-        ? `${representative.file}:${representative.startLine} (${symbolLabel})`
-        : `${representative.file}:${representative.startLine}-${representative.endLine}`
-      lines.push(`### ${heading}`)
-      lines.push(...formatCodeFence(representative.content, 40))
-    }
-  }
+  lines.push(...(await formatRepresentativeSnippets(resources, representatives, { shake })))
 
   lines.push("")
   return lines
 }
 
 async function runSurvey(params: SurveyParams) {
-  return withIndexedSearchResources(params.query, async (resources) => {
-    const limit = params.limit ?? 5
-    const rawLimit = Math.max(params.rawLimit ?? 60, limit * 6)
-    const perGroup = Math.max(1, params.perGroup ?? 2)
-    const collected = await collectWorkingResults(resources, params as CommonSensegrepParams, {
-      rawLimit,
-      diversify: false,
-    })
-
-    if ("output" in collected) return collected
-    const rawResults = collected.results.slice(0, rawLimit)
-    if (rawResults.length === 0) {
-      return {
-        title: params.query,
-        metadata: { matches: 0, indexed: true, groups: 0, freshness: resources.freshness },
-        freshness: resources.freshness,
-        output: prependFreshnessWarning("No matching results found for your query.", resources.freshness),
-      }
-    }
-
-    const groups = buildSurveyGroups(rawResults, params.query).slice(0, limit)
-    const outputLines = [
-      `Survey for: ${params.query}`,
-      "",
-      `Found ${groups.length} groups from ${rawResults.length} matches across ${new Set(rawResults.map((result) => result.file)).size} files`,
-      "",
-    ]
-
-    for (const group of groups) {
-      outputLines.push(...(await formatSurveyGroup(resources, group, params.query, perGroup, params.shake !== false)))
-    }
-
-    return {
-      title: params.query,
-      metadata: {
-        indexed: true,
-        groups: groups.length,
-        matches: rawResults.length,
-        files: new Set(rawResults.map((result) => result.file)).size,
-        shaked: params.shake !== false,
-        freshness: resources.freshness,
-      },
-      freshness: resources.freshness,
-      groups: groups.map((group) => ({
+  const perGroup = Math.max(1, params.perGroup ?? 2)
+  return runGroupedSearch({
+    params: params as CommonSensegrepParams & SurveyParams,
+    heading: "Survey",
+    groupLabel: "groups",
+    resultKey: "groups",
+    defaultRawLimit: 60,
+    rawLimitMultiplier: 6,
+    buildGroups: (results) => buildSurveyGroups(results, params.query),
+    formatGroup: (resources, group) => formatSurveyGroup(resources, group, params.query, perGroup, params.shake !== false),
+    mapGroup: (group) => ({
         title: chooseSurveyTitle(group, params.query),
         score: Number(group.score.toFixed(6)),
         matches: group.members.length,
@@ -257,9 +197,7 @@ async function runSurvey(params: SurveyParams) {
           symbols: new Set(group.members.map((member) => member.metadata.symbolName).filter(Boolean)).size,
         },
         results: group.members.map(toStructuredSearchResult),
-      })),
-      output: prependFreshnessWarning(outputLines.join("\n"), resources.freshness),
-    }
+      }),
   })
 }
 

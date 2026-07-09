@@ -5,10 +5,60 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
+const lockPath = path.join(rootDir, '.sensegrep-build.lock');
+const BUILD_LOCK_TIMEOUT_MS = 10 * 60_000;
+const BUILD_LOCK_STALE_MS = 30 * 60_000;
 const tsc = process.platform === 'win32'
   ? path.join(rootDir, 'node_modules', '.bin', 'tsc.cmd')
   : path.join(rootDir, 'node_modules', '.bin', 'tsc');
 const shebang = '#!/usr/bin/env node\n';
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function acquireBuildLock() {
+  const startedAt = Date.now();
+  let lastNoticeAt = 0;
+
+  while (true) {
+    try {
+      const fd = fs.openSync(lockPath, 'wx');
+      fs.writeFileSync(fd, JSON.stringify({ pid: process.pid, startedAt: Date.now() }));
+      fs.closeSync(fd);
+      return () => {
+        fs.rmSync(lockPath, { force: true });
+      };
+    } catch (error) {
+      if (!error || error.code !== 'EEXIST') throw error;
+
+      const now = Date.now();
+      let stale = false;
+      try {
+        const raw = fs.readFileSync(lockPath, 'utf8');
+        const lock = JSON.parse(raw);
+        stale = typeof lock.startedAt === 'number' && now - lock.startedAt > BUILD_LOCK_STALE_MS;
+      } catch {
+        stale = true;
+      }
+
+      if (stale) {
+        fs.rmSync(lockPath, { force: true });
+        continue;
+      }
+
+      if (now - startedAt > BUILD_LOCK_TIMEOUT_MS) {
+        throw new Error(`Timed out waiting for build lock at ${lockPath}`);
+      }
+
+      if (now - lastNoticeAt > 5_000) {
+        console.log('Waiting for another sensegrep build to finish...');
+        lastNoticeAt = now;
+      }
+      await sleep(500);
+    }
+  }
+}
 
 function packagePath(name, ...parts) {
   return path.join(rootDir, 'packages', name, ...parts);
@@ -35,36 +85,48 @@ function addShebang(filePath) {
   fs.writeFileSync(filePath, content);
 }
 
-console.log('Building core...');
-cleanPackageDist('core');
-runTsc('core');
+async function main() {
+  const releaseLock = await acquireBuildLock();
+  try {
+    console.log('Building core...');
+    cleanPackageDist('core');
+    runTsc('core');
 
-console.log('Copying tool file...');
-fs.mkdirSync(packagePath('core', 'dist', 'tool'), { recursive: true });
-fs.copyFileSync(
-  packagePath('core', 'src', 'tool', 'sensegrep.txt'),
-  packagePath('core', 'dist', 'tool', 'sensegrep.txt'),
-);
+    console.log('Copying tool file...');
+    fs.mkdirSync(packagePath('core', 'dist', 'tool'), { recursive: true });
+    fs.copyFileSync(
+      packagePath('core', 'src', 'tool', 'sensegrep.txt'),
+      packagePath('core', 'dist', 'tool', 'sensegrep.txt'),
+    );
 
-console.log('Building cli...');
-cleanPackageDist('cli');
-runTsc('cli');
+    console.log('Building cli...');
+    cleanPackageDist('cli');
+    runTsc('cli');
 
-console.log('Adding shebang to cli...');
-addShebang(packagePath('cli', 'dist', 'main.js'));
+    console.log('Adding shebang to cli...');
+    addShebang(packagePath('cli', 'dist', 'main.js'));
 
-console.log('Building mcp...');
-cleanPackageDist('mcp');
-runTsc('mcp');
+    console.log('Building mcp...');
+    cleanPackageDist('mcp');
+    runTsc('mcp');
 
-console.log('Adding shebang to mcp...');
-addShebang(packagePath('mcp', 'dist', 'server.js'));
+    console.log('Adding shebang to mcp...');
+    addShebang(packagePath('mcp', 'dist', 'server.js'));
 
-console.log('Building vscode extension...');
-cleanPackageDist('vscode');
-execSync('node build.js', {
-  stdio: 'inherit',
-  cwd: packagePath('vscode'),
+    console.log('Building vscode extension...');
+    cleanPackageDist('vscode');
+    execSync('node build.js', {
+      stdio: 'inherit',
+      cwd: packagePath('vscode'),
+    });
+
+    console.log('Build complete!');
+  } finally {
+    releaseLock();
+  }
+}
+
+main().catch((error) => {
+  console.error(error instanceof Error ? error.stack ?? error.message : String(error));
+  process.exitCode = 1;
 });
-
-console.log('Build complete!');

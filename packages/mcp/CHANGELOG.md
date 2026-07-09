@@ -1,5 +1,14 @@
 # @sensegrep/mcp
 
+## 1.7.4
+
+### Patch Changes
+
+- Fix semantic indexing edge cases, duplicate detection self-matches, CLI JSON output, and release artifact validation.
+
+- Updated dependencies []:
+  - @sensegrep/core@1.7.4
+
 ## 1.7.3
 
 ### Patch Changes

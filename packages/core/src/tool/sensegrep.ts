@@ -6,10 +6,11 @@ import { Instance } from "../project/instance.js"
 import { Embeddings } from "../semantic/embeddings.js"
 import { TreeShaker } from "../semantic/tree-shaker.js"
 import { Log } from "../util/log.js"
-import path from "path"
 import {
   annotateWorkingResults,
   canonicalizeProjectFilePath,
+  collectLiteralFallbackResults,
+  collectRipgrepFallbackResults,
   createGlobMatcher,
   dedupeOverlapping,
   diversifyResults,
@@ -20,6 +21,7 @@ import {
   getScopedFilePath,
   matchesScopedGlob,
   prependFreshnessWarning,
+  queryLooksLikeIdentifier,
   runRipgrepOnFiles,
   toStructuredSearchResult,
 } from "./sensegrep-pipeline.js"
@@ -30,74 +32,12 @@ const log = Log.create({ service: "tool.sensegrep" })
 
 const MAX_LINE_LENGTH = 2000
 
-// Extensions used to prioritize code matches over docs/config in the literal fallback.
-const CODE_EXTENSIONS = new Set([
-  ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
-  ".py", ".go", ".rs", ".java", ".c", ".cpp", ".h", ".hpp", ".cs",
-  ".rb", ".php", ".swift", ".kt", ".scala", ".vue", ".svelte"
-])
-
-function isCodeFile(filePath: string): boolean {
-  const ext = path.extname(filePath).toLowerCase()
-  return CODE_EXTENSIONS.has(ext)
-}
-
-function queryLooksLikeIdentifier(query: string): boolean {
-  const trimmed = query.trim()
-  if (trimmed.length < 3 || trimmed.length > 120) return false
-  if (/\s/.test(trimmed)) return false
-  if (!/^[A-Za-z_$][A-Za-z0-9_$.:#-]*$/.test(trimmed)) return false
-  if (!/[A-Za-z]/.test(trimmed)) return false
-
-  return (
-    /[A-Z]/.test(trimmed.slice(1)) ||
-    trimmed.includes("_") ||
-    trimmed.includes("-") ||
-    trimmed.includes(".") ||
-    /^(use|define|get|set|is|has)[A-Z_]/.test(trimmed)
-  )
-}
-
 function queryLooksLikeSimpleIdentifier(query: string): boolean {
   const trimmed = query.trim()
   if (trimmed.length < 2 || trimmed.length > 120) return false
   if (/\s/.test(trimmed)) return false
   if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(trimmed)) return false
   return /[A-Za-z]/.test(trimmed)
-}
-
-function buildFiltersWithFileVariants(
-  filters: VectorStore.SearchFilters,
-  filePath: string,
-): VectorStore.SearchFilters {
-  return {
-    ...filters,
-    all: [...(filters.all ?? []), { key: "file", operator: "in", value: expandFilePathVariants(filePath) }],
-  }
-}
-
-function pickBestLiteralDocument(
-  documents: Awaited<ReturnType<typeof VectorStore.listDocuments>>,
-  matchedLine: number,
-) {
-  const candidates = documents.filter((doc) => {
-    const file = canonicalizeProjectFilePath(doc.metadata.file as string)
-    const startLine = doc.metadata.startLine as number
-    const endLine = doc.metadata.endLine as number
-    return file && matchedLine >= startLine && matchedLine <= endLine
-  })
-
-  if (candidates.length === 0) return undefined
-
-  return candidates.sort((a, b) => {
-    const aHasSymbol = a.metadata.symbolType ? 1 : 0
-    const bHasSymbol = b.metadata.symbolType ? 1 : 0
-    if (aHasSymbol !== bHasSymbol) return bHasSymbol - aHasSymbol
-
-    const aLen = Number(a.metadata.endLine ?? 0) - Number(a.metadata.startLine ?? 0)
-    const bLen = Number(b.metadata.endLine ?? 0) - Number(b.metadata.startLine ?? 0)
-    return aLen - bLen
-  })[0]
 }
 
 async function collectExactSymbolResults(
@@ -129,105 +69,6 @@ async function collectExactSymbolResults(
     semanticScore: 1.08,
     metadata: row.metadata,
   }))
-}
-
-async function collectRipgrepFallbackResults(
-  pattern: string,
-  files: string[],
-  collection: Awaited<ReturnType<typeof VectorStore.getCollectionUnsafe>>,
-  filters: VectorStore.SearchFilters,
-  options?: {
-    caseSensitive?: boolean
-    fixedStrings?: boolean
-    semanticScore?: number
-  },
-): Promise<
-  {
-    id: string
-    file: string
-    content: string
-    startLine: number
-    endLine: number
-    semanticScore: number
-    metadata: Record<string, string | number | boolean | string[] | undefined>
-  }[]
-> {
-  const rgMatches = await runRipgrepOnFiles(pattern, files, {
-    caseSensitive: options?.caseSensitive,
-    fixedStrings: options?.fixedStrings,
-  })
-  if (rgMatches.length === 0) return []
-
-  const byFile = new Map<string, { line: number; text: string }[]>()
-  for (const match of rgMatches) {
-    const canonicalFile = canonicalizeProjectFilePath(match.file)
-    const list = byFile.get(canonicalFile) ?? []
-    list.push({ line: match.line, text: match.text })
-    byFile.set(canonicalFile, list)
-  }
-
-  const results = new Map<
-    string,
-    {
-      id: string
-      file: string
-      content: string
-      startLine: number
-      endLine: number
-      semanticScore: number
-      rawDistance?: number
-      distanceMetric?: VectorStore.DistanceMetric
-      metadata: Record<string, string | number | boolean | string[] | undefined>
-      isCode: boolean
-    }
-  >()
-
-  // Collect all candidates first
-  for (const [file, fileMatches] of byFile.entries()) {
-    const documents = await VectorStore.listDocuments(collection, {
-      filters: buildFiltersWithFileVariants(filters, file),
-    })
-
-    for (const fileMatch of fileMatches) {
-      const selected = pickBestLiteralDocument(documents, fileMatch.line)
-      if (!selected) continue
-
-      const key = `${selected.metadata.file}:${selected.metadata.startLine}:${selected.metadata.endLine}`
-      if (results.has(key)) continue
-
-      results.set(key, {
-        id: selected.id,
-        file: selected.metadata.file as string,
-        content: selected.content,
-        startLine: selected.metadata.startLine as number,
-        endLine: selected.metadata.endLine as number,
-        semanticScore: options?.semanticScore ?? 1.04,
-        metadata: selected.metadata,
-        isCode: isCodeFile(selected.metadata.file as string),
-      })
-    }
-  }
-
-  // Prioritize code files over docs/config
-  const resultArray = [...results.values()]
-  const codeResults = resultArray.filter((r) => r.isCode)
-  const nonCodeResults = resultArray.filter((r) => !r.isCode)
-
-  // Return code results first, then non-code results
-  return [...codeResults, ...nonCodeResults]
-}
-
-async function collectLiteralFallbackResults(
-  query: string,
-  files: string[],
-  collection: Awaited<ReturnType<typeof VectorStore.getCollectionUnsafe>>,
-  filters: VectorStore.SearchFilters,
-) {
-  return collectRipgrepFallbackResults(query, files, collection, filters, {
-    caseSensitive: true,
-    fixedStrings: true,
-    semanticScore: 1.05,
-  })
 }
 
 export const SenseGrepTool = Tool.define("sensegrep", {

@@ -8,50 +8,24 @@ import { BusEvent } from "../bus/bus-event.js"
 import { Embeddings } from "./embeddings.js"
 import { TreeShaker } from "./tree-shaker.js"
 import { Global } from "../global/index.js"
+import {
+  getFileKind,
+  isIndexableFilePath,
+  isProbablyMinifiedOrGenerated,
+  shouldIndexFile,
+} from "./index-file-rules.js"
 import z from "zod"
 import path from "path"
 import { Ripgrep } from "../file/ripgrep.js"
 import fs from "fs/promises"
 import crypto from "crypto"
 
-// TESTE_WATCHER_1766603500000 - Comentário de teste do watcher - não remover durante teste
 const log = Log.create({ service: "semantic.indexer" })
 
 export namespace Indexer {
   function normalizeIndexedFilePath(filePath: string): string {
     return filePath.replace(/\\/g, "/").replace(/^\.\//, "")
   }
-
-  // Supported file extensions for indexing
-  const INDEXABLE_EXTENSIONS = new Set([
-    ".ts",
-    ".tsx",
-    ".js",
-    ".jsx",
-    ".py",
-    ".go",
-    ".rs",
-    ".java",
-    ".c",
-    ".cpp",
-    ".h",
-    ".hpp",
-    ".cs",
-    ".rb",
-    ".php",
-    ".swift",
-    ".kt",
-    ".scala",
-    ".vue",
-    ".svelte",
-    ".md",
-    ".mdx",
-    ".txt",
-    ".json",
-    ".yaml",
-    ".yml",
-    ".toml",
-  ])
 
   type FileStat = { 
     size: number
@@ -298,8 +272,7 @@ export namespace Indexer {
    * Check if file should be indexed
    */
   export function isIndexableFile(filePath: string): boolean {
-    const ext = path.extname(filePath).toLowerCase()
-    return INDEXABLE_EXTENSIONS.has(ext)
+    return isIndexableFilePath(filePath)
   }
 
   // Index options for controlling what gets indexed
@@ -309,79 +282,8 @@ export namespace Indexer {
     indexOptions = options
   }
 
-  function getFileKind(filePath: string): "code" | "doc" | "config" {
-    const ext = path.extname(filePath).toLowerCase()
-    const baseName = path.basename(filePath).toLowerCase()
-
-    // Config files
-    if (
-      ext === ".json" ||
-      ext === ".yaml" ||
-      ext === ".yml" ||
-      ext === ".toml" ||
-      ext === ".ini" ||
-      ext === ".conf" ||
-      baseName.startsWith("tsconfig") ||
-      baseName.startsWith("jest.config") ||
-      baseName.startsWith("vitest.config") ||
-      baseName.startsWith("webpack") ||
-      baseName.startsWith("rollup") ||
-      baseName.startsWith("babel") ||
-      baseName.startsWith("eslint") ||
-      baseName.startsWith("prettier") ||
-      baseName === "package.json" ||
-      baseName === "package-lock.json"
-    ) {
-      return "config"
-    }
-
-    // Doc files
-    if (
-      ext === ".md" ||
-      ext === ".mdx" ||
-      ext === ".txt" ||
-      ext === ".rst" ||
-      baseName === "changelog" ||
-      baseName === "readme" ||
-      baseName.startsWith("readme.") ||
-      baseName.startsWith("changelog.") ||
-      baseName.startsWith("contributing.") ||
-      baseName.startsWith("license.")
-    ) {
-      return "doc"
-    }
-
-    return "code"
-  }
-
   function shouldIndex(filePath: string): boolean {
-    if (!isIndexableFile(filePath)) return false
-
-    const fileKind = getFileKind(filePath)
-
-    // Filter out docs and config by default
-    if (fileKind === "doc" && !indexOptions.includeDocs) {
-      return false
-    }
-    if (fileKind === "config" && !indexOptions.includeConfig) {
-      return false
-    }
-
-    return true
-  }
-
-  function isProbablyMinifiedOrGenerated(filePath: string, content: string): boolean {
-    if (/\.(min)\.(js|mjs|cjs|css)$/i.test(filePath)) return true
-
-    const lineCount = Math.max(1, content.split("\n").length)
-    const maxLineLength = content.split("\n").reduce((max, line) => Math.max(max, line.length), 0)
-    const averageLineLength = Math.ceil(content.length / lineCount)
-    const veryLongLineCount = content.split("\n").filter((line) => line.length >= 10_000).length
-
-    return (
-      content.length >= 50_000 &&
-      (lineCount <= 5 || maxLineLength >= 20_000 || (averageLineLength >= 2_000 && veryLongLineCount >= 1))
-    )
+    return shouldIndexFile(filePath, indexOptions)
   }
 
   /**
@@ -462,6 +364,20 @@ export namespace Indexer {
       meta.updatedAt = Date.now()
       await VectorStore.writeIndexMeta(Instance.directory, meta)
     }
+  }
+
+  async function deleteIndexedFileIfPresent(filePath: string): Promise<void> {
+    const meta = await VectorStore.readIndexMeta(Instance.directory)
+    if (!meta?.files || !meta.files[filePath]) return
+
+    if (await VectorStore.hasCollection(Instance.directory)) {
+      const collection = await VectorStore.getCollectionUnsafe(Instance.directory, meta.embeddings?.dimension)
+      await VectorStore.deleteByFile(collection, filePath)
+    }
+
+    delete meta.files[filePath]
+    meta.updatedAt = Date.now()
+    await VectorStore.writeIndexMeta(Instance.directory, meta)
   }
 
   async function buildDocuments(input: { filePath: string; content: string }): Promise<Document[]> {
@@ -1092,36 +1008,45 @@ export namespace Indexer {
    */
   export async function updateFile(filePath: string): Promise<void> {
     filePath = normalizeIndexedFilePath(filePath)
-    if (!shouldIndex(filePath)) return
-    if (shouldIgnoreIndexedFile(Instance.directory, filePath)) return
-    assertEmbeddingsConfigured()
+    if (!shouldIndex(filePath)) {
+      await deleteIndexedFileIfPresent(filePath)
+      return
+    }
+    if (shouldIgnoreIndexedFile(Instance.directory, filePath)) {
+      await deleteIndexedFileIfPresent(filePath)
+      return
+    }
 
     log.info("updating file in index", { file: filePath })
 
     const fullPath = path.join(Instance.directory, filePath)
     const stat = await fs.stat(fullPath).catch(() => null)
-    if (!stat) return
-    const collection = await VectorStore.getCollection(Instance.directory)
+    if (!stat) {
+      await deleteIndexedFileIfPresent(filePath)
+      return
+    }
     if (stat.size > MAX_FILE_SIZE) {
-      await deleteFileFromIndexAndMeta(collection, filePath)
+      await deleteIndexedFileIfPresent(filePath)
       return
     }
 
     const content = await fs.readFile(fullPath, "utf8").catch(() => "")
     if (isProbablyMinifiedOrGenerated(filePath, content)) {
-      await deleteFileFromIndexAndMeta(collection, filePath)
+      await deleteIndexedFileIfPresent(filePath)
       return
     }
     if (!content.trim()) {
-      await deleteFileFromIndexAndMeta(collection, filePath)
+      await deleteIndexedFileIfPresent(filePath)
       return
     }
 
     const documents = await buildDocuments({ filePath, content })
     if (documents.length === 0) {
-      await deleteFileFromIndexAndMeta(collection, filePath)
+      await deleteIndexedFileIfPresent(filePath)
       return
     }
+    assertEmbeddingsConfigured()
+    const collection = await VectorStore.getCollection(Instance.directory)
     const docsToAdd = documents.map(({ id, content: docContent, contentRaw, metadata }) => ({
       id,
       content: docContent,
@@ -1151,8 +1076,7 @@ export namespace Indexer {
     filePath = normalizeIndexedFilePath(filePath)
     log.info("removing file from index", { file: filePath })
 
-    const collection = await VectorStore.getCollection(Instance.directory)
-    await deleteFileFromIndexAndMeta(collection, filePath)
+    await deleteIndexedFileIfPresent(filePath)
   }
 
   /**
