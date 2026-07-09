@@ -12,7 +12,7 @@
     "check": "npm run check --workspaces --if-present",
     "changeset": "changeset",
     "version": "changeset version && node scripts/sync-versions.mjs",
-    "release": "npm run build && changeset publish",
+    "release": "npm run build && node scripts/publish-changesets.mjs",
     "dev": "echo 'Use packages/cli or packages/mcp when implemented'",
     "test": "vitest run",
     "test:watch": "vitest",
