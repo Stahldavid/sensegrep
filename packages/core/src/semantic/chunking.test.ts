@@ -1,14 +1,43 @@
 import { describe, expect, it } from "vitest"
+import { getGeneralChunkLimits } from "./chunk-limits.js"
 import { Chunking } from "./chunking.js"
 
 describe("Chunking oversized content", () => {
   it("splits very large single-line code into safe chunks", () => {
     const content = `const payload = "${"a".repeat(20_000)}";`
     const chunks = Chunking.chunk(content, "src/generated/bundle.js")
+    const limits = getGeneralChunkLimits()
 
     expect(chunks.length).toBeGreaterThan(1)
-    expect(Math.max(...chunks.map((chunk) => chunk.content.length))).toBeLessThanOrEqual(7_500)
+    expect(Math.max(...chunks.map((chunk) => chunk.content.length))).toBeLessThanOrEqual(limits.max)
     expect(chunks.every((chunk) => chunk.startLine === 1 && chunk.endLine === 1)).toBe(true)
+  })
+
+  it("adds bounded adaptive overlap instead of a fixed large prefix", () => {
+    const limits = getGeneralChunkLimits()
+    const chunks = Chunking.addOverlap([
+      { content: "a".repeat(1000), startLine: 1, endLine: 1, type: "code" },
+      { content: "b".repeat(400), startLine: 2, endLine: 2, type: "code" },
+    ])
+
+    const match = chunks[1].content.match(/^\.\.\.(a+)\n\n/)
+    const expectedOverlap = Math.min(
+      limits.overlap,
+      Math.floor(Math.ceil(400 / limits.charsPerToken) * 0.15) * limits.charsPerToken,
+    )
+
+    expect(match?.[1].length).toBe(expectedOverlap)
+    expect(expectedOverlap).toBeLessThan(limits.overlap)
+  })
+
+  it("keeps chunks under the configured limit after overlap is added", () => {
+    const limits = getGeneralChunkLimits()
+    const chunks = Chunking.addOverlap([
+      { content: "a".repeat(limits.overlap * 2), startLine: 1, endLine: 1, type: "code" },
+      { content: "b".repeat(limits.max - 2), startLine: 2, endLine: 2, type: "code" },
+    ])
+
+    expect(chunks[1].content.length).toBeLessThanOrEqual(limits.max)
   })
 
   it("indexes methods inside exported TypeScript classes with parent scope metadata", async () => {
@@ -97,5 +126,78 @@ export function useCalendarSync() {
       semanticKind: "reactHook",
       framework: "react",
     })
+  })
+
+  it("indexes internal functions inside exported TypeScript namespaces with parent scope metadata", async () => {
+    const content = `
+export namespace EmbeddingsRemote {
+  const TOKEN_LIMITS = {
+    qwen3: 8192,
+  }
+
+  async function embedOpenAI(texts: string[]) {
+    return texts.map((text) => [text.length])
+  }
+
+  export function createLimiter(limit: number) {
+    return { limit }
+  }
+}
+`
+
+    const chunks = await Chunking.chunkAsync(content, "packages/core/src/semantic/embeddings-remote.ts")
+    const internalFunction = chunks.find((chunk) => chunk.symbolName === "embedOpenAI")
+    const exportedFunction = chunks.find((chunk) => chunk.symbolName === "createLimiter")
+
+    expect(chunks.find((chunk) => chunk.symbolName === "EmbeddingsRemote")).toMatchObject({
+      symbolType: "namespace",
+      isExported: true,
+    })
+    expect(internalFunction).toMatchObject({
+      symbolName: "embedOpenAI",
+      symbolType: "function",
+      parentScope: "EmbeddingsRemote",
+      isAsync: true,
+      variant: "async",
+      isExported: false,
+    })
+    expect(internalFunction?.content).toContain("// Namespace: EmbeddingsRemote")
+    expect(exportedFunction).toMatchObject({
+      symbolName: "createLimiter",
+      symbolType: "function",
+      parentScope: "EmbeddingsRemote",
+      isExported: true,
+    })
+  })
+
+  it("splits complex TypeScript functions using the complex adaptive limit", async () => {
+    const branches = Array.from(
+      { length: 24 },
+      (_, index) => `
+  if (input > ${index}) {
+    total += ${index}
+  } else {
+    total -= ${index}
+  }
+  total += "${"x".repeat(120)}".length`,
+    ).join("\n")
+    const content = `
+export function complexFlow(input: number) {
+  let total = 0
+${branches}
+  return total
+}
+`
+
+    const chunks = await Chunking.chunkAsync(content, "src/complex-flow.ts")
+    const functionChunks = chunks.filter((chunk) => chunk.symbolName === "complexFlow")
+
+    expect(content.length).toBeLessThan(getGeneralChunkLimits().max)
+    expect(functionChunks.length).toBeGreaterThan(1)
+    expect(functionChunks.every((chunk) => chunk.symbolType === "function")).toBe(true)
+    const locations = new Set(
+      functionChunks.map((chunk) => `${chunk.startLine}:${chunk.endLine}:${chunk.symbolName}:${chunk.symbolType}`),
+    )
+    expect(locations.size).toBe(functionChunks.length)
   })
 })

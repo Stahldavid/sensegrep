@@ -7,6 +7,7 @@ import {
   type EmbeddingConfig,
   type EmbeddingOverrides,
 } from "./embedding-config.js"
+import { getEmbeddingModelMaxTokens } from "./chunk-limits.js"
 
 const log = Log.create({ service: "semantic.embeddings-remote" })
 
@@ -116,6 +117,25 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries: number, baseDelayM
   throw new Error("unreachable")
 }
 
+async function mapConcurrent<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let next = 0
+
+  async function worker(): Promise<void> {
+    while (next < items.length) {
+      const index = next++
+      results[index] = await fn(items[index], index)
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(Math.max(1, concurrency), items.length) }, () => worker()))
+  return results
+}
+
 // ── Token limits ──────────────────────────────────────────────────────────────
 
 const TOKEN_LIMITS = {
@@ -143,15 +163,12 @@ function isOpenRouterBaseUrl(baseUrl: string): boolean {
   }
 }
 
-function getOpenAiTokenLimit(modelName: string): number {
-  return isQwen3EmbeddingModel(modelName) ? TOKEN_LIMITS.qwen3Embedding : TOKEN_LIMITS.openai
-}
-
 async function validateTextLength(
   text: string,
   provider: "gemini" | "openai" | "bedrock" | "ollama",
-  modelName: string,
+  config: EmbeddingConfig,
 ): Promise<{ text: string; tokenCount: number; truncated: boolean }> {
+  const modelName = config.embedModel
   if (provider === "bedrock") {
     const tokenCount = Math.ceil(text.length / 4)
     if (text.length <= BEDROCK_MAX_CHARS) {
@@ -169,12 +186,7 @@ async function validateTextLength(
     }
   }
 
-  const limit =
-    provider === "gemini"
-      ? TOKEN_LIMITS.gemini
-      : provider === "ollama"
-        ? TOKEN_LIMITS.ollama
-        : getOpenAiTokenLimit(modelName)
+  const limit = getEmbeddingModelMaxTokens(config)
   const tokenCount = Math.ceil(text.length / 4)
 
   if (tokenCount <= limit) {
@@ -301,6 +313,19 @@ function getOpenAiEmbeddingBatchSize(config: EmbeddingConfig, baseUrl: string, m
   return isOpenRouterBaseUrl(baseUrl) && isQwen3EmbeddingModel(model) ? 96 : 64
 }
 
+function getOpenAiEmbeddingConcurrency(config: EmbeddingConfig, baseUrl: string, model: string): number {
+  if (config.concurrency && Number.isFinite(config.concurrency) && config.concurrency > 0) {
+    return Math.max(1, Math.floor(config.concurrency))
+  }
+
+  const envConcurrency =
+    readPositiveIntegerEnv("SENSEGREP_OPENAI_CONCURRENCY") ??
+    readPositiveIntegerEnv("SENSEGREP_EMBED_CONCURRENCY")
+  if (envConcurrency) return envConcurrency
+
+  return isOpenRouterBaseUrl(baseUrl) && isQwen3EmbeddingModel(model) ? 2 : 1
+}
+
 function getOpenAiEmbeddingHeaders(apiKey: string, config: EmbeddingConfig, baseUrl: string): Record<string, string> {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${apiKey}`,
@@ -392,6 +417,47 @@ export namespace EmbeddingsRemote {
     return []
   }
 
+  function getValidationLimit(provider: EmbeddingConfig["provider"], config: EmbeddingConfig): number {
+    return provider === "bedrock" ? TOKEN_LIMITS.bedrock : getEmbeddingModelMaxTokens(config)
+  }
+
+  async function prepareValidatedTexts(
+    texts: string[],
+    provider: EmbeddingConfig["provider"],
+    config: EmbeddingConfig,
+    skipValidation?: boolean,
+  ): Promise<string[]> {
+    if (skipValidation) return texts
+
+    const validatedTexts: string[] = []
+    let truncatedCount = 0
+    for (const text of texts) {
+      const validated = await validateTextLength(text, provider, config)
+      validatedTexts.push(validated.text)
+      if (validated.truncated) truncatedCount++
+    }
+
+    if (truncatedCount > 0) {
+      log.warn(`Truncated ${truncatedCount}/${texts.length} texts to fit token limit`, {
+        model: config.embedModel,
+        limit: getValidationLimit(provider, config),
+      })
+    }
+
+    return validatedTexts
+  }
+
+  function numberedBatches<T>(items: T[], batchSize: number): Array<{ batch: T[]; batchNumber: number }> {
+    const batches: Array<{ batch: T[]; batchNumber: number }> = []
+    for (let i = 0; i < items.length; i += batchSize) {
+      batches.push({
+        batch: items.slice(i, i + batchSize),
+        batchNumber: Math.floor(i / batchSize) + 1,
+      })
+    }
+    return batches
+  }
+
   async function embedBedrock(
     texts: string[],
     options: (EmbedOptions & { skipValidation?: boolean }) | undefined,
@@ -405,25 +471,7 @@ export namespace EmbeddingsRemote {
       )
     }
 
-    let validatedTexts: string[]
-    if (options?.skipValidation) {
-      validatedTexts = texts
-    } else {
-      validatedTexts = []
-      let truncatedCount = 0
-      for (const text of texts) {
-        const validated = await validateTextLength(text, "bedrock", model)
-        validatedTexts.push(validated.text)
-        if (validated.truncated) truncatedCount++
-      }
-
-      if (truncatedCount > 0) {
-        log.warn(`Truncated ${truncatedCount}/${texts.length} texts to fit token limit`, {
-          model,
-          limit: TOKEN_LIMITS.bedrock,
-        })
-      }
-    }
+    const validatedTexts = await prepareValidatedTexts(texts, "bedrock", config, options?.skipValidation)
 
     const batches = batchTextsForBedrock(validatedTexts)
     const allVectors: number[][] = []
@@ -503,25 +551,7 @@ export namespace EmbeddingsRemote {
     const taskType = options?.taskType
     const titles = typeof options?.title === "string" ? texts.map(() => options.title as string) : options?.title
 
-    let validatedTexts: string[]
-    if (options?.skipValidation) {
-      validatedTexts = texts
-    } else {
-      validatedTexts = []
-      let truncatedCount = 0
-      for (const text of texts) {
-        const validated = await validateTextLength(text, "gemini", model)
-        validatedTexts.push(validated.text)
-        if (validated.truncated) truncatedCount++
-      }
-
-      if (truncatedCount > 0) {
-        log.warn(`Truncated ${truncatedCount}/${texts.length} texts to fit token limit`, {
-          model,
-          limit: TOKEN_LIMITS.gemini,
-        })
-      }
-    }
+    const validatedTexts = await prepareValidatedTexts(texts, "gemini", config, options?.skipValidation)
 
     const batchSize = 64
     const allVectors: number[][] = []
@@ -624,34 +654,15 @@ export namespace EmbeddingsRemote {
     const model = config.embedModel
     const baseUrl = config.baseUrl || "https://api.fireworks.ai/inference/v1"
     const outputDimensionality = Number(config.embedDim || options?.outputDimensionality || 768)
-    const tokenLimit = getOpenAiTokenLimit(model)
     const batchSize = getOpenAiEmbeddingBatchSize(config, baseUrl, model)
+    const validatedTexts = await prepareValidatedTexts(texts, "openai", config, options?.skipValidation)
 
-    let validatedTexts: string[]
-    if (options?.skipValidation) {
-      validatedTexts = texts
-    } else {
-      validatedTexts = []
-      let truncatedCount = 0
-      for (const text of texts) {
-        const validated = await validateTextLength(text, "openai", model)
-        validatedTexts.push(validated.text)
-        if (validated.truncated) truncatedCount++
-      }
-
-      if (truncatedCount > 0) {
-        log.warn(`Truncated ${truncatedCount}/${texts.length} texts to fit token limit`, {
-          model,
-          limit: tokenLimit,
-        })
-      }
-    }
-
-    const allVectors: number[][] = []
     const limiter = getLimiter(config)
     const maxRetries = config.rateLimit?.maxRetries ?? 6
     const retryBaseDelayMs = config.rateLimit?.retryBaseDelayMs ?? 1_000
-    const requestCount = Math.ceil(validatedTexts.length / batchSize)
+    const batches = numberedBatches(validatedTexts, batchSize)
+    const requestCount = batches.length
+    const concurrency = Math.min(getOpenAiEmbeddingConcurrency(config, baseUrl, model), Math.max(1, requestCount))
     const estimatedTotalTokens = validatedTexts.reduce((sum, text) => sum + Math.ceil(text.length / 4), 0)
     if (requestCount > 0) {
       log.info("OpenAI-compatible embeddings batching", {
@@ -661,15 +672,13 @@ export namespace EmbeddingsRemote {
         inputs: validatedTexts.length,
         batchSize,
         requests: requestCount,
-        concurrency: 1,
+        concurrency,
         estimatedTokens: estimatedTotalTokens,
         dimensions: outputDimensionality,
       })
     }
 
-    for (let i = 0; i < validatedTexts.length; i += batchSize) {
-      const batch = validatedTexts.slice(i, i + batchSize)
-      const batchNumber = Math.floor(i / batchSize) + 1
+    const batchVectors = await mapConcurrent(batches, concurrency, async ({ batch, batchNumber }) => {
       const url = `${baseUrl.replace(/\/+$/, "")}/embeddings`
       const body: Record<string, unknown> = {
         model,
@@ -717,8 +726,10 @@ export namespace EmbeddingsRemote {
         return normalize(values.map((value: any) => Number(value)))
       })
 
-      allVectors.push(...vectors)
-    }
+      return vectors
+    })
+
+    const allVectors = batchVectors.flat()
 
     assertEmbeddingShape({
       provider: "openai",
@@ -739,25 +750,7 @@ export namespace EmbeddingsRemote {
     const model = config.embedModel
     const baseUrl = config.baseUrl || "http://127.0.0.1:11434"
 
-    let validatedTexts: string[]
-    if (options?.skipValidation) {
-      validatedTexts = texts
-    } else {
-      validatedTexts = []
-      let truncatedCount = 0
-      for (const text of texts) {
-        const validated = await validateTextLength(text, "ollama", model)
-        validatedTexts.push(validated.text)
-        if (validated.truncated) truncatedCount++
-      }
-
-      if (truncatedCount > 0) {
-        log.warn(`Truncated ${truncatedCount}/${texts.length} texts to fit token limit`, {
-          model,
-          limit: TOKEN_LIMITS.ollama,
-        })
-      }
-    }
+    const validatedTexts = await prepareValidatedTexts(texts, "ollama", config, options?.skipValidation)
 
     const batchSize = getLocalEmbeddingBatchSize("ollama")
     const allVectors: number[][] = []

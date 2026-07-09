@@ -37,7 +37,22 @@ export namespace VectorStore {
       device?: string
       distanceMetric?: DistanceMetric
     }
-    files: Record<string, { 
+    chunking?: {
+      version: number
+      provider: string
+      model: string
+      dimension: number
+      maxInputTokens?: number
+      modelMaxTokens: number
+      usableModelTokens: number
+      maxChars: number
+      minChars: number
+      overlapChars: number
+      simpleChars: number
+      mediumChars: number
+      complexChars: number
+    }
+    files: Record<string, {
       size: number
       mtimeMs: number
       hash?: string

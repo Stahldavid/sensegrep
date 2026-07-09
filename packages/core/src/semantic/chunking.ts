@@ -1,108 +1,111 @@
 import { Log } from "../util/log.js"
 import { TreeSitterChunking } from "./chunking-treesitter.js"
-import { getEmbeddingConfig } from "./embedding-config.js"
 import { getLanguageForFile, chunkPython, chunkJava, chunkVue } from "./language/index.js"
+import { getGeneralChunkLimits } from "./chunk-limits.js"
 
 const log = Log.create({ service: "semantic.chunking" })
 
 export namespace Chunking {
-  const REMOTE_CHUNK_LIMITS = {
-    max: 7500,
-    min: 200,
-    overlap: 500,
-  } as const
-
   function getChunkLimits() {
-    try {
-      const config = getEmbeddingConfig()
-      log.info("chunk limits provider detected", {
-        provider: config.provider,
-        max: REMOTE_CHUNK_LIMITS.max,
-        envProvider: process.env.SENSEGREP_PROVIDER,
-      })
-      return REMOTE_CHUNK_LIMITS
-    } catch (error) {
-      log.warn("failed to detect provider, using remote chunk limits", { error: String(error) })
-      return REMOTE_CHUNK_LIMITS
-    }
+    return getGeneralChunkLimits()
   }
 
-  let cachedLimits: typeof REMOTE_CHUNK_LIMITS | null = null
   function getLimits() {
-    if (!cachedLimits) {
-      cachedLimits = getChunkLimits()
-    }
-    return cachedLimits
+    return getChunkLimits()
   }
 
-  function getMaxChunkSize() { return getLimits().max }
-  function getMinChunkSize() { return getLimits().min }
-  function getOverlapSize() { return getLimits().overlap }
+  function getMaxChunkSize() {
+    return getLimits().max
+  }
+  function getMinChunkSize() {
+    return getLimits().min
+  }
 
-  const MAX_CHUNK_SIZE = getMaxChunkSize()
-  const MIN_CHUNK_SIZE = getMinChunkSize()
-  const OVERLAP_SIZE = getOverlapSize()
+  type ChunkSegment = { content: string; startLine: number; endLine: number }
 
-  function splitOversizedContent(content: string): string[] {
-    if (content.length <= MAX_CHUNK_SIZE) return [content]
+  function splitOversizedChunk(chunk: Chunk): Chunk[] {
+    const maxChunkSize = getMaxChunkSize()
+    const maxOverlapSize = getLimits().overlap
+    if (chunk.content.length <= maxChunkSize) return [chunk]
 
-    const segments: string[] = []
-    const lines = content.split("\n")
+    const segments: ChunkSegment[] = []
+    const lines = chunk.content.split("\n")
 
     if (lines.length > 1) {
       let current: string[] = []
-      for (const line of lines) {
+      let currentStartLine = chunk.startLine
+
+      for (let offset = 0; offset < lines.length; offset++) {
+        const line = lines[offset]
+        const lineNumber = chunk.startLine + offset
         const candidate = current.length === 0 ? line : `${current.join("\n")}\n${line}`
-        if (candidate.length <= MAX_CHUNK_SIZE) {
+        if (candidate.length <= maxChunkSize) {
+          if (current.length === 0) currentStartLine = lineNumber
           current.push(line)
           continue
         }
 
         if (current.length > 0) {
-          segments.push(current.join("\n"))
+          segments.push({
+            content: current.join("\n"),
+            startLine: currentStartLine,
+            endLine: currentStartLine + current.length - 1,
+          })
           current = []
         }
 
-        if (line.length > MAX_CHUNK_SIZE) {
-          const step = Math.max(1, MAX_CHUNK_SIZE - OVERLAP_SIZE)
+        if (line.length > maxChunkSize) {
+          const step = Math.max(1, maxChunkSize - maxOverlapSize)
           for (let index = 0; index < line.length; index += step) {
-            segments.push(line.slice(index, index + MAX_CHUNK_SIZE))
+            segments.push({
+              content: line.slice(index, index + maxChunkSize),
+              startLine: lineNumber,
+              endLine: lineNumber,
+            })
           }
         } else {
           current.push(line)
+          currentStartLine = lineNumber
         }
       }
 
       if (current.length > 0) {
-        segments.push(current.join("\n"))
+        segments.push({
+          content: current.join("\n"),
+          startLine: currentStartLine,
+          endLine: currentStartLine + current.length - 1,
+        })
       }
-
-      return segments.filter(Boolean)
+    } else {
+      const step = Math.max(1, maxChunkSize - maxOverlapSize)
+      for (let index = 0; index < chunk.content.length; index += step) {
+        segments.push({
+          content: chunk.content.slice(index, index + maxChunkSize),
+          startLine: chunk.startLine,
+          endLine: chunk.endLine,
+        })
+      }
     }
 
-    const step = Math.max(1, MAX_CHUNK_SIZE - OVERLAP_SIZE)
-    for (let index = 0; index < content.length; index += step) {
-      segments.push(content.slice(index, index + MAX_CHUNK_SIZE))
-    }
-    return segments.filter(Boolean)
+    return segments.filter((segment) => segment.content.length > 0).map((segment) => ({
+      ...chunk,
+      content: segment.content,
+      startLine: segment.startLine,
+      endLine: segment.endLine,
+    }))
   }
 
   function enforceMaxChunkSize(chunks: Chunk[]): Chunk[] {
     const result: Chunk[] = []
 
     for (const chunk of chunks) {
-      const segments = splitOversizedContent(chunk.content)
+      const segments = splitOversizedChunk(chunk)
       if (segments.length === 1) {
-        result.push(chunk)
+        result.push(segments[0])
         continue
       }
 
-      for (const segment of segments) {
-        result.push({
-          ...chunk,
-          content: segment,
-        })
-      }
+      result.push(...segments)
     }
 
     return result
@@ -281,7 +284,7 @@ export namespace Chunking {
       if (isBoundary && currentChunk.length > 0 && !inBlock) {
         // Save current chunk
         const chunkContent = currentChunk.join("\n")
-        if (chunkContent.length >= MIN_CHUNK_SIZE) {
+        if (chunkContent.length >= getMinChunkSize()) {
           chunks.push({
             content: chunkContent,
             startLine: chunkStartLine + 1,
@@ -298,7 +301,7 @@ export namespace Chunking {
 
       // Force split if chunk gets too large (including minified/vendor files)
       const currentContent = currentChunk.join("\n")
-      if (currentContent.length > MAX_CHUNK_SIZE) {
+      if (currentContent.length > getMaxChunkSize()) {
         chunks.push({
           content: currentContent,
           startLine: chunkStartLine + 1,
@@ -314,7 +317,7 @@ export namespace Chunking {
     // Don't forget the last chunk
     if (currentChunk.length > 0) {
       const chunkContent = currentChunk.join("\n")
-      if (chunkContent.length >= MIN_CHUNK_SIZE) {
+      if (chunkContent.length >= getMinChunkSize()) {
         chunks.push({
           content: chunkContent,
           startLine: chunkStartLine + 1,
@@ -347,9 +350,9 @@ export namespace Chunking {
       // Start new chunk on heading or after blank line when chunk is big enough
       const currentContent = currentChunk.join("\n")
       const shouldSplit =
-        (isHeading && currentChunk.length > 0) || (isBlankLine && currentContent.length > MAX_CHUNK_SIZE / 2)
+        (isHeading && currentChunk.length > 0) || (isBlankLine && currentContent.length > getMaxChunkSize() / 2)
 
-      if (shouldSplit && currentContent.length >= MIN_CHUNK_SIZE) {
+      if (shouldSplit && currentContent.length >= getMinChunkSize()) {
         chunks.push({
           content: currentContent,
           startLine: chunkStartLine + 1,
@@ -365,7 +368,7 @@ export namespace Chunking {
       }
 
       // Force split if too large
-      if (currentChunk.join("\n").length > MAX_CHUNK_SIZE) {
+      if (currentChunk.join("\n").length > getMaxChunkSize()) {
         chunks.push({
           content: currentChunk.join("\n"),
           startLine: chunkStartLine + 1,
@@ -380,7 +383,7 @@ export namespace Chunking {
     // Last chunk
     if (currentChunk.length > 0) {
       const chunkContent = currentChunk.join("\n")
-      if (chunkContent.length >= MIN_CHUNK_SIZE) {
+      if (chunkContent.length >= getMinChunkSize()) {
         chunks.push({
           content: chunkContent,
           startLine: chunkStartLine + 1,
@@ -399,7 +402,7 @@ export namespace Chunking {
    * Chunk a file into semantic pieces (synchronous wrapper)
    */
   export function chunk(content: string, filePath: string): Chunk[] {
-    if (content.length < MIN_CHUNK_SIZE) {
+    if (content.length < getMinChunkSize()) {
       return [
         {
           content,
@@ -422,7 +425,7 @@ export namespace Chunking {
    * Async version that uses tree-sitter when possible
    */
   export async function chunkAsync(content: string, filePath: string): Promise<Chunk[]> {
-    if (content.length < MIN_CHUNK_SIZE) {
+    if (content.length < getMinChunkSize()) {
       return [
         {
           content,
@@ -453,8 +456,18 @@ export namespace Chunking {
       // Add context from previous chunk
       if (i > 0) {
         const prevContent = chunks[i - 1].content
-        const overlap = prevContent.slice(-OVERLAP_SIZE)
-        content = `...${overlap}\n\n${content}`
+        const limits = getLimits()
+        const chunkTokens = Math.ceil(content.length / limits.charsPerToken)
+        const availableChars = Math.max(0, limits.max - content.length - 5)
+        const adaptiveOverlapChars = Math.min(
+          limits.overlap,
+          availableChars,
+          Math.max(0, Math.floor(chunkTokens * 0.15) * limits.charsPerToken),
+        )
+        const overlap = adaptiveOverlapChars > 0 ? prevContent.slice(-adaptiveOverlapChars) : ""
+        if (overlap) {
+          content = `...${overlap}\n\n${content}`
+        }
       }
 
       result.push({

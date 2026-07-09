@@ -8,6 +8,9 @@ const ENV_KEYS = [
   "SENSEGREP_OPENAI_API_KEY",
   "SENSEGREP_OPENAI_BASE_URL",
   "SENSEGREP_OPENAI_BATCH_SIZE",
+  "SENSEGREP_OPENAI_CONCURRENCY",
+  "SENSEGREP_EMBED_CONCURRENCY",
+  "SENSEGREP_EMBED_MAX_TOKENS",
   "SENSEGREP_OPENROUTER_REFERER",
   "SENSEGREP_OPENROUTER_TITLE",
   "SENSEGREP_OLLAMA_BASE_URL",
@@ -153,7 +156,7 @@ describe("embedding config", () => {
     expect(config.apiKey).toBe("openai-key")
   })
 
-  it("reads OpenAI-compatible batch size and OpenRouter metadata", async () => {
+  it("reads OpenAI-compatible batch size, concurrency, and OpenRouter metadata", async () => {
     mockMissingGlobalConfig()
     process.env.SENSEGREP_PROVIDER = "openai"
     process.env.SENSEGREP_OPENAI_API_KEY = "openrouter-key"
@@ -161,6 +164,8 @@ describe("embedding config", () => {
     process.env.SENSEGREP_EMBED_MODEL = "qwen/qwen3-embedding-8b"
     process.env.SENSEGREP_EMBED_DIM = "1024"
     process.env.SENSEGREP_OPENAI_BATCH_SIZE = "96"
+    process.env.SENSEGREP_OPENAI_CONCURRENCY = "3"
+    process.env.SENSEGREP_EMBED_MAX_TOKENS = "32768"
     process.env.SENSEGREP_OPENROUTER_REFERER = "https://example.com"
     process.env.SENSEGREP_OPENROUTER_TITLE = "example-app"
 
@@ -173,6 +178,8 @@ describe("embedding config", () => {
       embedDim: 1024,
       baseUrl: "https://openrouter.ai/api/v1",
       batchSize: 96,
+      concurrency: 3,
+      maxInputTokens: 32768,
       openRouterReferer: "https://example.com",
       openRouterTitle: "example-app",
     })

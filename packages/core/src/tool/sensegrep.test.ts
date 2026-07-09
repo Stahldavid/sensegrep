@@ -474,6 +474,85 @@ describe("SenseGrepTool file glob filters", () => {
     expect(result.output).not.toContain("hidden")
   })
 
+  it("uses literal fallback without semantic embedding for explicit exact identifier searches", async () => {
+    readIndexMeta.mockResolvedValue({
+      embeddings: {
+        provider: "openai",
+        model: "qwen/qwen3-embedding-8b",
+        dimension: 1024,
+      },
+      files: {
+        "packages/core/src/semantic/embeddings-remote.ts": {},
+      },
+    })
+    let ripgrepArgs: string[] = []
+    spawn.mockImplementationOnce((_command, args: string[]) => {
+      ripgrepArgs = args
+      const proc = new EventEmitter() as EventEmitter & {
+        stdout: EventEmitter
+        stderr: EventEmitter
+      }
+      proc.stdout = new EventEmitter()
+      proc.stderr = new EventEmitter()
+
+      queueMicrotask(() => {
+        proc.stdout.emit(
+          "data",
+          Buffer.from("packages/core/src/semantic/embeddings-remote.ts:12:async function embedOpenAI() {}"),
+        )
+        proc.emit("close", 0)
+      })
+
+      return proc
+    })
+    listDocuments.mockImplementation(async (_collection, options) => {
+      const exactSymbolFilter = options.filters?.all?.find(
+        (filter: any) => filter.key === "symbolName" && filter.operator === "equals",
+      )
+      if (exactSymbolFilter) return []
+
+      return [
+        {
+          id: "packages/core/src/semantic/embeddings-remote.ts:EmbeddingsRemote",
+          content: "export namespace EmbeddingsRemote {\n  async function embedOpenAI() {}\n}",
+          metadata: {
+            file: "packages/core/src/semantic/embeddings-remote.ts",
+            startLine: 1,
+            endLine: 20,
+            symbolName: "EmbeddingsRemote",
+            symbolType: "namespace",
+            language: "typescript",
+          },
+          distance: 0,
+        },
+      ]
+    })
+
+    const { SenseGrepTool } = await import("./sensegrep.js")
+    const tool = await SenseGrepTool.init()
+    const result = await tool.execute(
+      {
+        query: "embedOpenAI",
+        exact: true,
+        limit: 3,
+      },
+      {
+        sessionID: "test",
+        messageID: "test",
+        agent: "vitest",
+        abort: new AbortController().signal,
+        metadata() {},
+      },
+    )
+
+    expect(search).not.toHaveBeenCalled()
+    expect(ripgrepArgs.join(" ")).toContain("embedOpenAI")
+    expect(result.metadata?.metrics).toMatchObject({ semanticSearchMs: 0 })
+    expect(result.results?.[0]?.whyMatched).toContain("literal matched: embedOpenAI")
+    expect(result.results?.[0]?.whyMatched).not.toContain("semantic similarity")
+    expect(result.output).toContain("embedOpenAI")
+  })
+
   it("falls back to pattern matches while preserving structural filters", async () => {
     readIndexMeta.mockResolvedValue({
       embeddings: {
@@ -563,7 +642,6 @@ describe("SenseGrepTool file glob filters", () => {
       semanticKind: "convexInternalMutation",
       framework: "convex",
       whyMatched: expect.arrayContaining([
-        "semantic similarity",
         "pattern matched: idempotencyKey|getResend",
         "parent matched: NotificationDeliveryModel",
       ]),

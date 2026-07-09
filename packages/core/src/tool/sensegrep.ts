@@ -305,35 +305,9 @@ export const SenseGrepTool = Tool.define("sensegrep", {
         endLine: result.endLine,
         semanticScore: result.semanticScore,
         metadata: result.metadata,
+        whyMatched: [`exact symbol lookup: ${exactSymbolQuery}`],
       }))
     }
-    const useExactOnly =
-      exactSymbolResults.length > 0 &&
-      !params.pattern &&
-      (params.exact === true || Boolean(symbolQuery) || simpleIdentifierQuery)
-
-    // Step 1: Semantic search with metadata filters. Exact symbol lookups can skip embeddings entirely.
-    let semanticResults: Awaited<ReturnType<typeof VectorStore.search>> = []
-    if (!useExactOnly) {
-      const semanticStartedAt = Date.now()
-      semanticResults = await VectorStore.search(collection, params.query, searchOptions)
-      metrics.semanticSearchMs = Date.now() - semanticStartedAt
-
-      // Apply file globs again as a safety net after semantic search.
-      if (includeMatcher) {
-        semanticResults = semanticResults.filter((r) =>
-          matchesScopedGlob(r.metadata.file as string, includeMatcher, resolved.subdirPrefix),
-        )
-      }
-      if (excludeMatcher) {
-        semanticResults = semanticResults.filter((r) =>
-          !matchesScopedGlob(r.metadata.file as string, excludeMatcher, resolved.subdirPrefix),
-        )
-      }
-    } else {
-      metrics.semanticSearchMs = 0
-    }
-
     let literalFallbackResults: WorkingResult[] = []
     const lexicalCandidateFiles =
       shouldRunLiteralFallback || params.pattern
@@ -357,7 +331,35 @@ export const SenseGrepTool = Tool.define("sensegrep", {
         endLine: result.endLine,
         semanticScore: result.semanticScore,
         metadata: result.metadata,
+        whyMatched: result.whyMatched,
       }))
+    }
+
+    const useLexicalOnly =
+      !params.pattern &&
+      (exactSymbolResults.length > 0 || literalFallbackResults.length > 0) &&
+      (params.exact === true || Boolean(symbolQuery) || (simpleIdentifierQuery && exactSymbolResults.length > 0))
+
+    // Step 1: Semantic search with metadata filters. Explicit exact/literal hits can skip embeddings entirely.
+    let semanticResults: Awaited<ReturnType<typeof VectorStore.search>> = []
+    if (!useLexicalOnly) {
+      const semanticStartedAt = Date.now()
+      semanticResults = await VectorStore.search(collection, params.query, searchOptions)
+      metrics.semanticSearchMs = Date.now() - semanticStartedAt
+
+      // Apply file globs again as a safety net after semantic search.
+      if (includeMatcher) {
+        semanticResults = semanticResults.filter((r) =>
+          matchesScopedGlob(r.metadata.file as string, includeMatcher, resolved.subdirPrefix),
+        )
+      }
+      if (excludeMatcher) {
+        semanticResults = semanticResults.filter((r) =>
+          !matchesScopedGlob(r.metadata.file as string, excludeMatcher, resolved.subdirPrefix),
+        )
+      }
+    } else {
+      metrics.semanticSearchMs = 0
     }
 
     // Step 2: Post-filter with ripgrep if pattern provided
@@ -424,6 +426,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       rawDistance: r.distance,
       distanceMetric: VectorStore.getDistanceMetric(meta),
       metadata: r.metadata,
+      whyMatched: ["semantic similarity"],
     }))
 
     const fallbackResults = [...exactSymbolResults, ...literalFallbackResults, ...patternFallbackResults]
@@ -442,6 +445,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
           merged.set(key, {
             ...existing,
             semanticScore: Math.max(existing.semanticScore, result.semanticScore),
+            whyMatched: [...new Set([...(existing.whyMatched ?? []), ...(result.whyMatched ?? [])])],
           })
         } else {
           merged.set(key, result)
@@ -495,7 +499,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     }
 
     // Apply semantic tree-shaking if enabled (default: true)
-    const shouldShake = params.shake !== false && !(exactSymbolQuery && exactSymbolResults.length > 0)
+    const shouldShake = params.shake !== false && !useLexicalOnly
     
     if (shouldShake) {
       const shakeStartedAt = Date.now()

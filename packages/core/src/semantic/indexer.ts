@@ -14,6 +14,7 @@ import {
   isProbablyMinifiedOrGenerated,
   shouldIndexFile,
 } from "./index-file-rules.js"
+import { getChunkingSignature } from "./chunk-limits.js"
 import z from "zod"
 import path from "path"
 import { Ripgrep } from "../file/ripgrep.js"
@@ -81,9 +82,25 @@ export namespace Indexer {
       ? LOCAL_ADD_BATCH_SIZE
       : DEFAULT_ADD_BATCH_SIZE
   })()
+  const EMBED_BATCH_CONCURRENCY = (() => {
+    const configured = process.env.SENSEGREP_INDEX_EMBED_CONCURRENCY
+    if (!configured) return 1
+    const parsed = Number(configured)
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      throw new Error(`SENSEGREP_INDEX_EMBED_CONCURRENCY must be a positive number, got "${configured}".`)
+    }
+    return Math.max(1, Math.floor(parsed))
+  })()
   const INDEX_LOCK_TIMEOUT_MS = 10 * 60_000
   const INDEX_LOCK_STALE_MS = 30 * 60_000
   let inProcessLockDepth = 0
+
+  function sameChunkingSignature(
+    a: VectorStore.IndexMeta["chunking"] | undefined,
+    b: VectorStore.IndexMeta["chunking"],
+  ): boolean {
+    return JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+  }
 
   export type IndexProgressPhase = "lock" | "scan" | "parse" | "embed" | "persist" | "complete" | "error"
 
@@ -446,6 +463,47 @@ export namespace Indexer {
     return results
   }
 
+  async function embedDocumentBatches(
+    documents: Array<{ id: string; content: string; contentRaw: string; metadata: Record<string, string | number | boolean | null> }>,
+    run: ReturnType<typeof createRunContext>,
+    progress: Omit<IndexProgress, "phase" | "current" | "total" | "message" | "chunksEmbedded">,
+    label: string,
+  ): Promise<VectorStore.EmbeddedDocumentRow[]> {
+    if (documents.length === 0) return []
+
+    const batches: Array<{ start: number; batch: typeof documents }> = []
+    for (let i = 0; i < documents.length; i += ADD_BATCH_SIZE) {
+      batches.push({ start: i, batch: documents.slice(i, i + ADD_BATCH_SIZE) })
+    }
+
+    log.info("embedding document batches", {
+      chunks: documents.length,
+      batches: batches.length,
+      batchSize: ADD_BATCH_SIZE,
+      concurrency: EMBED_BATCH_CONCURRENCY,
+      label,
+    })
+
+    let chunksEmbedded = 0
+    const embeddedBatches = await mapConcurrent(batches, EMBED_BATCH_CONCURRENCY, async ({ start, batch }) => {
+      run.assertNotTimedOut("embed")
+      const rows = await run.withTimeout(VectorStore.embedDocuments(batch), "embed")
+      chunksEmbedded += rows.length
+      const labelPrefix = label ? `${label} ` : ""
+      run.emit({
+        phase: "embed",
+        current: chunksEmbedded,
+        total: documents.length,
+        message: `Embedded ${labelPrefix}chunks ${start + 1}-${Math.min(start + batch.length, documents.length)} of ${documents.length}`,
+        ...progress,
+        chunksEmbedded,
+      })
+      return rows
+    })
+
+    return embeddedBatches.flat()
+  }
+
   type PreparedFile = {
     file: string
     stat: { size: number; mtimeMs: number }
@@ -583,22 +641,16 @@ export namespace Indexer {
 
       // Prepare embeddings before replacing the old collection. If the provider
       // hangs or fails, the previous index remains readable.
-      const embeddedRows: VectorStore.EmbeddedDocumentRow[] = []
-      for (let i = 0; i < allDocs.length; i += ADD_BATCH_SIZE) {
-        run.assertNotTimedOut("embed")
-        const batch = allDocs.slice(i, i + ADD_BATCH_SIZE)
-        run.emit({
-          phase: "embed",
-          current: i,
-          total: allDocs.length,
-          message: `Embedding chunks ${i + 1}-${Math.min(i + batch.length, allDocs.length)} of ${allDocs.length}`,
+      const embeddedRows = await embedDocumentBatches(
+        allDocs,
+        run,
+        {
           filesParsed: indexed,
           chunksPrepared: totalChunks,
-          chunksEmbedded: embeddedRows.length,
           failed,
-        })
-        embeddedRows.push(...(await run.withTimeout(VectorStore.embedDocuments(batch), "embed")))
-      }
+        },
+        "",
+      )
       run.emit({
         phase: "embed",
         current: embeddedRows.length,
@@ -644,6 +696,7 @@ export namespace Indexer {
       }
 
       const config = Embeddings.getConfig()
+      const chunking = getChunkingSignature(config)
       await VectorStore.writeIndexMeta(Instance.directory, {
         version: 1,
         root: Instance.directory,
@@ -653,6 +706,7 @@ export namespace Indexer {
           dimension: config.embedDim,
           distanceMetric: VectorStore.DEFAULT_DISTANCE_METRIC,
         },
+        chunking,
         files: fileStats,
         updatedAt: Date.now(),
       })
@@ -724,13 +778,15 @@ export namespace Indexer {
       const provider = config.provider
       const dimension = config.embedDim
       const model = config.embedModel
+      const chunking = getChunkingSignature(config)
 
       if (
         !meta ||
         meta.embeddings?.dimension !== dimension ||
         meta.embeddings?.provider !== provider ||
         meta.embeddings?.model !== model ||
-        meta.embeddings?.distanceMetric !== VectorStore.DEFAULT_DISTANCE_METRIC
+        meta.embeddings?.distanceMetric !== VectorStore.DEFAULT_DISTANCE_METRIC ||
+        !sameChunkingSignature(meta.chunking, chunking)
       ) {
         const full = await indexProjectUnlocked(options)
         return { ...full, skipped: 0, removed: 0, mode: "full" }
@@ -887,24 +943,16 @@ export namespace Indexer {
 
       // Prepare embeddings before deleting old file chunks. If embedding fails,
       // the previous index remains intact.
-      const embeddedRows: VectorStore.EmbeddedDocumentRow[] = []
-      if (docsToAdd.length > 0) {
-        for (let i = 0; i < docsToAdd.length; i += ADD_BATCH_SIZE) {
-          run.assertNotTimedOut("embed")
-          const batch = docsToAdd.slice(i, i + ADD_BATCH_SIZE)
-          run.emit({
-            phase: "embed",
-            current: i,
-            total: docsToAdd.length,
-            message: `Embedding changed chunks ${i + 1}-${Math.min(i + batch.length, docsToAdd.length)} of ${docsToAdd.length}`,
-            chunksPrepared: docsToAdd.length,
-            chunksEmbedded: embeddedRows.length,
-            skipped,
-            failed,
-          })
-          embeddedRows.push(...(await run.withTimeout(VectorStore.embedDocuments(batch), "embed")))
-        }
-      }
+      const embeddedRows = await embedDocumentBatches(
+        docsToAdd,
+        run,
+        {
+          chunksPrepared: docsToAdd.length,
+          skipped,
+          failed,
+        },
+        "changed",
+      )
 
       // Batch delete files that need full reindex
       for (const file of filesToDeleteFirst) {
@@ -965,6 +1013,7 @@ export namespace Indexer {
         version: 1,
         root: Instance.directory,
         embeddings: { provider, model, dimension, distanceMetric: VectorStore.DEFAULT_DISTANCE_METRIC },
+        chunking,
         files: newStats,
         updatedAt: Date.now(),
       })
@@ -1040,7 +1089,10 @@ export namespace Indexer {
       return
     }
 
-    const documents = await buildDocuments({ filePath, content })
+    const [collapsibleRegions, documents] = await Promise.all([
+      TreeShaker.extractRegions(filePath, content),
+      buildDocuments({ filePath, content }),
+    ])
     if (documents.length === 0) {
       await deleteIndexedFileIfPresent(filePath)
       return
@@ -1058,11 +1110,13 @@ export namespace Indexer {
     await VectorStore.addEmbeddedDocuments(collection, embeddedRows)
     const meta = await VectorStore.readIndexMeta(Instance.directory)
     if (meta?.files) {
+      meta.chunking = getChunkingSignature(Embeddings.getConfig())
       meta.files[filePath] = {
         size: stat.size,
         mtimeMs: stat.mtimeMs,
         hash: hashContent(content),
         chunks: documents.map((d) => d.hash),
+        collapsibleRegions,
       }
       meta.updatedAt = Date.now()
       await VectorStore.writeIndexMeta(Instance.directory, meta)

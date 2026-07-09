@@ -1,5 +1,14 @@
 # @sensegrep/mcp
 
+## 1.7.5
+
+### Patch Changes
+
+- Ship the model-aware chunking, embedding throughput, index metadata, and duplicate detection improvements through the CLI and MCP packages.
+
+- Updated dependencies []:
+  - @sensegrep/core@1.7.5
+
 ## 1.7.4
 
 ### Patch Changes

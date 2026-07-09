@@ -33,11 +33,16 @@ vi.mock("@aws-sdk/client-bedrock-runtime", () => ({
 function mockMissingGlobalConfig() {
   vi.doMock("node:fs", async () => {
     const actual = await vi.importActual<typeof import("node:fs")>("node:fs")
+    const readFileSync = vi.fn(() => {
+      throw new Error("ENOENT")
+    })
     return {
       ...actual,
-      readFileSync: vi.fn(() => {
-        throw new Error("ENOENT")
-      }),
+      default: {
+        ...actual,
+        readFileSync,
+      },
+      readFileSync,
     }
   })
 }
@@ -160,6 +165,9 @@ describe("EmbeddingsRemote OpenAI-compatible", () => {
     vi.unstubAllGlobals()
     delete process.env.SENSEGREP_OPENAI_API_KEY
     delete process.env.SENSEGREP_OPENAI_BATCH_SIZE
+    delete process.env.SENSEGREP_OPENAI_CONCURRENCY
+    delete process.env.SENSEGREP_EMBED_CONCURRENCY
+    delete process.env.SENSEGREP_EMBED_MAX_TOKENS
     delete process.env.FIREWORKS_API_KEY
     delete process.env.OPENAI_API_KEY
   })
@@ -227,6 +235,54 @@ describe("EmbeddingsRemote OpenAI-compatible", () => {
     expect(vectors).toHaveLength(100)
   })
 
+  it("runs OpenAI-compatible batches concurrently while preserving vector order", async () => {
+    let inFlight = 0
+    let maxInFlight = 0
+    fetchMock.mockImplementation(async (_url: string, init: any) => {
+      const body = JSON.parse(init.body)
+      inFlight += 1
+      maxInFlight = Math.max(maxInFlight, inFlight)
+      if (body.input[0] === "chunk 0") {
+        await new Promise((resolve) => setTimeout(resolve, 20))
+      }
+      inFlight -= 1
+
+      const vectorsByText: Record<string, number[]> = {
+        "chunk 0": [1, 0, 0],
+        "chunk 1": [0, 1, 0],
+        "chunk 2": [0, 0, 1],
+        "chunk 3": [1, 1, 0],
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          data: body.input.map((text: string, index: number) => ({ index, embedding: vectorsByText[text] })),
+        }),
+      }
+    })
+
+    const { EmbeddingsRemote } = await import("./embeddings-remote.js")
+    EmbeddingsRemote.configure({
+      provider: "openai",
+      embedModel: "qwen/qwen3-embedding-8b",
+      embedDim: 3,
+      baseUrl: "https://openrouter.ai/api/v1",
+      apiKey: "openrouter-key",
+      batchSize: 2,
+      concurrency: 2,
+    })
+
+    const vectors = await EmbeddingsRemote.embed(["chunk 0", "chunk 1", "chunk 2", "chunk 3"], { skipValidation: true })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(maxInFlight).toBe(2)
+    expect(vectors[0]).toEqual([1, 0, 0])
+    expect(vectors[1]).toEqual([0, 1, 0])
+    expect(vectors[2]).toEqual([0, 0, 1])
+    expect(vectors[3][0]).toBeCloseTo(Math.SQRT1_2)
+    expect(vectors[3][1]).toBeCloseTo(Math.SQRT1_2)
+  })
+
   it("keeps Qwen3 embedding inputs within the 32K token limit", async () => {
     fetchMock.mockResolvedValue({
       ok: true,
@@ -249,6 +305,31 @@ describe("EmbeddingsRemote OpenAI-compatible", () => {
     const body = JSON.parse(fetchMock.mock.calls[0][1].body)
 
     expect(body.input[0]).toHaveLength(40_000)
+  })
+
+  it("respects explicit maxInputTokens when validating OpenAI-compatible input", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: [{ index: 0, embedding: sizedVector(1024) }],
+      }),
+    })
+
+    const { EmbeddingsRemote } = await import("./embeddings-remote.js")
+    EmbeddingsRemote.configure({
+      provider: "openai",
+      embedModel: "qwen/qwen3-embedding-8b",
+      embedDim: 1024,
+      baseUrl: "https://openrouter.ai/api/v1",
+      apiKey: "openrouter-key",
+      maxInputTokens: 2048,
+    })
+
+    await EmbeddingsRemote.embed("x".repeat(10_000))
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body)
+
+    expect(body.input[0].length).toBeLessThan(10_000)
+    expect(Math.ceil(body.input[0].length / 4)).toBeLessThanOrEqual(2048)
   })
 
   it("fails when OpenAI-compatible providers return fewer embeddings than requested", async () => {

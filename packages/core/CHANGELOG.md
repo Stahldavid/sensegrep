@@ -1,5 +1,11 @@
 # @sensegrep/core
 
+## 1.7.5
+
+### Patch Changes
+
+- Make semantic indexing faster and more reliable with model-aware chunk limits, bounded overlap, batched concurrent embedding requests, chunking-signature invalidation, refreshed watched-file metadata, and stricter duplicate filtering.
+
 ## 1.7.4
 
 ### Patch Changes

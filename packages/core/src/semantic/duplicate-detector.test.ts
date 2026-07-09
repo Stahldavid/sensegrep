@@ -117,6 +117,8 @@ describe("DuplicateDetector", () => {
 
     expect(result.summary.candidates).toBe(2)
     expect(result.summary.analyzedCandidates).toBe(1)
+    expect(result.summary.deduplicatedCandidates).toBe(1)
+    expect(result.summary.truncated).toBe(false)
     expect(result.duplicates).toEqual([])
   })
 })

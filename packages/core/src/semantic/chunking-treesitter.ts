@@ -29,11 +29,13 @@ type TreeCursor = {
 
 const log = Log.create({ service: "semantic.chunking-treesitter" })
 
-const CHUNK_LIMITS = getTreeSitterChunkLimits()
-const MAX_CHUNK_SIZE = CHUNK_LIMITS.max
-const MIN_CHUNK_SIZE = CHUNK_LIMITS.min
-const STATEMENT_OVERLAP = CHUNK_LIMITS.overlap
-const CHUNK_SIZE_CONFIG = CHUNK_LIMITS.config
+function getChunkSizeConfig() {
+  return getTreeSitterChunkLimits().config
+}
+
+function getStatementOverlap() {
+  return getTreeSitterChunkLimits().statementOverlap
+}
 
 const require = createRequire(import.meta.url)
 const resolveWasmPath = (id: string) => require.resolve(id)
@@ -442,6 +444,125 @@ export namespace TreeSitterChunking {
     return null
   }
 
+  function getNamespaceNode(node: SyntaxNode): SyntaxNode | null {
+    if (node.type === "internal_module" || node.type === "module") return node
+    if (node.type !== "export_statement") return null
+
+    for (let i = 0; i < node.childCount; i++) {
+      const child = node.child(i)
+      if (child?.type === "internal_module" || child?.type === "module") return child
+    }
+
+    return null
+  }
+
+  type InternalNamespaceDeclaration = {
+    declaration: SyntaxNode
+    contentNode: SyntaxNode
+    isExported: boolean
+  }
+
+  function getInternalNamespaceDeclaration(statement: SyntaxNode): InternalNamespaceDeclaration | null {
+    if (statement.type === "export_statement") {
+      for (let i = 0; i < statement.childCount; i++) {
+        const child = statement.child(i)
+        if (!child) continue
+        const declaration = getInternalNamespaceDeclaration(child)
+        if (declaration) {
+          return {
+            declaration: declaration.declaration,
+            contentNode: statement,
+            isExported: true,
+          }
+        }
+      }
+      return null
+    }
+
+    const declarationTypes = [
+      "function_declaration",
+      "function_signature",
+      "class_declaration",
+      "interface_declaration",
+      "type_alias_declaration",
+      "enum_declaration",
+      "lexical_declaration",
+      "variable_declaration",
+    ]
+    if (!declarationTypes.includes(statement.type)) return null
+    if (
+      (statement.type === "lexical_declaration" || statement.type === "variable_declaration") &&
+      !isArrowFunctionDeclaration(statement)
+    ) {
+      return null
+    }
+
+    return {
+      declaration: statement,
+      contentNode: statement,
+      isExported: statement.parent?.type === "export_statement",
+    }
+  }
+
+  function chunkNamespaceInternalSymbols(
+    namespaceNode: SyntaxNode,
+    lines: string[],
+    filePath: string,
+  ): Chunking.Chunk[] {
+    const namespaceName = extractNodeName(namespaceNode)
+    if (!namespaceName) return []
+
+    const chunks: Chunking.Chunk[] = []
+    const statements = getStatements(namespaceNode)
+    const namespaceContext = `// Namespace: ${namespaceName}`
+
+    for (const statement of statements) {
+      const internalDeclaration = getInternalNamespaceDeclaration(statement)
+      if (!internalDeclaration) continue
+
+      const { declaration, contentNode, isExported } = internalDeclaration
+      const symbolName = extractNodeName(declaration)
+      if (!symbolName) continue
+
+      const metadata = {
+        ...extractMetadata(declaration, filePath, namespaceName),
+        ...(isExported ? { isExported: true } : {}),
+      }
+      const extracted = extractNodeWithContext(contentNode, lines, filePath)
+      const contextualContent = `${namespaceContext}\n\n${extracted.content}`
+      const prefixedContent = addContextPrefix(contextualContent, filePath, declaration.type, symbolName, isExported)
+
+      const maxChunkSize = getMaxChunkSize(declaration)
+      const prefixSize = Math.max(0, prefixedContent.length - extracted.content.length)
+      if (prefixedContent.length > maxChunkSize) {
+        const splitChunks = splitLargeNode(declaration, lines, filePath, {
+          maxChunkSize,
+          prefixSize,
+        })
+        for (let i = 0; i < splitChunks.length; i++) {
+          const splitChunk = splitChunks[i]
+          splitChunk.content =
+            i === 0
+              ? addContextPrefix(`${namespaceContext}\n\n${splitChunk.content}`, filePath, declaration.type, symbolName, isExported)
+              : `${namespaceContext}\n\n${splitChunk.content}`
+          Object.assign(splitChunk, metadata)
+        }
+        chunks.push(...splitChunks)
+        continue
+      }
+
+      chunks.push({
+        content: prefixedContent,
+        startLine: extracted.actualStartLine,
+        endLine: contentNode.endPosition.row + 1,
+        type: "code",
+        ...metadata,
+      })
+    }
+
+    return chunks
+  }
+
   /**
    * Calculate cyclomatic complexity of a node
    */
@@ -482,9 +603,10 @@ export namespace TreeSitterChunking {
   function getMaxChunkSize(node: SyntaxNode): number {
     const complexity = calculateComplexity(node)
 
-    if (complexity < 5) return CHUNK_SIZE_CONFIG.simple
-    if (complexity < 15) return CHUNK_SIZE_CONFIG.medium
-    return CHUNK_SIZE_CONFIG.complex
+    const chunkSizeConfig = getChunkSizeConfig()
+    if (complexity < 5) return chunkSizeConfig.simple
+    if (complexity < 15) return chunkSizeConfig.medium
+    return chunkSizeConfig.complex
   }
 
   /**
@@ -590,14 +712,11 @@ export namespace TreeSitterChunking {
       keywords.push(`types:${Array.from(types).join(",")}`)
     }
 
-    // Extract imports used in this chunk
-    const importMatches = content.matchAll(/\bfrom\s+["']([^"']+)["']/g)
+    // Extract import declarations used in this chunk
     const imports = new Set<string>()
-    for (const match of importMatches) {
-      const moduleName = match[1].split("/").pop() || match[1]
-      if (imports.size < 3) {
-        imports.add(moduleName)
-      }
+    for (const moduleName of extractImportsFromLines(content.split("\n"))) {
+      if (imports.size >= 3) break
+      imports.add(moduleName)
     }
     if (imports.size > 0) {
       keywords.push(`imports:${Array.from(imports).join(",")}`)
@@ -608,23 +727,42 @@ export namespace TreeSitterChunking {
 
   function extractImportsFromLines(lines: string[]): string[] {
     const imports = new Set<string>()
-    for (const line of lines) {
-      let match: RegExpExecArray | null
-      const fromRe = /\bfrom\s+["']([^"']+)["']/g
-      while ((match = fromRe.exec(line)) !== null) {
-        const name = match[1].split("/").pop() || match[1]
-        if (name) imports.add(name)
+    let sawImportSection = false
+
+    for (let i = 0; i < lines.length; i++) {
+      const trimmed = lines[i].trim()
+      if (!trimmed || trimmed.startsWith("//") || trimmed.startsWith("/*") || trimmed.startsWith("*")) {
+        continue
       }
-      const importRe = /\bimport\s+["']([^"']+)["']/g
-      while ((match = importRe.exec(line)) !== null) {
-        const name = match[1].split("/").pop() || match[1]
-        if (name) imports.add(name)
+
+      if (/^import\b/.test(trimmed)) {
+        sawImportSection = true
+        let fullImport = trimmed
+        while (
+          !/\bfrom\s+["'][^"']+["']/.test(fullImport) &&
+          !/^import\s+["'][^"']+["']/.test(fullImport) &&
+          i < lines.length - 1
+        ) {
+          i++
+          fullImport += " " + lines[i].trim()
+          if (fullImport.includes(";")) break
+        }
+
+        const moduleMatch = fullImport.match(/\bfrom\s+["']([^"']+)["']/) ?? fullImport.match(/^import\s+["']([^"']+)["']/)
+        const moduleName = moduleMatch?.[1]
+        if (moduleName) imports.add(moduleName.split("/").pop() || moduleName)
+        continue
       }
-      const requireRe = /\brequire\(\s*["']([^"']+)["']\s*\)/g
-      while ((match = requireRe.exec(line)) !== null) {
-        const name = match[1].split("/").pop() || match[1]
-        if (name) imports.add(name)
+
+      const requireMatch = trimmed.match(/^(?:const|let|var)\s+[^=]+=\s*require\(\s*["']([^"']+)["']\s*\)/)
+      if (requireMatch) {
+        sawImportSection = true
+        const moduleName = requireMatch[1]
+        imports.add(moduleName.split("/").pop() || moduleName)
+        continue
       }
+
+      if (sawImportSection) break
     }
     return Array.from(imports)
   }
@@ -876,6 +1014,49 @@ ${content}`
   /**
    * Chunk a class into multiple chunks: signature + properties, then individual methods
    */
+  function chunkClassMethod(
+    method: SyntaxNode,
+    lines: string[],
+    filePath: string,
+    className: string | undefined,
+  ): Chunking.Chunk[] {
+    const methodName = extractNodeName(method)
+    const methodContent = extractNodeContent(method, lines)
+    const methodMetadata = extractMetadata(method, filePath, className)
+    const classContext = className ? `// Class: ${className}` : ""
+    const contextualContent = classContext ? `${classContext}\n\n${methodContent}` : methodContent
+    const maxChunkSize = getMaxChunkSize(method)
+    const prefixedContent = addContextPrefix(contextualContent, filePath, "method_definition", methodName, false)
+
+    if (prefixedContent.length <= maxChunkSize) {
+      return [
+        {
+          content: prefixedContent,
+          startLine: method.startPosition.row + 1,
+          endLine: method.endPosition.row + 1,
+          type: "code",
+          ...methodMetadata,
+        },
+      ]
+    }
+
+    const splitChunks = splitLargeNode(method, lines, filePath, {
+      maxChunkSize,
+      prefixSize: classContext.length,
+    })
+    for (let i = 0; i < splitChunks.length; i++) {
+      const splitChunk = splitChunks[i]
+      const splitContent = classContext ? `${classContext}\n\n${splitChunk.content}` : splitChunk.content
+      splitChunk.content =
+        i === 0
+          ? addContextPrefix(splitContent, filePath, "method_definition", methodName, false)
+          : splitContent
+      Object.assign(splitChunk, methodMetadata)
+    }
+
+    return splitChunks
+  }
+
   function chunkClass(classNode: SyntaxNode, lines: string[], filePath: string): Chunking.Chunk[] {
     const chunks: Chunking.Chunk[] = []
     const className = extractNodeName(classNode)
@@ -922,7 +1103,8 @@ ${content}`
 
     // If class is small, keep it whole
     const classContent = extractNodeContent(classNode, lines)
-    if (classContent.length <= MAX_CHUNK_SIZE || methods.length === 0) {
+    const classMaxChunkSize = getMaxChunkSize(classNode)
+    if (classContent.length <= classMaxChunkSize || methods.length === 0) {
       const base: Chunking.Chunk[] = [
         {
           content: addContextPrefix(classContent, filePath, "class_declaration", className, isExported),
@@ -935,18 +1117,7 @@ ${content}`
       if (methods.length === 0) return base
       // Also index methods even when the class is small
       for (const method of methods) {
-        const methodName = extractNodeName(method)
-        const methodContent = extractNodeContent(method, lines)
-        const methodMetadata = extractMetadata(method, filePath, className)
-
-        const contextualContent = `// Class: ${className}\n\n${methodContent}`
-        base.push({
-          content: addContextPrefix(contextualContent, filePath, "method_definition", methodName, false),
-          startLine: method.startPosition.row + 1,
-          endLine: method.endPosition.row + 1,
-          type: "code",
-          ...methodMetadata,
-        })
+        base.push(...chunkClassMethod(method, lines, filePath, className))
       }
       return base
     }
@@ -963,29 +1134,24 @@ ${content}`
 
     // Chunks 2+: Individual methods with class context
     for (const method of methods) {
-      const methodName = extractNodeName(method)
-      const methodContent = extractNodeContent(method, lines)
-      const methodMetadata = extractMetadata(method, filePath, className)
-
-      // Add class context to method
-      const contextualContent = `// Class: ${className}\n\n${methodContent}`
-
-      chunks.push({
-        content: addContextPrefix(contextualContent, filePath, "method_definition", methodName, false),
-        startLine: method.startPosition.row + 1,
-        endLine: method.endPosition.row + 1,
-        type: "code",
-        ...methodMetadata,
-      })
+      chunks.push(...chunkClassMethod(method, lines, filePath, className))
     }
 
     return chunks
   }
 
   /**
-   * Split a large node (> MAX_CHUNK_SIZE) into multiple chunks
+   * Split a large node into multiple chunks using the node's adaptive limit.
    */
-  function splitLargeNode(node: SyntaxNode, lines: string[], filePath: string, prefixSize = 0): Chunking.Chunk[] {
+  function splitLargeNode(
+    node: SyntaxNode,
+    lines: string[],
+    filePath: string,
+    options: { maxChunkSize?: number; prefixSize?: number } = {},
+  ): Chunking.Chunk[] {
+    const maxChunkSize = options.maxChunkSize ?? getMaxChunkSize(node)
+    const prefixSize = options.prefixSize ?? 0
+
     // Special handling for classes
     if (node.type === "class_declaration") {
       return chunkClass(node, lines, filePath)
@@ -995,7 +1161,7 @@ ${content}`
     const content = extractNodeContent(node, lines)
 
     // If it's not that large after all, just return it
-    if (content.length <= MAX_CHUNK_SIZE) {
+    if (content.length + prefixSize <= maxChunkSize) {
       const range = getNodeLines(node)
       return [
         {
@@ -1015,9 +1181,10 @@ ${content}`
         filePath,
         nodeType: node.type,
         size: content.length,
+        maxChunkSize,
         prefixSize,
       })
-      return forceSplitByLines(node, lines, prefixSize)
+      return forceSplitByLines(node, lines, { maxChunkSize, prefixSize })
     }
 
     
@@ -1036,14 +1203,32 @@ ${content}`
     // Group statements into chunks, tracking previous statements for overlap context
     let currentGroup: SyntaxNode[] = []
     let previousStatements: SyntaxNode[] = []
-    let currentSize = signature.length
+    let currentSize = signature.length + prefixSize
 
     for (let i = 0; i < statements.length; i++) {
       const stmt = statements[i]
       const stmtContent = extractNodeContent(stmt, lines)
+      const stmtPrefixSize = signature.length + prefixSize
+      if (stmtContent.length + stmtPrefixSize > maxChunkSize && currentGroup.length === 0) {
+        const splitStatementChunks = forceSplitByLines(stmt, lines, {
+          maxChunkSize,
+          prefixSize: stmtPrefixSize,
+        })
+        for (const statementChunk of splitStatementChunks) {
+          const overlapContext = extractOverlapContext(previousStatements, lines)
+          statementChunk.content = signature + "\n" + overlapContext + statementChunk.content
+          if (nodeContext && chunks.length > 0) {
+            statementChunk.content = nodeContext + "\n\n" + statementChunk.content
+          }
+          chunks.push(statementChunk)
+        }
+        previousStatements = [stmt]
+        currentSize = signature.length + prefixSize
+        continue
+      }
 
       // Check if adding this statement would exceed limit
-      if (currentSize + stmtContent.length > MAX_CHUNK_SIZE && currentGroup.length > 0) {
+      if (currentSize + stmtContent.length > maxChunkSize && currentGroup.length > 0) {
         // Create chunk from current group, passing previous statements for overlap
         const chunk = createChunkFromStatements(
           currentGroup,
@@ -1060,7 +1245,7 @@ ${content}`
         previousStatements = [...previousStatements, ...currentGroup]
         // Start new group
         currentGroup = [stmt]
-        currentSize = signature.length + stmtContent.length
+        currentSize = signature.length + prefixSize + stmtContent.length
       } else {
         currentGroup.push(stmt)
         currentSize += stmtContent.length
@@ -1086,6 +1271,7 @@ ${content}`
       filePath,
       nodeType: node.type,
       originalSize: content.length,
+      maxChunkSize,
       chunks: chunks.length,
     })
 
@@ -1099,7 +1285,7 @@ ${content}`
   function extractOverlapContext(
     previousStatements: SyntaxNode[],
     lines: string[],
-    count: number = STATEMENT_OVERLAP,
+    count: number = getStatementOverlap(),
   ): string {
     if (previousStatements.length === 0) return ""
 
@@ -1150,14 +1336,20 @@ ${content}`
   /**
    * Force split by line boundaries (fallback for unparseable code)
    */
-  function forceSplitByLines(node: SyntaxNode, lines: string[], prefixSize = 0): Chunking.Chunk[] {
+  function forceSplitByLines(
+    node: SyntaxNode,
+    lines: string[],
+    options: { maxChunkSize?: number; prefixSize?: number } = {},
+  ): Chunking.Chunk[] {
     const chunks: Chunking.Chunk[] = []
     const range = getNodeLines(node)
     const nodeLines = lines.slice(range.start - 1, range.end)
+    const maxChunkSize = options.maxChunkSize ?? getMaxChunkSize(node)
+    const prefixSize = options.prefixSize ?? 0
 
     log.info("forceSplitByLines start", {
       nodeLines: nodeLines.length,
-      MAX_CHUNK_SIZE,
+      maxChunkSize,
       rangeStart: range.start,
       rangeEnd: range.end
     })
@@ -1167,18 +1359,46 @@ ${content}`
 
     for (let i = 0; i < nodeLines.length; i++) {
       const line = nodeLines[i]
+      const lineNumber = range.start + i
+      const maxContentSize = Math.max(1, maxChunkSize - prefixSize)
+
+      if (line.length > maxContentSize) {
+        if (currentLines.length > 0) {
+          const currentContent = currentLines.join("\n")
+          chunks.push({
+            content: currentContent,
+            startLine: currentStartLine,
+            endLine: currentStartLine + currentLines.length - 1,
+            type: "code",
+          })
+          currentLines = []
+        }
+
+        for (let index = 0; index < line.length; index += maxContentSize) {
+          chunks.push({
+            content: line.slice(index, index + maxContentSize),
+            startLine: lineNumber,
+            endLine: lineNumber,
+            type: "code",
+          })
+        }
+        currentStartLine = lineNumber + 1
+        continue
+      }
+
       // Check if adding this line would exceed the limit
       const wouldBeContent = [...currentLines, line].join("\n")
       const currentContent = currentLines.join("\n")
 
-      if (wouldBeContent.length > MAX_CHUNK_SIZE && currentLines.length > 0) {
+      if (wouldBeContent.length + prefixSize > maxChunkSize && currentLines.length > 0) {
         // Save current chunk WITHOUT the line that would exceed
         log.info("forceSplitByLines creating chunk", {
           chunkNum: chunks.length + 1,
           size: currentContent.length,
           lines: currentLines.length,
           wouldBe: wouldBeContent.length,
-          exceedsBy: wouldBeContent.length - MAX_CHUNK_SIZE
+          maxChunkSize,
+          exceedsBy: wouldBeContent.length + prefixSize - maxChunkSize
         })
         chunks.push({
           content: currentContent,
@@ -1471,6 +1691,7 @@ ${content}`
         const isExported = node.type === "export_statement" || node.parent?.type === "export_statement"
         const nodeName = extractNodeName(node)
         const metadata = extractMetadata(node, filePath)
+        const namespaceNode = getNamespaceNode(node)
 
         // Add context prefix
         let finalContent = addContextPrefix(extracted.content, filePath, node.type, nodeName, isExported)
@@ -1481,7 +1702,11 @@ ${content}`
         // If too large, split it
         if (finalContent.length > adaptiveMaxSize) {
           // For large nodes, we need to split but keep the prefix
-          const splitChunks = splitLargeNode(node, lines, filePath)
+          const prefixSize = Math.max(0, finalContent.length - extracted.content.length)
+          const splitChunks = splitLargeNode(node, lines, filePath, {
+            maxChunkSize: adaptiveMaxSize,
+            prefixSize,
+          })
           // Add prefix only to first chunk of split
           if (splitChunks.length > 0) {
             splitChunks[0].content = addContextPrefix(splitChunks[0].content, filePath, node.type, nodeName, isExported)
@@ -1500,6 +1725,10 @@ ${content}`
             type: "code",
             ...metadata,
           })
+        }
+
+        if (namespaceNode) {
+          chunks.push(...chunkNamespaceInternalSymbols(namespaceNode, lines, filePath))
         }
       }
     } while (cursor.gotoNextSibling())

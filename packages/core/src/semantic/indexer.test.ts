@@ -20,6 +20,20 @@ const getConfig = vi.fn()
 const extractRegions = vi.fn()
 const chunkAsync = vi.fn()
 const addOverlap = vi.fn((chunks) => chunks)
+const testChunkingSignature = {
+  version: 2,
+  provider: "openai",
+  model: "test-model",
+  dimension: 3,
+  modelMaxTokens: 8192,
+  usableModelTokens: 6963,
+  maxChars: 8800,
+  minChars: 200,
+  overlapChars: 384,
+  simpleChars: 7200,
+  mediumChars: 4800,
+  complexChars: 3200,
+}
 
 vi.mock("./lancedb.js", () => ({
   VectorStore: {
@@ -93,6 +107,7 @@ describe("Indexer incremental updates", () => {
         model: "test-model",
         dimension: 3,
       },
+      chunking: testChunkingSignature,
       files: {
         "src/a.ts": {
           size: 1,
@@ -163,6 +178,29 @@ describe("Indexer incremental updates", () => {
     expect(deleteByFile).toHaveBeenCalledWith({}, "src/a.ts")
     expect(addEmbeddedDocuments).toHaveBeenCalledTimes(1)
     expect(writeIndexMeta).toHaveBeenCalledTimes(1)
+    expect(writeIndexMeta.mock.calls[0][1].chunking).toEqual(testChunkingSignature)
+  })
+
+  it("updates collapsible regions during watched file updates", async () => {
+    const regions = [
+      {
+        type: "function",
+        name: "a",
+        startLine: 1,
+        endLine: 1,
+        signatureEndLine: 1,
+        indentation: "",
+      },
+    ]
+    extractRegions.mockResolvedValueOnce(regions)
+    const { Indexer } = await import("./indexer.js")
+
+    await Indexer.updateFile("src/a.ts")
+
+    expect(embedDocuments).toHaveBeenCalledTimes(1)
+    expect(writeIndexMeta).toHaveBeenCalledTimes(1)
+    expect(writeIndexMeta.mock.calls[0][1].files["src/a.ts"].collapsibleRegions).toEqual(regions)
+    expect(writeIndexMeta.mock.calls[0][1].chunking).toEqual(testChunkingSignature)
   })
 
   it("removes generated files from index metadata during file updates", async () => {
@@ -186,6 +224,7 @@ describe("Indexer incremental updates", () => {
         model: "test-model",
         dimension: 3,
       },
+      chunking: testChunkingSignature,
       files: {
         "src/a.ts.map": {
           size: 1,

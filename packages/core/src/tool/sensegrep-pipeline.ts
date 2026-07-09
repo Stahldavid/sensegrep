@@ -688,6 +688,9 @@ export async function collectRipgrepFallbackResults(
         semanticScore: options?.semanticScore ?? 1.04,
         metadata: selected.metadata,
         isWeakMatch: !isCodeFile(selected.metadata.file as string),
+        whyMatched: [
+          options?.fixedStrings ? `literal matched: ${pattern}` : `pattern matched: ${pattern}`,
+        ],
       })
     }
   }
@@ -825,19 +828,6 @@ export async function collectWorkingResults(
     searchOptions.filters = filters
   }
 
-  let semanticResults = await VectorStore.search(resources.collection, params.query, searchOptions)
-
-  if (fileFiltering.includeMatcher) {
-    semanticResults = semanticResults.filter((result) =>
-      matchesScopedGlob(result.metadata.file as string, fileFiltering.includeMatcher, resources.subdirPrefix),
-    )
-  }
-  if (fileFiltering.excludeMatcher) {
-    semanticResults = semanticResults.filter((result) =>
-      !matchesScopedGlob(result.metadata.file as string, fileFiltering.excludeMatcher, resources.subdirPrefix),
-    )
-  }
-
   const shouldRunLiteralFallback = !params.pattern && queryLooksLikeIdentifier(params.query)
   let literalFallbackResults: WorkingResult[] = []
   const lexicalCandidateFiles =
@@ -858,6 +848,22 @@ export async function collectWorkingResults(
       resources.collection,
       filters,
     )
+  }
+
+  let semanticResults: Awaited<ReturnType<typeof VectorStore.search>> = []
+  if (!(params.exact === true && literalFallbackResults.length > 0)) {
+    semanticResults = await VectorStore.search(resources.collection, params.query, searchOptions)
+
+    if (fileFiltering.includeMatcher) {
+      semanticResults = semanticResults.filter((result) =>
+        matchesScopedGlob(result.metadata.file as string, fileFiltering.includeMatcher, resources.subdirPrefix),
+      )
+    }
+    if (fileFiltering.excludeMatcher) {
+      semanticResults = semanticResults.filter((result) =>
+        !matchesScopedGlob(result.metadata.file as string, fileFiltering.excludeMatcher, resources.subdirPrefix),
+      )
+    }
   }
 
   let filteredResults = semanticResults
@@ -894,6 +900,7 @@ export async function collectWorkingResults(
     rawDistance: result.distance,
     distanceMetric: VectorStore.getDistanceMetric(resources.meta),
     metadata: result.metadata,
+    whyMatched: ["semantic similarity"],
   }))
 
   const fallbackResults = [...literalFallbackResults, ...patternFallbackResults]
@@ -910,6 +917,7 @@ export async function collectWorkingResults(
           ...existing,
           id: existing.id ?? result.id,
           semanticScore: Math.max(existing.semanticScore, result.semanticScore),
+          whyMatched: [...new Set([...(existing.whyMatched ?? []), ...(result.whyMatched ?? [])])],
         })
       } else {
         merged.set(key, result)
@@ -1127,7 +1135,9 @@ export function annotateWorkingResults(results: WorkingResult[], params: CommonS
   return results.map((result) => {
     const metadata = result.metadata
     const score = result.rerankScore ?? result.semanticScore
-    const whyMatched = new Set<string>(["semantic similarity"])
+    const whyMatched = new Set<string>(
+      result.whyMatched && result.whyMatched.length > 0 ? result.whyMatched : ["semantic similarity"],
+    )
     const filterMatches: Record<string, unknown> = {}
     const signals = {
       exactSymbolMatch: false,

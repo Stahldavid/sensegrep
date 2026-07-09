@@ -23,6 +23,8 @@ export type EmbeddingConfig = {
   region?: string
   apiKey?: string
   batchSize?: number
+  concurrency?: number
+  maxInputTokens?: number
   openRouterReferer?: string
   openRouterTitle?: string
   rateLimit?: RateLimitConfig
@@ -168,6 +170,17 @@ export function getEmbeddingConfig(overrides?: EmbeddingOverrides): EmbeddingCon
     (provider === "openai" ? parsePositiveEnvNumber("SENSEGREP_OPENAI_BATCH_SIZE") : undefined) ??
     (fileConfigApplies ? parseNumber((fileConfig as any).batchSize) : undefined)
 
+  const concurrency =
+    mergedOverrides.concurrency ??
+    (provider === "openai" ? parsePositiveEnvNumber("SENSEGREP_OPENAI_CONCURRENCY") : undefined) ??
+    parsePositiveEnvNumber("SENSEGREP_EMBED_CONCURRENCY") ??
+    (fileConfigApplies ? parseNumber((fileConfig as any).concurrency) : undefined)
+
+  const maxInputTokens =
+    mergedOverrides.maxInputTokens ??
+    parsePositiveEnvNumber("SENSEGREP_EMBED_MAX_TOKENS") ??
+    (fileConfigApplies ? parseNumber((fileConfig as any).maxInputTokens) : undefined)
+
   const openRouterReferer =
     (mergedOverrides as any).openRouterReferer ||
     process.env.SENSEGREP_OPENROUTER_REFERER ||
@@ -210,6 +223,8 @@ export function getEmbeddingConfig(overrides?: EmbeddingOverrides): EmbeddingCon
     ...(provider === "bedrock" && region ? { region } : {}),
     ...(apiKey ? { apiKey } : {}),
     ...(batchSize ? { batchSize } : {}),
+    ...(concurrency ? { concurrency } : {}),
+    ...(maxInputTokens ? { maxInputTokens } : {}),
     ...(provider === "openai" && openRouterReferer ? { openRouterReferer } : {}),
     ...(provider === "openai" && openRouterTitle ? { openRouterTitle } : {}),
     ...(Object.keys(rateLimit).length > 0 ? { rateLimit } : {}),

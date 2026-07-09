@@ -82,6 +82,7 @@ export namespace DuplicateDetector {
       candidates?: number
       analyzedCandidates?: number
       truncated?: boolean
+      deduplicatedCandidates?: number
     }
     duplicates: DuplicateGroup[]
     acceptableDuplicates?: DuplicateGroup[]
@@ -840,6 +841,7 @@ export namespace DuplicateDetector {
 
     const originalCandidateCount = candidates.length
     candidates = dedupeCandidatesBySourceLocation(candidates)
+    const deduplicatedCandidateCount = originalCandidateCount - candidates.length
     if (candidates.length !== originalCandidateCount) {
       log.info("deduplicated overlapping duplicate candidates", {
         before: originalCandidateCount,
@@ -847,12 +849,14 @@ export namespace DuplicateDetector {
       })
     }
 
+    let truncatedByMaxCandidates = false
     if (candidates.length > maxCandidates) {
       log.warn("duplicate candidate set too large; truncating", {
         candidates: candidates.length,
         maxCandidates,
         path: resolvedPath,
       })
+      truncatedByMaxCandidates = true
       candidates = candidates
         .sort((a, b) => {
           const complexityDiff = (b.complexity ?? 0) - (a.complexity ?? 0)
@@ -880,7 +884,8 @@ export namespace DuplicateDetector {
           filesAffected: 0,
           candidates: originalCandidateCount,
           analyzedCandidates: candidates.length,
-          truncated: originalCandidateCount > candidates.length,
+          truncated: truncatedByMaxCandidates,
+          deduplicatedCandidates: deduplicatedCandidateCount,
         },
         duplicates: [],
       }
@@ -947,7 +952,8 @@ export namespace DuplicateDetector {
           filesAffected: 0,
           candidates: originalCandidateCount,
           analyzedCandidates: candidates.length,
-          truncated: originalCandidateCount > candidates.length,
+          truncated: truncatedByMaxCandidates,
+          deduplicatedCandidates: deduplicatedCandidateCount,
         },
         duplicates: [],
       }
@@ -1077,7 +1083,8 @@ export namespace DuplicateDetector {
         filesAffected,
         candidates: originalCandidateCount,
         analyzedCandidates: candidates.length,
-        truncated: originalCandidateCount > candidates.length,
+        truncated: truncatedByMaxCandidates,
+        deduplicatedCandidates: deduplicatedCandidateCount,
       },
       duplicates,
       acceptableDuplicates: acceptableDuplicates.length > 0 ? acceptableDuplicates : undefined,
