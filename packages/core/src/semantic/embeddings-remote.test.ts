@@ -3,6 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 const sendMock = vi.fn()
 const clientCtor = vi.fn()
 
+function sizedVector(dim: number, first = 1, second = 0, third = 0): number[] {
+  const vector = Array.from({ length: dim }, () => 0)
+  vector[0] = first
+  if (dim > 1) vector[1] = second
+  if (dim > 2) vector[2] = third
+  return vector
+}
+
 vi.mock("@aws-sdk/client-bedrock-runtime", () => ({
   BedrockRuntimeClient: class BedrockRuntimeClient {
     constructor(config: any) {
@@ -51,7 +59,7 @@ describe("EmbeddingsRemote Bedrock", () => {
       body: new TextEncoder().encode(
         JSON.stringify({
           response_type: "embeddings_floats",
-          embeddings: [[3, 4]],
+          embeddings: [sizedVector(1024, 3, 4)],
         }),
       ),
     })
@@ -87,7 +95,7 @@ describe("EmbeddingsRemote Bedrock", () => {
         JSON.stringify({
           response_type: "embeddings_by_type",
           embeddings: {
-            float: [[1, 2, 2]],
+            float: [sizedVector(1536, 1, 2, 2)],
           },
         }),
       ),
@@ -115,7 +123,7 @@ describe("EmbeddingsRemote Bedrock", () => {
       body: new TextEncoder().encode(
         JSON.stringify({
           response_type: "embeddings_floats",
-          embeddings: [[1, 0]],
+          embeddings: [sizedVector(1536, 1, 0)],
         }),
       ),
     })
@@ -160,7 +168,7 @@ describe("EmbeddingsRemote OpenAI-compatible", () => {
     fetchMock.mockResolvedValue({
       ok: true,
       json: async () => ({
-        data: [{ index: 0, embedding: [3, 4] }],
+        data: [{ index: 0, embedding: sizedVector(1024, 3, 4) }],
       }),
     })
 
@@ -187,9 +195,9 @@ describe("EmbeddingsRemote OpenAI-compatible", () => {
       const body = JSON.parse(init.body)
       return {
         ok: true,
-        json: async () => ({
-          data: body.input.map((_text: string, index: number) => ({ index, embedding: [1, 0] })),
-        }),
+      json: async () => ({
+        data: body.input.map((_text: string, index: number) => ({ index, embedding: sizedVector(body.dimensions) })),
+      }),
       }
     })
 
@@ -223,7 +231,7 @@ describe("EmbeddingsRemote OpenAI-compatible", () => {
     fetchMock.mockResolvedValue({
       ok: true,
       json: async () => ({
-        data: [{ index: 0, embedding: [1, 0] }],
+        data: [{ index: 0, embedding: sizedVector(1024) }],
       }),
     })
 
@@ -241,6 +249,50 @@ describe("EmbeddingsRemote OpenAI-compatible", () => {
     const body = JSON.parse(fetchMock.mock.calls[0][1].body)
 
     expect(body.input[0]).toHaveLength(40_000)
+  })
+
+  it("fails when OpenAI-compatible providers return fewer embeddings than requested", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: [{ index: 0, embedding: [1, 0] }],
+      }),
+    })
+
+    const { EmbeddingsRemote } = await import("./embeddings-remote.js")
+    EmbeddingsRemote.configure({
+      provider: "openai",
+      embedModel: "test-embedding",
+      embedDim: 2,
+      baseUrl: "http://127.0.0.1:1234/v1",
+      apiKey: "test-key",
+    })
+
+    await expect(EmbeddingsRemote.embed(["one", "two"], { skipValidation: true })).rejects.toThrow(
+      /returned 1 vectors for 2 inputs/,
+    )
+  })
+
+  it("fails when OpenAI-compatible providers return the wrong vector dimension", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: [{ index: 0, embedding: [1, 0] }],
+      }),
+    })
+
+    const { EmbeddingsRemote } = await import("./embeddings-remote.js")
+    EmbeddingsRemote.configure({
+      provider: "openai",
+      embedModel: "test-embedding",
+      embedDim: 3,
+      baseUrl: "http://127.0.0.1:1234/v1",
+      apiKey: "test-key",
+    })
+
+    await expect(EmbeddingsRemote.embed("one", { skipValidation: true })).rejects.toThrow(
+      /returned vector dimension 2/,
+    )
   })
 })
 
@@ -269,8 +321,8 @@ describe("EmbeddingsRemote Ollama", () => {
       ok: true,
       json: async () => ({
         embeddings: [
-          [3, 4],
-          [0, 5],
+          sizedVector(1024, 3, 4),
+          sizedVector(1024, 0, 5),
         ],
       }),
     })

@@ -332,7 +332,7 @@ export function createGlobMatcher(pattern: string) {
   })
 }
 
-function getScopedFilePath(file: string, subdirPrefix?: string): string | undefined {
+export function getScopedFilePath(file: string, subdirPrefix?: string): string | undefined {
   const normalizedFile = canonicalizeProjectFilePath(file)
   if (!subdirPrefix) return normalizedFile
 
@@ -343,7 +343,7 @@ function getScopedFilePath(file: string, subdirPrefix?: string): string | undefi
   return normalizedFile.slice(prefixWithSlash.length)
 }
 
-function matchesScopedGlob(
+export function matchesScopedGlob(
   file: string,
   matcher: ReturnType<typeof createGlobMatcher> | undefined,
   subdirPrefix?: string,
@@ -358,7 +358,7 @@ function matchesScopedGlob(
 const RIPGREP_MAX_ARG_CHARS = process.platform === "win32" ? 7000 : 30000
 const RIPGREP_MAX_FILES_PER_BATCH = 256
 
-async function runRipgrepOnFiles(
+export async function runRipgrepOnFiles(
   pattern: string,
   files: string[],
   options?: {
@@ -517,7 +517,7 @@ function buildSearchFilters(params: CommonSensegrepParams): VectorStore.SearchFi
   return filters
 }
 
-function expandImportFilterValues(imports: string): string[] {
+export function expandImportFilterValues(imports: string): string[] {
   const values = new Set<string>()
   for (const raw of imports.split(",")) {
     const cleaned = raw.trim().replace(/^['"`]|['"`]$/g, "")

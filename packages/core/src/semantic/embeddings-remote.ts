@@ -200,6 +200,36 @@ function normalize(vec: number[]): number[] {
   return vec.map((v) => v / norm)
 }
 
+function assertEmbeddingShape(input: {
+  provider: EmbeddingConfig["provider"]
+  model: string
+  expectedCount: number
+  expectedDim: number
+  vectors: number[][]
+}): void {
+  const { provider, model, expectedCount, expectedDim, vectors } = input
+  if (vectors.length !== expectedCount) {
+    throw new Error(
+      `${provider} embeddings response returned ${vectors.length} vectors for ${expectedCount} inputs ` +
+        `(model=${model}).`,
+    )
+  }
+
+  const invalidIndex = vectors.findIndex(
+    (vector) =>
+      !Array.isArray(vector) ||
+      vector.length !== expectedDim ||
+      vector.some((value) => !Number.isFinite(value)),
+  )
+  if (invalidIndex >= 0) {
+    const actualDim = Array.isArray(vectors[invalidIndex]) ? vectors[invalidIndex].length : 0
+    throw new Error(
+      `${provider} embeddings response returned vector dimension ${actualDim} at index ${invalidIndex}; ` +
+        `expected ${expectedDim} (model=${model}).`,
+    )
+  }
+}
+
 function batchTextsForBedrock(texts: string[]): string[][] {
   const maxItems = 96
   const maxBytes = 18 * 1024 * 1024
@@ -436,9 +466,13 @@ export namespace EmbeddingsRemote {
       allVectors.push(...vectors)
     }
 
-    if (allVectors.length !== texts.length) {
-      log.warn("bedrock embeddings count mismatch", { expected: texts.length, got: allVectors.length })
-    }
+    assertEmbeddingShape({
+      provider: "bedrock",
+      model,
+      expectedCount: texts.length,
+      expectedDim: outputDimensionality,
+      vectors: allVectors,
+    })
 
     return allVectors
   }
@@ -551,9 +585,13 @@ export namespace EmbeddingsRemote {
       allVectors.push(...vectors)
     }
 
-    if (allVectors.length !== texts.length) {
-      log.warn("gemini embeddings count mismatch", { expected: texts.length, got: allVectors.length })
-    }
+    assertEmbeddingShape({
+      provider: "gemini",
+      model,
+      expectedCount: texts.length,
+      expectedDim: outputDimensionality,
+      vectors: allVectors,
+    })
 
     return allVectors
   }
@@ -651,9 +689,13 @@ export namespace EmbeddingsRemote {
       allVectors.push(...vectors)
     }
 
-    if (allVectors.length !== texts.length) {
-      log.warn("OpenAI-compatible embeddings count mismatch", { expected: texts.length, got: allVectors.length })
-    }
+    assertEmbeddingShape({
+      provider: "openai",
+      model,
+      expectedCount: texts.length,
+      expectedDim: outputDimensionality,
+      vectors: allVectors,
+    })
 
     return allVectors
   }
@@ -732,9 +774,13 @@ export namespace EmbeddingsRemote {
       allVectors.push(...vectors)
     }
 
-    if (allVectors.length !== texts.length) {
-      log.warn("Ollama embeddings count mismatch", { expected: texts.length, got: allVectors.length })
-    }
+    assertEmbeddingShape({
+      provider: "ollama",
+      model,
+      expectedCount: texts.length,
+      expectedDim: config.embedDim,
+      vectors: allVectors,
+    })
 
     return allVectors
   }

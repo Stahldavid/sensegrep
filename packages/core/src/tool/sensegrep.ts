@@ -1,21 +1,26 @@
 import z from "zod"
 import { readFileSync } from "node:fs"
-import { spawn } from "node:child_process"
-import { once } from "node:events"
-import picomatch from "picomatch"
 import { Tool } from "./tool.js"
 import { VectorStore } from "../semantic/lancedb.js"
 import { Instance } from "../project/instance.js"
 import { Embeddings } from "../semantic/embeddings.js"
-import { Ripgrep } from "../file/ripgrep.js"
 import { TreeShaker } from "../semantic/tree-shaker.js"
 import { Log } from "../util/log.js"
 import path from "path"
 import {
   annotateWorkingResults,
+  canonicalizeProjectFilePath,
+  createGlobMatcher,
+  dedupeOverlapping,
+  diversifyResults,
+  expandFilePathVariants,
+  expandImportFilterValues,
   formatFreshnessWarning,
   getFreshnessSummary,
+  getScopedFilePath,
+  matchesScopedGlob,
   prependFreshnessWarning,
+  runRipgrepOnFiles,
   toStructuredSearchResult,
 } from "./sensegrep-pipeline.js"
 import { expandSemanticKindFilter } from "../semantic/language/index.js"
@@ -24,10 +29,6 @@ const DESCRIPTION = readFileSync(new URL("./sensegrep.txt", import.meta.url), "u
 const log = Log.create({ service: "tool.sensegrep" })
 
 const MAX_LINE_LENGTH = 2000
-
-// Batch ripgrep file arguments to avoid command line length limits (notably on Windows).
-const RIPGREP_MAX_ARG_CHARS = process.platform === "win32" ? 7000 : 30000
-const RIPGREP_MAX_FILES_PER_BATCH = 256
 
 // Extensions used to prioritize code matches over docs/config in the literal fallback.
 const CODE_EXTENSIONS = new Set([
@@ -39,188 +40,6 @@ const CODE_EXTENSIONS = new Set([
 function isCodeFile(filePath: string): boolean {
   const ext = path.extname(filePath).toLowerCase()
   return CODE_EXTENSIONS.has(ext)
-}
-
-function normalizeFilePath(file: string): string {
-  return file.replace(/\\/g, "/")
-}
-
-function canonicalizeProjectFilePath(file: string): string {
-  let normalized = normalizeFilePath(file)
-  const normalizedRoot = normalizeFilePath(path.resolve(Instance.directory))
-
-  if (path.isAbsolute(file)) {
-    const absolutePath = normalizeFilePath(path.resolve(file))
-    const rootWithSlash = `${normalizedRoot}/`
-    if (absolutePath.toLowerCase().startsWith(rootWithSlash.toLowerCase())) {
-      normalized = absolutePath.slice(rootWithSlash.length)
-    } else {
-      normalized = absolutePath
-    }
-  }
-
-  while (normalized.startsWith("./")) {
-    normalized = normalized.slice(2)
-  }
-
-  return normalized
-}
-
-function expandFilePathVariants(file: string): string[] {
-  const canonical = canonicalizeProjectFilePath(file)
-  const variants = new Set<string>([
-    file,
-    normalizeFilePath(file),
-    canonical,
-    canonical.replace(/\//g, "\\"),
-  ])
-
-  if (canonical && !canonical.startsWith("./")) {
-    variants.add(`./${canonical}`)
-    variants.add(`.\\${canonical.replace(/\//g, "\\")}`)
-  }
-
-  return [...variants].filter(Boolean)
-}
-
-function createGlobMatcher(pattern: string) {
-  const normalizedPattern = canonicalizeProjectFilePath(pattern)
-  const hasPathSeparator = normalizedPattern.includes("/")
-  return picomatch(normalizedPattern, {
-    dot: true,
-    // Treat "*.ts" like a repo-wide basename match instead of only matching root files.
-    basename: !hasPathSeparator,
-  })
-}
-
-function expandImportFilterValues(imports: string): string[] {
-  const values = new Set<string>()
-  for (const raw of imports.split(",")) {
-    const cleaned = raw.trim().replace(/^['"`]|['"`]$/g, "")
-    if (!cleaned) continue
-    values.add(cleaned)
-
-    const withoutScopePrefix = cleaned.startsWith("@") ? cleaned.slice(1) : cleaned
-    if (withoutScopePrefix !== cleaned) values.add(withoutScopePrefix)
-
-    const parts = withoutScopePrefix.split(/[\\/]/).filter(Boolean)
-    const last = parts.at(-1)
-    if (last) values.add(last)
-  }
-  return [...values]
-}
-
-function getScopedFilePath(file: string, subdirPrefix?: string): string | undefined {
-  const normalizedFile = canonicalizeProjectFilePath(file)
-  if (!subdirPrefix) return normalizedFile
-
-  const normalizedPrefix = normalizeFilePath(subdirPrefix).replace(/^\.\//, "").replace(/\/$/, "")
-  if (normalizedFile === normalizedPrefix) return ""
-  const prefixWithSlash = `${normalizedPrefix}/`
-  if (!normalizedFile.toLowerCase().startsWith(prefixWithSlash.toLowerCase())) return undefined
-  return normalizedFile.slice(prefixWithSlash.length)
-}
-
-function matchesScopedGlob(
-  file: string,
-  matcher: ReturnType<typeof createGlobMatcher> | undefined,
-  subdirPrefix?: string,
-): boolean {
-  if (!matcher) return true
-  const projectPath = canonicalizeProjectFilePath(file)
-  const scopedPath = getScopedFilePath(file, subdirPrefix)
-  return matcher(projectPath) || (scopedPath !== undefined && matcher(scopedPath))
-}
-
-// Helper: Run ripgrep only on specific files (post-filter approach)
-async function runRipgrepOnFiles(
-  pattern: string,
-  files: string[],
-  options?: {
-    caseSensitive?: boolean
-    fixedStrings?: boolean
-  },
-): Promise<{ file: string; line: number; text: string }[]> {
-  if (files.length === 0) return []
-
-  const rgPath = await Ripgrep.filepath()
-  const matches: { file: string; line: number; text: string }[] = []
-
-  // Use repo-relative paths together with cwd so each argument stays short.
-  const normalizedFiles = files.map((file) => canonicalizeProjectFilePath(file))
-  const fileBatches: string[][] = []
-  let currentBatch: string[] = []
-  let currentChars = 0
-
-  for (const file of normalizedFiles) {
-    const estimatedChars = file.length + 1
-    const wouldOverflow =
-      currentBatch.length > 0 &&
-      (currentBatch.length >= RIPGREP_MAX_FILES_PER_BATCH || currentChars + estimatedChars > RIPGREP_MAX_ARG_CHARS)
-
-    if (wouldOverflow) {
-      fileBatches.push(currentBatch)
-      currentBatch = []
-      currentChars = 0
-    }
-
-    currentBatch.push(file)
-    currentChars += estimatedChars
-  }
-
-  if (currentBatch.length > 0) fileBatches.push(currentBatch)
-
-  for (const batch of fileBatches) {
-    const args: string[] = [
-      "-n", // Line numbers
-      "--no-heading", // Simple format: file:line:text
-    ]
-
-    if (!options?.caseSensitive) args.push("-i")
-    if (options?.fixedStrings) {
-      args.push("--fixed-strings", pattern)
-    } else {
-      args.push("--regexp", pattern)
-    }
-
-    // "--" guards against file paths that could be parsed as flags.
-    args.push("--", ...batch)
-
-    const proc = spawn(rgPath, args, {
-      cwd: Instance.directory,
-      stdio: ["ignore", "pipe", "pipe"],
-    })
-
-    let output = ""
-    let stderr = ""
-    proc.stdout?.on("data", (chunk) => {
-      output += chunk.toString()
-    })
-    proc.stderr?.on("data", (chunk) => {
-      stderr += chunk.toString()
-    })
-
-    const [code] = (await once(proc, "close")) as [number]
-    if (code && code !== 1) {
-      throw new Error(`ripgrep failed with code ${code}: ${stderr}`)
-    }
-
-    // Parse output: "file:line:text"
-    for (const line of output.trim().split("\n")) {
-      if (!line) continue
-      const match = line.match(/^(.*):(\d+):(.*)$/)
-      if (match) {
-        const [, matchedPath, lineNum, text] = match
-        matches.push({
-          file: canonicalizeProjectFilePath(matchedPath),
-          line: parseInt(lineNum, 10),
-          text: text.trim(),
-        })
-      }
-    }
-  }
-
-  return matches
 }
 
 function queryLooksLikeIdentifier(query: string): boolean {
@@ -409,106 +228,6 @@ async function collectLiteralFallbackResults(
     fixedStrings: true,
     semanticScore: 1.05,
   })
-}
-
-function overlapRatio(aStart: number, aEnd: number, bStart: number, bEnd: number): number {
-  const overlap = Math.max(0, Math.min(aEnd, bEnd) - Math.max(aStart, bStart) + 1)
-  const lenA = Math.max(1, aEnd - aStart + 1)
-  const lenB = Math.max(1, bEnd - bStart + 1)
-  const minLen = Math.min(lenA, lenB)
-  return overlap / minLen
-}
-
-function dedupeOverlapping<T extends {
-  file: string
-  startLine: number
-  endLine: number
-  semanticScore: number
-  metadata: Record<string, unknown>
-}>(results: T[], options?: { overlapThreshold?: number; scoreSlack?: number }): T[] {
-  const overlapThreshold = options?.overlapThreshold ?? 0.6
-  const scoreSlack = options?.scoreSlack ?? 0.02
-  const byFile = new Map<string, T[]>()
-  const kept: T[] = []
-
-  for (const result of results) {
-    const list = byFile.get(result.file) ?? []
-    let replaced = false
-    let skip = false
-
-    for (let i = 0; i < list.length; i++) {
-      const existing = list[i]
-      const ratio = overlapRatio(result.startLine, result.endLine, existing.startLine, existing.endLine)
-      if (ratio < overlapThreshold) continue
-
-      const scoreDiff = result.semanticScore - existing.semanticScore
-      const resultType = String(result.metadata.symbolType ?? "")
-      const existingType = String(existing.metadata.symbolType ?? "")
-      const resultLen = result.endLine - result.startLine + 1
-      const existingLen = existing.endLine - existing.startLine + 1
-
-      let preferResult = scoreDiff > scoreSlack
-      if (!preferResult && Math.abs(scoreDiff) <= scoreSlack) {
-        if (resultType === "method" && existingType === "class") {
-          preferResult = true
-        } else if (resultType === "function" && existingType === "class") {
-          preferResult = true
-        } else if (resultLen < existingLen) {
-          preferResult = true
-        }
-      }
-
-      if (preferResult) {
-        list[i] = result
-        replaced = true
-      } else {
-        skip = true
-      }
-      break
-    }
-
-    if (!skip) {
-      if (!replaced) list.push(result)
-      byFile.set(result.file, list)
-    }
-  }
-
-  for (const list of byFile.values()) {
-    kept.push(...list)
-  }
-
-  return kept
-}
-
-function diversifyResults<T extends {
-  file: string
-  metadata: Record<string, unknown>
-}>(results: T[], limits: { maxPerFile: number; maxPerSymbol: number }): T[] {
-  const { maxPerFile, maxPerSymbol } = limits
-  const kept: T[] = []
-  const perFile = new Map<string, number>()
-  const perSymbol = new Map<string, number>()
-
-  for (const result of results) {
-    const file = result.file || ""
-    const symbolName = typeof result.metadata.symbolName === "string" ? result.metadata.symbolName : ""
-
-    if (maxPerFile > 0) {
-      const fileCount = perFile.get(file) ?? 0
-      if (fileCount >= maxPerFile) continue
-      perFile.set(file, fileCount + 1)
-    }
-
-    if (maxPerSymbol > 0 && symbolName) {
-      const symbolCount = perSymbol.get(symbolName) ?? 0
-      if (symbolCount >= maxPerSymbol) continue
-      perSymbol.set(symbolName, symbolCount + 1)
-    }
-
-    kept.push(result)
-  }
-
-  return kept
 }
 
 export const SenseGrepTool = Tool.define("sensegrep", {

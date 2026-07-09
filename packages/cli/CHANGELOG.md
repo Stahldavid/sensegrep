@@ -1,5 +1,14 @@
 # @sensegrep/cli
 
+## 1.7.3
+
+### Patch Changes
+
+- Clean package build outputs before compiling, reject malformed embedding response shapes, remove stale index metadata on file updates, and reduce duplicated search utility code.
+
+- Updated dependencies []:
+  - @sensegrep/core@1.7.3
+
 ## 1.7.2
 
 ### Patch Changes

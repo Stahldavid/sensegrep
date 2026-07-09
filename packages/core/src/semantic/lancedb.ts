@@ -673,8 +673,22 @@ export namespace VectorStore {
       taskType: "RETRIEVAL_DOCUMENT",
       title: documents.map((d) => String(d.metadata.file ?? "")),
     })
+    const expectedDim = Embeddings.getDimension()
+    if (embeddings.length !== documents.length) {
+      throw new Error(`Embedding provider returned ${embeddings.length} vectors for ${documents.length} documents.`)
+    }
+    const invalidIndex = embeddings.findIndex(
+      (vector) =>
+        !Array.isArray(vector) ||
+        vector.length !== expectedDim ||
+        vector.some((value) => !Number.isFinite(value)),
+    )
+    if (invalidIndex >= 0) {
+      const actualDim = Array.isArray(embeddings[invalidIndex]) ? embeddings[invalidIndex].length : 0
+      throw new Error(`Embedding vector ${invalidIndex} has dimension ${actualDim}; expected ${expectedDim}.`)
+    }
 
-    return documents.map((document, i) => documentToRow(document, embeddings[i] ?? []))
+    return documents.map((document, i) => documentToRow(document, embeddings[i]))
   }
 
   export async function addEmbeddedDocuments(

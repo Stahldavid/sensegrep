@@ -4,6 +4,10 @@ const path = require("path")
 
 const watch = process.argv.includes("--watch")
 
+if (!watch) {
+  fs.rmSync(path.join(__dirname, "dist"), { recursive: true, force: true })
+}
+
 const config = {
   entryPoints: ["src/extension.ts"],
   bundle: true,

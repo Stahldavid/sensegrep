@@ -1,6 +1,7 @@
 import * as vscode from "vscode"
 import { SensegrepCore, DuplicateGroup } from "../core"
-import { getDuplicatesViewHtml, getNonce } from "../webview/templates"
+import { getNonce } from "../webview/nonce"
+import { getDuplicatesViewHtml } from "../webview/templates"
 import { DuplicateDiagnosticsManager } from "../providers/duplicate-diagnostics"
 import { tryRecoverIndex } from "../providers/index-repair"
 

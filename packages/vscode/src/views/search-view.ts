@@ -3,7 +3,8 @@ import { SensegrepCore, SearchResult, SearchSummary, ShakedSearchFile } from "..
 import type { SearchOptions } from "../core"
 import { ResultsTreeProvider } from "../providers/results-tree"
 import { HistoryTreeProvider } from "../providers/history-tree"
-import { getNonce, getSearchViewHtml } from "../webview/templates"
+import { getNonce } from "../webview/nonce"
+import { getSearchViewHtml } from "../webview/templates"
 import { tryRecoverIndex } from "../providers/index-repair"
 import * as path from "path"
 

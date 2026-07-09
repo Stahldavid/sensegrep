@@ -158,4 +158,16 @@ describe("Indexer incremental updates", () => {
     expect(addEmbeddedDocuments).toHaveBeenCalledTimes(1)
     expect(writeIndexMeta).toHaveBeenCalledTimes(1)
   })
+
+  it("removes generated files from index metadata during file updates", async () => {
+    await writeFile(path.join(TEST_DIR, "src/a.ts"), "x".repeat(60_000))
+    const { Indexer } = await import("./indexer.js")
+
+    await Indexer.updateFile("src/a.ts")
+
+    expect(deleteByFile).toHaveBeenCalledWith({}, "src/a.ts")
+    expect(embedDocuments).not.toHaveBeenCalled()
+    expect(writeIndexMeta).toHaveBeenCalledTimes(1)
+    expect(writeIndexMeta.mock.calls[0][1].files["src/a.ts"]).toBeUndefined()
+  })
 })

@@ -451,6 +451,19 @@ export namespace Indexer {
     return { count: documents.length, chunkHashes: documents.map((d) => d.hash) }
   }
 
+  async function deleteFileFromIndexAndMeta(
+    collection: Awaited<ReturnType<typeof VectorStore.getCollection>>,
+    filePath: string,
+  ): Promise<void> {
+    await VectorStore.deleteByFile(collection, filePath)
+    const meta = await VectorStore.readIndexMeta(Instance.directory)
+    if (meta?.files) {
+      delete meta.files[filePath]
+      meta.updatedAt = Date.now()
+      await VectorStore.writeIndexMeta(Instance.directory, meta)
+    }
+  }
+
   async function buildDocuments(input: { filePath: string; content: string }): Promise<Document[]> {
     const normalizedFilePath = normalizeIndexedFilePath(input.filePath)
     const chunks = await Chunking.chunkAsync(input.content, normalizedFilePath)
@@ -1088,26 +1101,27 @@ export namespace Indexer {
     const fullPath = path.join(Instance.directory, filePath)
     const stat = await fs.stat(fullPath).catch(() => null)
     if (!stat) return
-    if (stat.size > MAX_FILE_SIZE) return
+    const collection = await VectorStore.getCollection(Instance.directory)
+    if (stat.size > MAX_FILE_SIZE) {
+      await deleteFileFromIndexAndMeta(collection, filePath)
+      return
+    }
 
     const content = await fs.readFile(fullPath, "utf8").catch(() => "")
-    const collection = await VectorStore.getCollection(Instance.directory)
     if (isProbablyMinifiedOrGenerated(filePath, content)) {
-      await VectorStore.deleteByFile(collection, filePath)
+      await deleteFileFromIndexAndMeta(collection, filePath)
       return
     }
     if (!content.trim()) {
-      await VectorStore.deleteByFile(collection, filePath)
-      const meta = await VectorStore.readIndexMeta(Instance.directory)
-      if (meta?.files) {
-        delete meta.files[filePath]
-        meta.updatedAt = Date.now()
-        await VectorStore.writeIndexMeta(Instance.directory, meta)
-      }
+      await deleteFileFromIndexAndMeta(collection, filePath)
       return
     }
 
     const documents = await buildDocuments({ filePath, content })
+    if (documents.length === 0) {
+      await deleteFileFromIndexAndMeta(collection, filePath)
+      return
+    }
     const docsToAdd = documents.map(({ id, content: docContent, contentRaw, metadata }) => ({
       id,
       content: docContent,
@@ -1138,13 +1152,7 @@ export namespace Indexer {
     log.info("removing file from index", { file: filePath })
 
     const collection = await VectorStore.getCollection(Instance.directory)
-    await VectorStore.deleteByFile(collection, filePath)
-    const meta = await VectorStore.readIndexMeta(Instance.directory)
-    if (meta?.files) {
-      delete meta.files[filePath]
-      meta.updatedAt = Date.now()
-      await VectorStore.writeIndexMeta(Instance.directory, meta)
-    }
+    await deleteFileFromIndexAndMeta(collection, filePath)
   }
 
   /**

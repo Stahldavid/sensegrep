@@ -589,7 +589,8 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run build",
-    "build": "node build.js",
+    "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
+    "build": "npm run clean && node build.js",
     "dev": "node build.js --watch",
     "package": "vsce package --no-dependencies --skip-license",
     "package:win32-x64": "vsce package --target win32-x64 --no-dependencies --skip-license",
@@ -611,6 +612,6 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@sensegrep/core": "^1.7.2"
+    "@sensegrep/core": "^1.7.3"
   }
 }

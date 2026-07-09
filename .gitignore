@@ -26,6 +26,7 @@ dist/
 
 # VS Code extension packages
 *.vsix
+*.tgz
 
 # Local editor config
 .vscode/

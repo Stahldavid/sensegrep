@@ -1,6 +1,6 @@
 {
   "name": "@sensegrep/core",
-  "version": "1.7.2",
+  "version": "1.7.3",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -16,7 +16,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && node -e \"const fs = require('fs'); fs.mkdirSync('dist/tool', { recursive: true }); fs.copyFileSync('src/tool/sensegrep.txt', 'dist/tool/sensegrep.txt');\"",
+    "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
+    "build": "npm run clean && tsc -p tsconfig.json && node -e \"const fs = require('fs'); fs.mkdirSync('dist/tool', { recursive: true }); fs.copyFileSync('src/tool/sensegrep.txt', 'dist/tool/sensegrep.txt');\"",
     "check": "tsc -p tsconfig.json --noEmit",
     "prepublishOnly": "npm run build"
   },
