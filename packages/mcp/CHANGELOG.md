@@ -1,5 +1,20 @@
 # @sensegrep/mcp
 
+## 1.10.2
+
+### Patch Changes
+
+- [`0bddb8f`](https://github.com/Stahldavid/sensegrep/commit/0bddb8fe33f5f708689051b0f6242bb629001350) Thanks [@Stahldavid](https://github.com/Stahldavid)! - Make agent output limits and structured schemas precise.
+
+  - split large changed files into stable ranges so every audit batch strictly respects `batchTokens`
+  - separate attempted evidence size from the bytes and tokens actually emitted by the CLI
+  - use canonical search-result fields consistently across compact, content, CLI, and MCP output
+  - add standard command envelopes to duplicate detection results
+  - derive snippet integrity from persisted AST symbol regions without adding parsing to normal searches
+
+- Updated dependencies [[`0bddb8f`](https://github.com/Stahldavid/sensegrep/commit/0bddb8fe33f5f708689051b0f6242bb629001350)]:
+  - @sensegrep/core@1.10.2
+
 ## 1.10.1
 
 ### Patch Changes
