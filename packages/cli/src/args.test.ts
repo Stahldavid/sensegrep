@@ -21,4 +21,13 @@ describe("CLI arguments", () => {
   it("accepts deterministic literal search flags", () => {
     expect(validateKnownFlags("literal", { regex: true, "ignore-case": true, include: "src/**", limit: "20" })).toBeUndefined()
   })
+
+  it("accepts embedding timeout and global audit budgets", () => {
+    expect(validateKnownFlags("search", { "embedding-timeout": "1000" })).toBeUndefined()
+    expect(validateKnownFlags("audit", {
+      "max-total-tokens": "8000",
+      "max-output-bytes": "32000",
+      "max-batches": "8",
+    })).toBeUndefined()
+  })
 })

@@ -77,6 +77,16 @@ function usage() {
   writeStdoutLine(CLI_USAGE)
 }
 
+function parseNonNegativeIntegerFlag(flags: Flags, name: string): number | undefined {
+  const value = flags[name]
+  if (value === undefined) return undefined
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new CliUsageError(`--${name} must be a non-negative integer`)
+  }
+  return parsed
+}
+
 function applyEmbeddingOverrides(flags: Flags, Embeddings: CoreModule["Embeddings"]) {
   const overrides: Record<string, unknown> = {}
   const provider = flags.provider ? String(flags.provider).toLowerCase() : undefined
@@ -242,6 +252,11 @@ async function ensureFreshIfRequested(
 
 function writeQueryDryRun(command: string, query: string, params: SearchLikeParams, Embeddings: CoreModule["Embeddings"]) {
   const config = Embeddings.getConfig()
+  const maxTokens = typeof params.maxTokens === "number" ? params.maxTokens : undefined
+  const maxTotalTokens = typeof params.maxTotalTokens === "number" ? params.maxTotalTokens : undefined
+  const outputTokensRequested = maxTotalTokens === undefined
+    ? maxTokens
+    : Math.min(maxTokens ?? maxTotalTokens, maxTotalTokens)
   writeJson({
     schemaVersion: 1,
     command,
@@ -249,8 +264,11 @@ function writeQueryDryRun(command: string, query: string, params: SearchLikePara
     plan: {
       embeddingCalls: command === "literal" ? 0 : 1,
       estimatedInputTokens: Math.max(1, Math.ceil(query.length / 4)),
-      outputTokensRequested: params.maxTokens,
+      outputTokensRequested,
+      maxTotalTokens: params.maxTotalTokens,
       maxOutputBytes: params.maxOutputBytes,
+      maxBatches: params.maxBatches,
+      embeddingTimeoutMs: params.embeddingTimeoutMs,
       provider: config.provider,
       model: config.embedModel,
       dimension: config.embedDim,
@@ -300,7 +318,7 @@ async function run() {
 
   // Configure log level: WARN by default, INFO if --verbose
   const logLevel = toBool(flags.verbose) ? "INFO" : "WARN"
-  await Log.init({ print: true, level: logLevel as any })
+  await Log.init({ print: flags["log-format"] !== "none", level: logLevel as any })
 
   const rootDir = (flags.root as string | undefined) || process.cwd()
   if (command === "daemon") {
@@ -594,11 +612,14 @@ async function run() {
     if (flags["require-coverage"] !== undefined || flags.requireCoverage !== undefined) params.requireCoverage = true
     if (flags["continue-uncovered"] !== undefined || flags.continueUncovered !== undefined) params.continueUncovered = true
     assignNumberParam(params, flags, "batchTokens", ["batch-tokens", "batchTokens"])
+    assignNumberParam(params, flags, "maxTotalTokens", ["max-total-tokens", "maxTotalTokens"])
+    assignNumberParam(params, flags, "maxOutputBytes", ["max-output-bytes", "maxOutputBytes"])
+    assignNumberParam(params, flags, "maxBatches", ["max-batches", "maxBatches"])
     params.jsonDetail = typeof flags["json-detail"] === "string"
       ? flags["json-detail"]
       : typeof flags.jsonDetail === "string"
         ? flags.jsonDetail
-        : command === "search" ? "compact" : "content"
+        : command === "context" ? "content" : "compact"
     params.resultDetail = params.jsonDetail
     if (flags.exact !== undefined) params.exact = true
     assignNumberParam(params, flags, "maxPerFile", ["max-per-file", "maxPerFile"])
@@ -722,6 +743,9 @@ async function run() {
       minComplexity: parseRequiredNumberFlag(flags, "min-complexity", { min: 0 }) ?? 0,
       maxCandidates: parsePositiveIntegerFlag(flags, "max-candidates"),
       maxTokens: parsePositiveIntegerFlag(flags, "max-tokens") ?? parsePositiveIntegerFlag(flags, "maxTokens"),
+      timeoutMs: parseDurationMs(flags.timeout),
+      resumeCursor: parseNonNegativeIntegerFlag(flags, "resume-cursor")
+        ?? parseNonNegativeIntegerFlag(flags, "resumeCursor"),
       include: flags.include ? String(flags.include) : undefined,
       exclude: flags.exclude ? String(flags.exclude) : undefined,
       ignoreAcceptablePatterns: toBool(flags["ignore-acceptable-patterns"]) ?? false,
@@ -744,6 +768,18 @@ async function run() {
 
     const suppressHumanLog = flags["log-format"] === "none"
     const humanLog = suppressHumanLog ? undefined : createHumanLogger({ json: flags.json === true })
+    let lastDuplicateProgress = 0
+    options.onProgress = (progress) => {
+      if (suppressHumanLog || quiet) return
+      const now = Date.now()
+      if (progress.current !== progress.total && progress.current > 0 && now - lastDuplicateProgress < 2_000) return
+      lastDuplicateProgress = now
+      if (flags["log-format"] === "jsonl") {
+        process.stderr.write(JSON.stringify({ type: "duplicate-progress", ...progress, at: new Date().toISOString() }) + "\n")
+      } else {
+        humanLog?.(`Analyzing candidates: ${progress.current}/${progress.total} (${progress.elapsedMs}ms)`)
+      }
+    }
 
     if (!quiet && humanLog) {
       humanLog("Detecting logical duplicates...")

@@ -51,7 +51,7 @@ Search options:
   --hybrid <true|false>     Fuse lexical and vector retrieval (default: true)
   --no-hybrid               Disable lexical/vector fusion
   --max-tokens <n>          Limit estimated output tokens (context default: 12000)
-  --latency-budget <ms>     Query embedding deadline (default: 15000ms)
+  --embedding-timeout <ms>  Query embedding deadline (legacy: --latency-budget)
   --purpose <mode>          understand|implement|review|test ranking preset
   --prefer-role <role>      Boost a file role (implementation, test, contract, etc.)
   --include-role <role>     Include only one file role
@@ -73,6 +73,9 @@ Search options:
   --require-coverage        Mark audit incomplete when any changed file is unrepresented
   --continue-uncovered      Add token-bounded batches until changed-file textual coverage is complete
   --batch-tokens <n>        Per-batch audit budget (default: 4000)
+  --max-total-tokens <n>    Global audit token budget, including continuation batches
+  --max-output-bytes <n>    Global serialized audit evidence budget
+  --max-batches <n>         Maximum number of continuation batches
   --profile <name>          Select a side-by-side named index profile
   --embed-model <name>      Override remote embedding model
   --embed-dim <n>           Override embedding dimension
@@ -123,6 +126,8 @@ Duplicate detection options:
   --min-lines <n>           Minimum lines (default: 10)
   --min-complexity <n>      Minimum complexity (default: 0)
   --max-candidates <n>      Max duplicate candidates to analyze (default: 1500)
+  --timeout <duration>      Return partial results after a wall-clock deadline
+  --resume-cursor <n>       Continue candidate analysis from a partial result
   --ignore-acceptable-patterns  Do not ignore simple validations/guards
   --normalize-identifiers <true|false>  Normalize identifiers (default: true)
   --no-normalize-identifiers    Disable identifier normalization

@@ -1004,6 +1004,43 @@ export namespace VectorStore {
     return { rows: rows.filter((row): row is EmbeddedDocumentRow => Boolean(row)), embedded: pending.length, reused }
   }
 
+  export async function reuseDocumentVectors<T extends AddDocumentInput>(
+    collection: LanceTable,
+    documents: T[],
+    options: { signal?: AbortSignal } = {},
+  ): Promise<{ rows: EmbeddedDocumentRow[]; pending: T[]; reused: number }> {
+    if (documents.length === 0) return { rows: [], pending: [], reused: 0 }
+    options.signal?.throwIfAborted()
+    const previous = await listDocuments(collection, {
+      columns: ["content", "file", "vector"],
+    })
+    const expectedDim = Embeddings.getDimension()
+    const reusable = new Map<string, number[][]>()
+    const reuseKey = (file: unknown, content: string) => crypto
+      .createHash("sha1")
+      .update(`${String(file ?? "").replace(/\\/g, "/").replace(/^\.\//, "")}\0${content}`)
+      .digest("hex")
+
+    for (const row of previous) {
+      if (!Array.isArray(row.vector) || row.vector.length !== expectedDim) continue
+      const key = reuseKey(row.metadata.file, row.content)
+      const vectors = reusable.get(key) ?? []
+      vectors.push(row.vector.map(Number))
+      reusable.set(key, vectors)
+    }
+
+    const rows: EmbeddedDocumentRow[] = []
+    const pending: T[] = []
+    for (const document of documents) {
+      options.signal?.throwIfAborted()
+      const key = reuseKey(document.metadata.file, document.content)
+      const vector = reusable.get(key)?.shift()
+      if (vector) rows.push(documentToRow(document, vector))
+      else pending.push(document)
+    }
+    return { rows, pending, reused: rows.length }
+  }
+
   export async function addEmbeddedDocuments(
     collection: LanceTable,
     rows: EmbeddedDocumentRow[],
@@ -1149,6 +1186,7 @@ export namespace VectorStore {
       limit?: number
       where?: Record<string, string>
       filters?: SearchFilters
+      signal?: AbortSignal
       columns?: string[]
     } = {},
   ): Promise<ReturnType<typeof mapRow>[]> {
@@ -1177,8 +1215,10 @@ export namespace VectorStore {
       limit?: number
       where?: Record<string, string>
       filters?: SearchFilters
+      signal?: AbortSignal
     } = {},
   ): Promise<ReturnType<typeof mapRow>[]> {
+    options.signal?.throwIfAborted()
     const limit = options.limit ?? 20
 
     let whereClause: string | undefined
@@ -1192,6 +1232,7 @@ export namespace VectorStore {
     if (whereClause) searchBuilder = searchBuilder.where(whereClause)
 
     const rows: any[] = await searchBuilder.toArray()
+    options.signal?.throwIfAborted()
     return rows.map(mapRow)
   }
 

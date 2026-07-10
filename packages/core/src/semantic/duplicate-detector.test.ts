@@ -52,6 +52,7 @@ const baseRows = [
 ]
 
 let rows = [...baseRows]
+let searchDelayMs = 0
 
 vi.mock("./lancedb.js", () => ({
   VectorStore: {
@@ -67,7 +68,9 @@ vi.mock("./lancedb.js", () => ({
     })),
     getCollectionUnsafe: vi.fn(async () => ({})),
     listDocuments: vi.fn(async () => rows),
-    searchByVector: vi.fn(async (_collection: unknown, _vector: number[], options: { filters?: any }) => {
+    searchByVector: vi.fn(async (_collection: unknown, _vector: number[], options: { filters?: any; signal?: AbortSignal }) => {
+      if (searchDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, searchDelayMs))
+      options.signal?.throwIfAborted()
       const scopeValues = options.filters?.all?.find((filter: any) => filter.key === "symbolType")?.value ?? []
       return rows
         .filter((row) => scopeValues.length === 0 || scopeValues.includes(row.metadata.symbolType))
@@ -81,6 +84,7 @@ vi.mock("./lancedb.js", () => ({
 describe("DuplicateDetector", () => {
   beforeEach(() => {
     rows = [...baseRows]
+    searchDelayMs = 0
   })
 
   it("matches basename globs against nested files for include/exclude filters", async () => {
@@ -120,5 +124,53 @@ describe("DuplicateDetector", () => {
     expect(result.summary.deduplicatedCandidates).toBe(1)
     expect(result.summary.truncated).toBe(false)
     expect(result.duplicates).toEqual([])
+  })
+
+  it("returns a resumable cursor when duplicate analysis is interrupted", async () => {
+    const controller = new AbortController()
+    const { DuplicateDetector } = await import("./duplicate-detector.js")
+
+    const partial = await DuplicateDetector.detect({
+      path: process.cwd(),
+      minLines: 1,
+      signal: controller.signal,
+      onProgress: ({ current }) => {
+        if (current === 1) controller.abort()
+      },
+    })
+
+    expect(partial.summary).toMatchObject({
+      aborted: true,
+      processedCandidates: 1,
+      analyzedCandidates: 1,
+      resumeCursor: 1,
+      truncated: true,
+    })
+
+    const resumed = await DuplicateDetector.detect({
+      path: process.cwd(),
+      minLines: 1,
+      resumeCursor: partial.summary.resumeCursor,
+    })
+    expect(resumed.summary.processedCandidates).toBe(
+      (resumed.summary.candidates ?? 0) - (partial.summary.resumeCursor ?? 0),
+    )
+    expect(resumed.summary.resumeCursor).toBeUndefined()
+  })
+
+  it("returns partial state when the wall-clock timeout expires during ANN lookup", async () => {
+    searchDelayMs = 10
+    const { DuplicateDetector } = await import("./duplicate-detector.js")
+
+    const result = await DuplicateDetector.detect({
+      path: process.cwd(),
+      minLines: 1,
+      timeoutMs: 1,
+    })
+
+    expect(result.summary.timedOut).toBe(true)
+    expect(result.summary.truncated).toBe(true)
+    expect(result.summary.resumeCursor).toBe(0)
+    expect(result.summary.processedCandidates).toBe(0)
   })
 })

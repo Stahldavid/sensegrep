@@ -127,6 +127,26 @@ describe("hybrid retrieval ranking", () => {
     expect(reranked[0].rerankScore).toBeGreaterThan(reranked[1].rerankScore ?? 0)
   })
 
+  it("prefers executable results in the requested domain over constants and foreign-domain handlers", () => {
+    const reranked = rerankWorkingResults("google calendar webhook validation", [
+      {
+        ...result("src/asaas/webhook.ts", 0.84, "validate webhook signature", "validateAsaasWebhook"),
+        metadata: { symbolName: "validateAsaasWebhook", symbolType: "function", isExported: true },
+      },
+      {
+        ...result("src/google-calendar/constants.ts", 0.86, "google calendar webhook event names", "GOOGLE_CALENDAR_EVENTS"),
+        metadata: { symbolName: "GOOGLE_CALENDAR_EVENTS", symbolType: "constant", isExported: true },
+      },
+      {
+        ...result("src/google-calendar/webhook.ts", 0.81, "validate google calendar webhook notification", "validateGoogleCalendarWebhook"),
+        metadata: { symbolName: "validateGoogleCalendarWebhook", symbolType: "function", isExported: true },
+      },
+    ])
+
+    expect(reranked[0].metadata.symbolName).toBe("validateGoogleCalendarWebhook")
+    expect(reranked.at(-1)?.metadata.symbolName).toBe("validateAsaasWebhook")
+  })
+
   it("selects the best results inside an output token budget", () => {
     const selected = selectWithinTokenBudget([
       result("a.ts", 0.9, "x".repeat(400)),

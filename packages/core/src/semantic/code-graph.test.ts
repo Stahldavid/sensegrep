@@ -73,4 +73,19 @@ describe("CodeGraph", () => {
     expect(graph.references.map((reference) => reference.kind)).toEqual(expect.arrayContaining(["inheritance", "import", "schema-table"]))
     expect(graph.metrics.resolvedEdges).toBeGreaterThanOrEqual(3)
   })
+
+  it("merges adjacent chunks from the same logical symbol", async () => {
+    listDocuments.mockResolvedValue([
+      { id: "caller", content: "return _generateToken()", metadata: { file: "src/auth.ts", startLine: 20, endLine: 30, symbolName: "login", calls: "_generateToken" } },
+      { id: "token:0", content: "function _generateToken() {", metadata: { file: "src/auth.ts", startLine: 130, endLine: 268, symbolName: "_generateToken", parentScope: "Auth" } },
+      { id: "token:1", content: "return token }", metadata: { file: "src/auth.ts", startLine: 269, endLine: 310, symbolName: "_generateToken", parentScope: "Auth" } },
+    ])
+    const { CodeGraph } = await import("./code-graph.js")
+
+    const references = await CodeGraph.findReferences("_generateToken")
+
+    expect(references.definitions).toHaveLength(1)
+    expect(references.definitions[0]).toMatchObject({ startLine: 130, endLine: 310 })
+    expect(references.references).toHaveLength(1)
+  })
 })

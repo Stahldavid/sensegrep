@@ -120,7 +120,7 @@ sensegrep context "billing retry behavior" --include "packages/core/**/*.ts" --m
 
 ```bash
 sensegrep audit "security regressions and missing error handling" --base origin/main --max-tokens 12000
-sensegrep audit "security regressions" --base origin/main --require-coverage --continue-uncovered --batch-tokens 4000
+sensegrep audit "security regressions" --base origin/main --require-coverage --continue-uncovered --batch-tokens 4000 --max-total-tokens 8000 --max-output-bytes 32000 --max-batches 8
 sensegrep search "affected retry logic" --changed --base HEAD~1 --json
 ```
 
@@ -179,6 +179,8 @@ sensegrep detect-duplicates \
   --threshold 0.85     # 0.7 = loose similarity, 0.9 = near-identical only
   --min-complexity 3   # skip trivial helpers (getters, guards)
   --max-candidates 1500 # cap broad scans; raise for deeper audits
+  --timeout 30s        # return partial findings instead of running indefinitely
+  --resume-cursor 0    # continue from summary.resumeCursor on the next call
   --include "src/**/*.ts" # scope duplicate candidates by indexed path
   --exclude "*.test.ts"   # remove noisy paths
   --ignore-tests       # exclude test files
@@ -186,9 +188,9 @@ sensegrep detect-duplicates \
 
 `--threshold` guide: use `0.85` (default) for meaningful duplicates; lower to `0.7` for suspicious similarities; raise to `0.92+` for near-identical copies only.
 
-For broad monorepos, start with `--include`, `--language`, `--min-lines`, or `--min-complexity` before raising `--max-candidates`. If the candidate set is larger than the cap, Sensegrep truncates explicitly and reports `summary.truncated`, `summary.candidates`, and `summary.analyzedCandidates` in JSON.
+For broad monorepos, start with `--include`, `--language`, `--min-lines`, or `--min-complexity` before raising `--max-candidates`. If the candidate set is larger than the cap or reaches `--timeout`, Sensegrep returns partial findings and reports `summary.truncated`, `summary.candidates`, `summary.analyzedCandidates`, and `summary.resumeCursor` in JSON. Pass that cursor to the next invocation.
 
-With `--json`, parse stdout directly. Use `--quiet --json` or `--json --log-format none` when you also want to suppress stderr progress in interactive logs.
+With `--json`, parse stdout directly. Use `--json --log-format none` when stdout and stderr may be merged; it suppresses every non-fatal log. Use `--embedding-timeout` to bound only query embedding acquisition; it is not a wall-clock limit for the entire search process. `--latency-budget` remains a deprecated alias.
 
 Unknown flags are rejected by subcommand. If a command exits with `Unknown option`, fix the flag instead of assuming the search ran with that constraint.
 

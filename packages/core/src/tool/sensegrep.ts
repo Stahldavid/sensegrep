@@ -355,6 +355,12 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     )
     const freshness = (result as any).freshness
     const metrics = (result as any).metrics ?? {}
+    const retrievalTokens = metrics.estimatedInputTokens ?? 0
+    const contextTokens = metrics.estimatedOutputTokens ?? 0
+    const emittedTokens = Math.max(1, Math.ceil(Buffer.byteLength(JSON.stringify({
+      results: (result as any).results ?? [],
+      output: (result as any).output ?? "",
+    })) / 4))
     return {
       schemaVersion: 1,
       command: params.commandName ?? "search",
@@ -367,10 +373,13 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       ...result,
       budget: {
         tokensRequested: params.maxTokens,
-        tokensUsed: metrics.estimatedOutputTokens ?? 0,
-        inputTokens: metrics.estimatedInputTokens ?? 0,
+        tokensUsed: contextTokens,
+        inputTokens: retrievalTokens,
+        retrievalTokens,
+        contextTokens,
+        emittedTokens,
         embeddingRequests: metrics.embeddingRequests ?? 0,
-        latencyBudgetMs: params.latencyBudgetMs,
+        embeddingTimeoutMs: params.embeddingTimeoutMs ?? params.latencyBudgetMs,
         elapsedMs: metrics.totalMs ?? 0,
       },
     }

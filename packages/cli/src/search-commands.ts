@@ -90,7 +90,10 @@ export function buildCommonSearchParams(query: string, flags: Flags, defaults: O
   if (flags["no-hybrid"] !== undefined) params.hybrid = false
   if (flags.changed !== undefined) params.gitChanged = true
   assignStringParam(params, flags, "gitBase", ["base"])
-  assignNumberParam(params, flags, "latencyBudgetMs", ["latency-budget", "latencyBudget"])
+  assignNumberParam(params, flags, "embeddingTimeoutMs", ["embedding-timeout", "embeddingTimeout"])
+  if (params.embeddingTimeoutMs === undefined) {
+    assignNumberParam(params, flags, "embeddingTimeoutMs", ["latency-budget", "latencyBudget"])
+  }
   assignStringParam(params, flags, "purpose", ["purpose"])
   assignStringParam(params, flags, "preferRole", ["prefer-role", "preferRole"])
   assignStringParam(params, flags, "includeRole", ["include-role", "includeRole"])

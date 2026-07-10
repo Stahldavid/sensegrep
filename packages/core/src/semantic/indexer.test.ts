@@ -12,12 +12,14 @@ const hasCollection = vi.fn()
 const deleteByFile = vi.fn()
 const embedDocuments = vi.fn()
 const embedDocumentsReusingFile = vi.fn()
+const reuseDocumentVectors = vi.fn()
 const addEmbeddedDocuments = vi.fn()
 const replaceFileDocuments = vi.fn()
 const updateDocuments = vi.fn()
 const writeIndexMeta = vi.fn()
 const deleteCollection = vi.fn()
 const createStagingCollection = vi.fn()
+const openCollectionReadOnly = vi.fn()
 const dropCollectionTable = vi.fn()
 const cleanupInactiveTables = vi.fn()
 const clearProjectCache = vi.fn()
@@ -45,6 +47,7 @@ const testChunkingSignature = {
 
 vi.mock("./lancedb.js", () => ({
   VectorStore: {
+    DEFAULT_DISTANCE_METRIC: "cosine",
     readIndexMeta,
     getCollection,
     getCollectionUnsafe,
@@ -53,12 +56,14 @@ vi.mock("./lancedb.js", () => ({
     deleteByFile,
     embedDocuments,
     embedDocumentsReusingFile,
+    reuseDocumentVectors,
     addEmbeddedDocuments,
     replaceFileDocuments,
     updateDocuments,
     writeIndexMeta,
     deleteCollection,
     createStagingCollection,
+    openCollectionReadOnly,
     dropCollectionTable,
     cleanupInactiveTables,
     clearProjectCache,
@@ -122,6 +127,7 @@ describe("Indexer incremental updates", () => {
         provider: "openai",
         model: "test-model",
         dimension: 3,
+        distanceMetric: "cosine",
       },
       chunking: testChunkingSignature,
       files: {
@@ -139,6 +145,7 @@ describe("Indexer incremental updates", () => {
     hasCollection.mockResolvedValue(true)
     getStats.mockResolvedValue({ count: 1, name: "chunks" })
     createStagingCollection.mockResolvedValue({ collection: { staging: true }, tableName: "chunks_staging" })
+    openCollectionReadOnly.mockResolvedValue({ active: true })
     dropCollectionTable.mockResolvedValue(undefined)
     cleanupInactiveTables.mockResolvedValue(undefined)
     extractRegions.mockResolvedValue([])
@@ -187,6 +194,11 @@ describe("Indexer incremental updates", () => {
       const rows = await embedDocuments(documents)
       return { rows, embedded: rows.length, reused: 0 }
     })
+    reuseDocumentVectors.mockImplementation(async (_collection, documents) => ({
+      rows: [],
+      pending: documents,
+      reused: 0,
+    }))
   })
 
   afterEach(async () => {
@@ -333,5 +345,35 @@ describe("Indexer incremental updates", () => {
     expect(deleteCollection).not.toHaveBeenCalled()
     expect(writeIndexMeta).not.toHaveBeenCalled()
     expect(dropCollectionTable).toHaveBeenCalledWith(TEST_DIR, "chunks_staging")
+  })
+
+  it("reuses compatible vectors during a structural full rebuild", async () => {
+    const meta = await readIndexMeta()
+    readIndexMeta.mockResolvedValue({
+      ...meta,
+      embeddings: { ...meta.embeddings, distanceMetric: "cosine" },
+    })
+    reuseDocumentVectors.mockImplementationOnce(async (_collection, documents) => ({
+      rows: documents.map((document: any) => ({
+        id: document.id,
+        content: document.content,
+        content_raw: document.contentRaw,
+        file: document.metadata.file,
+        vector: [1, 0, 0],
+      })),
+      pending: [],
+      reused: documents.length,
+    }))
+    const { Indexer } = await import("./indexer.js")
+
+    await Indexer.indexProject({ resume: false })
+
+    expect(openCollectionReadOnly).toHaveBeenCalledWith(TEST_DIR)
+    expect(reuseDocumentVectors).toHaveBeenCalledTimes(1)
+    expect(embedDocuments).not.toHaveBeenCalled()
+    expect(addEmbeddedDocuments).toHaveBeenCalledWith(
+      { staging: true },
+      expect.arrayContaining([expect.objectContaining({ vector: [1, 0, 0] })]),
+    )
   })
 })

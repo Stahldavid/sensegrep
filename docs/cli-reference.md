@@ -58,7 +58,8 @@ sensegrep search <query> [options]
 | `--include <glob>` | File glob include filter (e.g. `src/**/*.ts`) |
 | `--exclude <glob>` | File glob exclude filter (e.g. `*.md`, `docs/**`) |
 | `--json` | Output as JSON |
-| `--latency-budget <ms>` | Query embedding deadline before lexical fallback (default: 15000) |
+| `--embedding-timeout <ms>` | Query embedding deadline before lexical fallback; does not cap total process time |
+| `--latency-budget <ms>` | Deprecated alias for `--embedding-timeout` |
 
 JSON search results include `score`, `rawDistance`, and `distanceMetric`. New indexes use
 cosine distance explicitly for stable scoring across embedding providers.
@@ -117,6 +118,21 @@ sensegrep literal "retry|backoff" --regex --ignore-case --limit 200
 
 JSON reports `totalMatches`, `returnedMatches`, `truncated`, and `exhaustive`. Omitting `--limit` returns every occurrence. Use `--pattern` to anchor semantic candidates; use `literal` when every occurrence matters.
 
+### `sensegrep audit`
+
+Build changed-file evidence under one global budget. Continuation batches contain compact,
+deduplicated `resultId` cards; expand only selected cards with `sensegrep show`.
+
+```bash
+sensegrep audit "security regressions" --base origin/main \
+  --require-coverage --continue-uncovered \
+  --max-total-tokens 8000 --max-output-bytes 32000 --max-batches 8 --json
+```
+
+`budget` reports `retrievalTokens`, `contextTokens`, and `emittedTokens` separately.
+When a limit prevents complete changed-file coverage, `status` is `incomplete` and
+`coverage.truncationReasons` identifies the global limit that was reached.
+
 ### `sensegrep detect-duplicates`
 
 Find logical code duplicates.
@@ -140,6 +156,9 @@ sensegrep detect-duplicates [options]
 | `--exclude-pattern <regex>` | Exclude matching symbols |
 | `--min-lines <n>` | Minimum lines (default: 10) |
 | `--min-complexity <n>` | Minimum complexity (default: 0) |
+| `--max-candidates <n>` | Maximum candidate set before explicit truncation |
+| `--timeout <duration>` | Return partial results after a wall-clock deadline (`30s`, `5m`) |
+| `--resume-cursor <n>` | Continue candidate analysis from `summary.resumeCursor` |
 | `--normalize-identifiers` / `--no-normalize-identifiers` | Normalize identifiers (default: on) |
 | `--rank-by-impact` / `--no-rank-by-impact` | Rank by impact score (default: on) |
 | `--limit <n>` | Show top N results (default: 10) |

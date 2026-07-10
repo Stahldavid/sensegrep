@@ -693,7 +693,7 @@ export namespace Indexer {
     documents: Array<{ id: string; content: string; contentRaw: string; metadata: Record<string, string | number | boolean | null> }>,
     collection: Awaited<ReturnType<typeof VectorStore.createStagingCollection>>["collection"],
     run: ReturnType<typeof createRunContext>,
-    progress: { filesParsed: number; chunksPrepared: number; estimatedTokens?: number; requests?: number; failed: number },
+    progress: { filesParsed: number; chunksPrepared: number; estimatedTokens?: number; requests?: number; failed: number; reusedChunks?: number },
   ): Promise<number> {
     const batches: typeof documents[] = []
     for (let i = 0; i < documents.length; i += ADD_BATCH_SIZE) {
@@ -895,6 +895,18 @@ export namespace Indexer {
 
       run.assertNotTimedOut("persist")
       const config = Embeddings.getConfig()
+      const activeMeta = await VectorStore.readIndexMeta(Instance.directory)
+      const currentEmbeddingFingerprint = embeddingConfigFingerprint(config)
+      const canReuseActiveVectors = !!activeMeta?.embeddings
+        && activeMeta.embeddings.provider === config.provider
+        && activeMeta.embeddings.model === config.embedModel
+        && activeMeta.embeddings.dimension === config.embedDim
+        && (!activeMeta.embeddings.configFingerprint
+          || activeMeta.embeddings.configFingerprint === currentEmbeddingFingerprint)
+        && activeMeta.embeddings.distanceMetric === VectorStore.DEFAULT_DISTANCE_METRIC
+      const activeCollection = canReuseActiveVectors
+        ? await VectorStore.openCollectionReadOnly(Instance.directory).catch(() => null)
+        : null
       const resumeEnabled = options.resume !== false
       const signature = crypto.createHash("sha1").update(JSON.stringify({
         embeddings: embeddingConfigFingerprint(config),
@@ -916,6 +928,8 @@ export namespace Indexer {
         : await VectorStore.createStagingCollection(Instance.directory, config.embedDim)
       let activated = false
       let checkpointed = false
+      let reusedChunks = 0
+      let newlyEmbeddedChunks = 0
 
       try {
         if (resumeEnabled) {
@@ -925,8 +939,34 @@ export namespace Indexer {
         const persistedIds = previousResume?.signature === signature
           ? new Set((await VectorStore.listDocuments(staging.collection, { columns: ["id"] })).map((row) => row.id))
           : new Set<string>()
-        const pendingDocs = allDocs.filter((document) => !persistedIds.has(document.id))
-        const estimatedTokens = allDocs.reduce((total, document) => total + estimateEmbeddingTokens(document.content), 0)
+        let pendingDocs = allDocs.filter((document) => !persistedIds.has(document.id))
+        if (activeCollection && pendingDocs.length > 0) {
+          const reusable = await run.withTimeout(
+            VectorStore.reuseDocumentVectors(activeCollection, pendingDocs, { signal: run.signal }),
+            "reuse",
+          )
+          reusedChunks = reusable.reused
+          pendingDocs = reusable.pending
+          for (let index = 0; index < reusable.rows.length; index += ADD_BATCH_SIZE) {
+            await VectorStore.addEmbeddedDocuments(
+              staging.collection,
+              reusable.rows.slice(index, index + ADD_BATCH_SIZE),
+            )
+          }
+          if (reusedChunks > 0) {
+            run.emit({
+              phase: "persist",
+              current: persistedIds.size + reusedChunks,
+              total: allDocs.length,
+              message: `Reused ${reusedChunks} compatible vectors from the active index`,
+              chunksPrepared: allDocs.length,
+              chunksPersisted: persistedIds.size + reusedChunks,
+              reusedChunks,
+            })
+          }
+        }
+        newlyEmbeddedChunks = pendingDocs.length
+        const estimatedTokens = pendingDocs.reduce((total, document) => total + estimateEmbeddingTokens(document.content), 0)
         const estimatedRequests = pendingDocs.length === 0 ? 0 : Math.ceil(pendingDocs.length / configBatchSize())
         if (persistedIds.size > 0) {
           run.emit({
@@ -944,6 +984,7 @@ export namespace Indexer {
           estimatedTokens,
           requests: estimatedRequests,
           failed,
+          reusedChunks,
         })
 
         const finalStats = await VectorStore.getStats(staging.collection)
@@ -989,6 +1030,9 @@ export namespace Indexer {
         current: indexed,
         total: files.length,
         message: `Indexed ${indexed} files (${totalChunks} chunks) in ${(duration / 1000).toFixed(1)}s`,
+        chunksPrepared: totalChunks,
+        chunksEmbedded: newlyEmbeddedChunks,
+        reusedChunks,
       })
 
       log.info("indexing complete", {

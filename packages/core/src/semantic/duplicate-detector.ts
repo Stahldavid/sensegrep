@@ -72,6 +72,15 @@ export namespace DuplicateDetector {
     exclude?: string
     maxCandidates?: number
     maxTokens?: number
+    timeoutMs?: number
+    resumeCursor?: number
+    signal?: AbortSignal
+    onProgress?: (progress: {
+      phase: "neighbors"
+      current: number
+      total: number
+      elapsedMs: number
+    }) => void
   }
 
   export interface DetectResult {
@@ -87,6 +96,11 @@ export namespace DuplicateDetector {
       returnedDuplicates?: number
       estimatedTokens?: number
       budgetTruncated?: boolean
+      timedOut?: boolean
+      aborted?: boolean
+      resumeCursor?: number
+      processedCandidates?: number
+      elapsedMs?: number
     }
     duplicates: DuplicateGroup[]
     acceptableDuplicates?: DuplicateGroup[]
@@ -904,11 +918,52 @@ export namespace DuplicateDetector {
     const candidateIds = new Set(candidates.map((c) => c.id))
     const pairs = new Map<string, { a: string; b: string; similarity: number }>()
     const maxNeighbors = Math.min(30, Math.max(5, candidates.length))
+    const resumeCursor = Math.min(candidates.length, Math.max(0, options.resumeCursor ?? 0))
+    const deadline = options.timeoutMs ? startTime + options.timeoutMs : Number.POSITIVE_INFINITY
+    let processedCandidates = 0
+    let timedOut = false
+    let aborted = false
 
-    for (const candidate of candidates) {
-      const neighbors = await VectorStore.searchByVector(collection, candidate.vector, {
-        limit: maxNeighbors,
-        filters,
+    options.onProgress?.({ phase: "neighbors", current: resumeCursor, total: candidates.length, elapsedMs: Date.now() - startTime })
+    for (let candidateIndex = resumeCursor; candidateIndex < candidates.length; candidateIndex++) {
+      if (options.signal?.aborted) {
+        aborted = true
+        break
+      }
+      if (Date.now() >= deadline) {
+        timedOut = true
+        break
+      }
+      const candidate = candidates[candidateIndex]
+      const remainingMs = Math.max(1, deadline - Date.now())
+      const timeoutSignal = Number.isFinite(deadline) ? AbortSignal.timeout(remainingMs) : undefined
+      const iterationSignal = options.signal && timeoutSignal
+        ? AbortSignal.any([options.signal, timeoutSignal])
+        : options.signal ?? timeoutSignal
+      let neighbors: Awaited<ReturnType<typeof VectorStore.searchByVector>>
+      try {
+        neighbors = await VectorStore.searchByVector(collection, candidate.vector, {
+          limit: maxNeighbors,
+          filters,
+          signal: iterationSignal,
+        })
+      } catch (error) {
+        if (options.signal?.aborted) {
+          aborted = true
+          break
+        }
+        if (Date.now() >= deadline || timeoutSignal?.aborted) {
+          timedOut = true
+          break
+        }
+        throw error
+      }
+      processedCandidates++
+      options.onProgress?.({
+        phase: "neighbors",
+        current: candidateIndex + 1,
+        total: candidates.length,
+        elapsedMs: Date.now() - startTime,
       })
 
       for (const neighbor of neighbors) {
@@ -947,6 +1002,11 @@ export namespace DuplicateDetector {
       }
     }
 
+    const nextCursor = resumeCursor + processedCandidates < candidates.length
+      ? resumeCursor + processedCandidates
+      : undefined
+    const wasPartial = timedOut || aborted || resumeCursor > 0
+
     if (pairs.size === 0) {
       return {
         summary: {
@@ -960,9 +1020,14 @@ export namespace DuplicateDetector {
           totalSavings: 0,
           filesAffected: 0,
           candidates: originalCandidateCount,
-          analyzedCandidates: candidates.length,
-          truncated: truncatedByMaxCandidates,
+          analyzedCandidates: processedCandidates,
+          truncated: truncatedByMaxCandidates || wasPartial,
           deduplicatedCandidates: deduplicatedCandidateCount,
+          timedOut,
+          aborted,
+          resumeCursor: nextCursor,
+          processedCandidates,
+          elapsedMs: Date.now() - startTime,
         },
         duplicates: [],
       }
@@ -1104,12 +1169,17 @@ export namespace DuplicateDetector {
         totalSavings,
         filesAffected,
         candidates: originalCandidateCount,
-        analyzedCandidates: candidates.length,
-        truncated: truncatedByMaxCandidates,
+        analyzedCandidates: processedCandidates,
+        truncated: truncatedByMaxCandidates || wasPartial,
         deduplicatedCandidates: deduplicatedCandidateCount,
         returnedDuplicates: duplicates.length,
         estimatedTokens,
         budgetTruncated: duplicates.length < allDuplicates.length,
+        timedOut,
+        aborted,
+        resumeCursor: nextCursor,
+        processedCandidates,
+        elapsedMs: elapsed,
       },
       duplicates,
       acceptableDuplicates: acceptableDuplicates.length > 0 ? acceptableDuplicates : undefined,

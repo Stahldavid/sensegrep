@@ -83,7 +83,7 @@ export namespace CodeGraph {
     const collection = schema.schemaCompatible
       ? await VectorStore.getCollectionUnsafe(resolved.root, resolved.meta.embeddings.dimension)
       : await VectorStore.openCollectionReadOnly(resolved.root)
-    const columns = ["id", "content", "file", "startLine", "endLine", "symbolName", "symbolType"]
+    const columns = ["id", "content", "file", "startLine", "endLine", "symbolName", "symbolType", "parentScope"]
     if (schema.fields.includes("calls")) columns.push("calls")
     if (schema.fields.includes("imports")) columns.push("imports")
     const rows = await VectorStore.listDocuments(collection, {
@@ -95,20 +95,40 @@ export namespace CodeGraph {
     const symbols = new Map<string, Location[]>()
     const nodes = new Map<string, Node>()
     const nodesByName = new Map<string, Node[]>()
+    const nodeByDocument = new Map<object, Node>()
+    const symbolGroups = new Map<string, typeof documents>()
 
     for (const row of documents) {
       const symbol = typeof row.metadata.symbolName === "string" ? row.metadata.symbolName : ""
       if (!symbol) continue
-      const location = createLocation(row.metadata, symbol)
-      const node = { id: location.id, name: symbol, location }
-      if (nodes.has(node.id)) continue
-      nodes.set(node.id, node)
-      const named = nodesByName.get(symbol) ?? []
-      named.push(node)
-      nodesByName.set(symbol, named)
-      const locations = symbols.get(symbol) ?? []
-      locations.push(location)
-      symbols.set(symbol, locations)
+      const key = `${String(row.metadata.file ?? "")}\0${String(row.metadata.parentScope ?? "")}\0${symbol}`
+      symbolGroups.set(key, [...(symbolGroups.get(key) ?? []), row])
+    }
+
+    for (const groupedRows of symbolGroups.values()) {
+      groupedRows.sort((left, right) => Number(left.metadata.startLine ?? 0) - Number(right.metadata.startLine ?? 0))
+      const clusters: typeof documents[] = []
+      for (const row of groupedRows) {
+        const current = clusters.at(-1)
+        const currentEnd = current ? Math.max(...current.map((entry) => Number(entry.metadata.endLine ?? 0))) : -1
+        if (!current || Number(row.metadata.startLine ?? 0) > currentEnd + 1) clusters.push([row])
+        else current.push(row)
+      }
+      for (const cluster of clusters) {
+        const first = cluster[0]
+        const symbol = String(first.metadata.symbolName)
+        const metadata = {
+          ...first.metadata,
+          startLine: Math.min(...cluster.map((entry) => Number(entry.metadata.startLine ?? 0))),
+          endLine: Math.max(...cluster.map((entry) => Number(entry.metadata.endLine ?? 0))),
+        }
+        const location = createLocation(metadata, symbol)
+        const node = { id: location.id, name: symbol, location }
+        nodes.set(node.id, node)
+        nodesByName.set(symbol, [...(nodesByName.get(symbol) ?? []), node])
+        symbols.set(symbol, [...(symbols.get(symbol) ?? []), location])
+        for (const row of cluster) nodeByDocument.set(row, node)
+      }
     }
 
     const outgoing = new Map<string, Set<string>>()
@@ -137,10 +157,12 @@ export namespace CodeGraph {
     }
     for (const row of documents) {
       const sourceName = typeof row.metadata.symbolName === "string" ? row.metadata.symbolName : ""
-      const sourceLocation = createLocation(row.metadata, sourceName || undefined)
       const source = sourceName
-        ? nodes.get(sourceLocation.id)
-        : { id: sourceLocation.id, name: `<file:${sourceLocation.file}>`, location: sourceLocation }
+        ? nodeByDocument.get(row)
+        : (() => {
+            const sourceLocation = createLocation(row.metadata)
+            return { id: sourceLocation.id, name: `<file:${sourceLocation.file}>`, location: sourceLocation }
+          })()
       if (!source) continue
 
       for (const targetName of extractPersistedCalls(row.content, row.metadata.calls, sourceName)) {

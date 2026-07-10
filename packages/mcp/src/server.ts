@@ -699,6 +699,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
         minComplexity: duplicateArgs.minComplexity,
         maxCandidates: duplicateArgs.maxCandidates,
         maxTokens: duplicateArgs.maxTokens,
+        timeoutMs: duplicateArgs.timeoutMs,
+        resumeCursor: duplicateArgs.resumeCursor,
         include: duplicateArgs.include,
         exclude: duplicateArgs.exclude,
         ignoreAcceptablePatterns: duplicateArgs.ignoreAcceptablePatterns,

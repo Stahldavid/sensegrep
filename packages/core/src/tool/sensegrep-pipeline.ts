@@ -93,6 +93,7 @@ export type CommonSensegrepParams = {
   maxTokens?: number
   gitChanged?: boolean
   gitBase?: string
+  embeddingTimeoutMs?: number
   latencyBudgetMs?: number
   purpose?: SearchPurpose
   preferRole?: FileRole
@@ -615,18 +616,39 @@ export function fuseHybridResults(semantic: WorkingResult[], lexical: WorkingRes
 
 export function rerankWorkingResults(query: string, results: WorkingResult[]): WorkingResult[] {
   const tokens = getQueryTokens(query)
+  const actionTokens = new Set(["callback", "handler", "route", "validate", "validation", "webhook"])
+  const genericIntentTokens = new Set([
+    ...actionTokens,
+    "code", "function", "implementation", "logic", "method", "process", "processing",
+  ])
+  const domainTokens = tokens.filter((token) => !genericIntentTokens.has(token))
+  const seeksExecutableCode = tokens.some((token) => actionTokens.has(token))
+  const nonExecutableTypes = new Set(["constant", "enum", "interface", "property", "type", "variable"])
   return results.map((result) => {
     if (result.semanticScore > 1) return { ...result, rerankScore: result.semanticScore }
     const lexical = lexicalRelevance(tokens, result)
     const symbol = String(result.metadata.symbolName ?? "").toLowerCase()
+    const symbolType = String(result.metadata.symbolType ?? "").toLowerCase()
     const exactSymbol = tokens.some((token) => symbol === token) ? 1 : 0
     const exported = result.metadata.isExported === true ? 1 : 0
     const structural = exactSymbol * 0.7 + exported * 0.3
-    const rerankScore = Math.min(1, result.semanticScore * 0.72 + lexical * 0.2 + structural * 0.08)
+    const searchable = `${result.file} ${symbol} ${result.content}`.toLowerCase()
+    const domainCoverage = domainTokens.length >= 2
+      ? domainTokens.filter((token) => searchable.includes(token)).length / domainTokens.length
+      : 0.5
+    const domainAdjustment = (domainCoverage - 0.5) * 0.1
+    const executablePenalty = seeksExecutableCode && exactSymbol === 0 && nonExecutableTypes.has(symbolType) ? 0.08 : 0
+    const rerankScore = Math.max(0, Math.min(
+      1,
+      result.semanticScore * 0.72 + lexical * 0.2 + structural * 0.08 + domainAdjustment - executablePenalty,
+    ))
     return {
       ...result,
       rerankScore,
-      whyMatched: [...new Set([...(result.whyMatched ?? []), `reranked: lexical=${lexical.toFixed(2)} structural=${structural.toFixed(2)}`])],
+      whyMatched: [...new Set([
+        ...(result.whyMatched ?? []),
+        `reranked: lexical=${lexical.toFixed(2)} structural=${structural.toFixed(2)} domain=${domainCoverage.toFixed(2)} executablePenalty=${executablePenalty.toFixed(2)}`,
+      ])],
     }
   }).sort((a, b) => (b.rerankScore ?? b.semanticScore) - (a.rerankScore ?? a.semanticScore))
 }
@@ -1161,11 +1183,11 @@ export async function collectWorkingResults(
     semanticResults = await VectorStore.search(resources.collection, params.query, {
       ...searchOptions,
       signal: options.signal,
-      retryDeadlineMs: params.latencyBudgetMs,
+      retryDeadlineMs: params.embeddingTimeoutMs ?? params.latencyBudgetMs,
     }).catch((error) => {
       if (options.signal?.aborted) throw error
       semanticFailed = true
-      warnings.push(`Semantic provider unavailable within the latency budget; returning exact/lexical results only: ${error instanceof Error ? error.message : String(error)}`)
+      warnings.push(`Semantic provider unavailable within the embedding timeout; returning exact/lexical results only: ${error instanceof Error ? error.message : String(error)}`)
       return []
     })
     metrics.semanticSearchMs = Date.now() - semanticStartedAt

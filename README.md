@@ -82,7 +82,7 @@ sensegrep show <result-id> --before 10 --after 20
 sensegrep literal "TODO:" --filesystem --max-output-bytes 50000 --json
 
 # Complete changed-file review coverage in bounded batches
-sensegrep audit "security regressions" --base origin/main --require-coverage --continue-uncovered --batch-tokens 4000
+sensegrep audit "security regressions" --base origin/main --require-coverage --continue-uncovered --batch-tokens 4000 --max-total-tokens 8000 --max-output-bytes 32000 --max-batches 8
 
 # Build a reading map for a broad theme
 sensegrep survey "authentication login token" --language typescript --limit 4
@@ -92,6 +92,7 @@ sensegrep cluster "checkout payment order cart" --limit 4
 
 # Find duplicates
 sensegrep detect-duplicates --threshold 0.85
+sensegrep detect-duplicates --threshold 0.85 --timeout 30s --resume-cursor 0 --json
 ```
 
 ### Cursor Plugin

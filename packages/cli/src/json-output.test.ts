@@ -73,7 +73,7 @@ describe("CLI JSON stdout contract", () => {
 
     const parsed = JSON.parse(stdout)
     expect(parsed).toHaveProperty("summary")
-    expect(stderr).not.toContain("Detecting logical duplicates")
+    expect(stderr).toBe("")
   })
 
   itIfBuilt("keeps status lightweight unless freshness verification is requested", async () => {
@@ -99,6 +99,8 @@ describe("CLI JSON stdout contract", () => {
 
     expect(() => JSON.parse(status.stdout)).not.toThrow()
     expect(() => JSON.parse(selftest.stdout)).not.toThrow()
+    expect(status.stderr).toBe("")
+    expect(selftest.stderr).toBe("")
   })
 
   itIfBuilt("keeps simple JSON commands parseable without stderr noise", async () => {

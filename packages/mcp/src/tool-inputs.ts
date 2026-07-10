@@ -57,6 +57,8 @@ export const DuplicateToolArgsSchema = z.object({
   minComplexity: z.number().nonnegative().default(0),
   maxCandidates: z.number().int().positive().optional(),
   maxTokens: z.number().int().positive().max(1_000_000).optional(),
+  timeoutMs: z.number().int().positive().max(3_600_000).optional(),
+  resumeCursor: z.number().int().nonnegative().optional(),
   ignoreAcceptablePatterns: z.boolean().default(false),
   normalizeIdentifiers: z.boolean().default(true),
   rankByImpact: z.boolean().default(true),
