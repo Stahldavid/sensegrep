@@ -25,11 +25,11 @@ const DESCRIPTION = [
 ].join("\n")
 
 const commonSearchShape = {
-  query: z.string().describe("Natural language query to survey a domain or feature area"),
+  query: z.string().trim().min(1).describe("Natural language query to survey a domain or feature area"),
   pattern: z.string().optional().describe("Optional regex pattern to refine results"),
   include: z.string().optional().describe("File glob include filter"),
   exclude: z.string().optional().describe("File glob exclude filter"),
-  minScore: z.number().optional().describe("Minimum relevance score 0-1"),
+  minScore: z.number().min(0).max(1).optional().describe("Minimum relevance score 0-1"),
   symbol: z.string().optional().describe("Filter by symbol name"),
   name: z.string().optional().describe('Alias for "symbol"'),
   symbolType: z
@@ -57,9 +57,9 @@ const commonSearchShape = {
 
 const SurveyParametersSchema = z.object({
   ...commonSearchShape,
-  limit: z.number().optional().describe("Maximum number of survey groups to return (default: 5)"),
-  rawLimit: z.number().optional().describe("Maximum raw matches to retrieve before grouping (default: 60)"),
-  perGroup: z.number().optional().describe("Representative snippets per group (default: 2)"),
+  limit: z.number().int().positive().max(100).optional().describe("Maximum number of survey groups to return (default: 5)"),
+  rawLimit: z.number().int().positive().max(2000).optional().describe("Maximum raw matches to retrieve before grouping (default: 60)"),
+  perGroup: z.number().int().positive().max(20).optional().describe("Representative snippets per group (default: 2)"),
 })
 
 type SurveyParams = z.infer<typeof SurveyParametersSchema>
@@ -171,13 +171,14 @@ async function formatSurveyGroup(
   return lines
 }
 
-async function runSurvey(params: SurveyParams) {
+async function runSurvey(params: SurveyParams, ctx?: Tool.Context) {
   const perGroup = Math.max(1, params.perGroup ?? 2)
   return runGroupedSearch({
     params: params as CommonSensegrepParams & SurveyParams,
     heading: "Survey",
     groupLabel: "groups",
     resultKey: "groups",
+    signal: ctx?.abort,
     defaultRawLimit: 60,
     rawLimitMultiplier: 6,
     buildGroups: (results) => buildSurveyGroups(results, params.query),

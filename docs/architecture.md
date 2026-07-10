@@ -1,139 +1,27 @@
 # Architecture
 
-sensegrep is a semantic code search engine that combines AI embeddings with tree-sitter AST parsing. This document explains the internal pipeline.
+Sensegrep has four runtime surfaces: `@sensegrep/core`, the CLI, the stdio MCP server, and the VS Code extension. CLI, MCP, and VS Code depend on core; core does not import those adapters.
 
-## Pipeline Overview
+## Operation Context
 
-```
-Source files
-    │
-    ▼
-┌─────────────────┐
-│  Tree-Sitter    │  Parse source code into ASTs
-│  AST Parsing    │  Extract symbols + metadata
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Chunker        │  Split code into semantic chunks
-│                 │  Aligned to symbol boundaries
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Embeddings     │  Generate vector embeddings
-│  (remote APIs)  │  for each chunk
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  LanceDB        │  Store embeddings + metadata
-│  Vector Store   │  for fast similarity search
-└────────┬────────┘
-         │
-    Query│
-         ▼
-┌─────────────────┐
-│  Search +       │  Vector similarity + structural filters
-│  Filtering      │  Literal fallback + result diversification
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Tree-Shaker    │  Collapse irrelevant code
-│                 │  Show only relevant symbols
-└─────────────────┘
-```
+Project roots and temporary embedding overrides are operation-scoped through Node `AsyncLocalStorage`. Code running under `Instance.provide()` or `Embeddings.withConfig()` may overlap with another operation without observing its directory, provider, model, or dimension. Do not replace these contexts with process-global mutation.
 
-## Components
+## Index Lifecycle
 
-### Tree-Sitter AST Parsing
+Index writes are serialized per canonical project root in-process and across processes. Disk locks contain a PID and ownership token; only the owner can release them.
 
-sensegrep uses [tree-sitter](https://tree-sitter.github.io/tree-sitter/) via WASM to parse source code into ASTs. Each language has a dedicated parser that extracts:
+A full index is built in a versioned LanceDB table. Sensegrep embeds and persists bounded windows, validates the final row count and vector dimension, then atomically updates `index-meta.json` to activate the staged table. A failed stage is removed while the previous metadata and table remain active. Incremental file replacement snapshots prior rows and restores them if append fails.
 
-- **Symbol type**: function, class, method, type, variable, enum, module
-- **Language-specific variant**: interface, dataclass, protocol, async generator, etc.
-- **Export status**: whether the symbol is exported
-- **Async status**: whether the function/method is async
-- **Cyclomatic complexity**: computed from control flow
-- **Documentation**: JSDoc, docstrings, comments
-- **Decorators**: @property, @dataclass, @route, etc.
-- **Parent scope**: enclosing class or module
-- **Imports**: modules imported by the file
+Metadata is schema-validated and written using a temporary file plus rename. Project directories use a strong hash while retaining read compatibility with legacy directory names.
 
-Language parsers live in `packages/core/src/semantic/language/`.
+## Cancellation
 
-### Chunker
+CLI time budgets and MCP/VS Code cancellation propagate as `AbortSignal` through scans, query embeddings, hosted HTTP calls, Ollama, and Bedrock. LanceDB writes are awaited to completion before the project lock is released because its JavaScript API does not expose abortable writes.
 
-The chunker (`packages/core/src/semantic/chunking.ts`) splits source code into chunks that align with symbol boundaries. Each chunk contains:
+## Credentials
 
-- The full source code of a symbol (function, class, etc.)
-- All extracted metadata
-- File path and line range
+The CLI and MCP can read credentials from environment variables or `~/.config/sensegrep/config.json`. VS Code stores provider keys in `SecretStorage`; workspace settings contain only non-secret provider/model/dimension/endpoint fields.
 
-This ensures that search results return complete, meaningful code units rather than arbitrary line ranges.
+## Contracts
 
-### Embeddings
-
-sensegrep supports local and remote embedding providers:
-
-**Ollama**: Default local provider when no API key/provider is configured. Uses Ollama's native `/api/embed` endpoint, no API key required. Default model: `qwen3-embedding:0.6b` (1024 dimensions, 32K context) at `http://127.0.0.1:11434`.
-
-**Gemini**: Uses Google's Gemini Embedding API for cloud-based embeddings. Requires a `GEMINI_API_KEY`.
-
-**OpenAI-compatible**: Uses an OpenAI-style `/embeddings` API such as Fireworks or OpenAI.
-
-**Amazon Bedrock**: Uses the AWS Bedrock Runtime API for models such as Cohere Embed v4, authenticated with standard AWS credentials and region configuration.
-
-For lowest-friction local usage, Ollama is the default. For managed production workloads, Gemini/OpenAI-compatible/Bedrock providers can be configured explicitly.
-
-Support for additional embedding providers and APIs is planned.
-
-Configuration is managed through `packages/core/src/semantic/embedding-config.ts` and `packages/core/src/semantic/embeddings-remote.ts`, then stored per-index so searches always use the same provider/model/dimension that created the index. Changing provider, model, base URL, dimension, pooling behavior, or task-prefix strategy requires a full reindex; same-dimensional vectors from different models are not interchangeable.
-
-### LanceDB Vector Store
-
-[LanceDB](https://lancedb.github.io/lancedb/) stores embeddings and metadata in a local columnar format. It provides:
-
-- Fast approximate nearest neighbor (ANN) search
-- Metadata filtering (pre-filter before vector search)
-- Incremental updates (add/remove individual records)
-
-The store implementation is in `packages/core/src/semantic/lancedb.ts`.
-
-### Indexer
-
-The indexer (`packages/core/src/semantic/indexer.ts`) orchestrates the full indexing pipeline:
-
-1. Scan project files (respecting .gitignore)
-2. Hash each file for change detection
-3. Parse files with tree-sitter
-4. Chunk symbols with metadata
-5. Generate embeddings
-6. Store in LanceDB
-
-It supports both full and incremental indexing. Incremental mode only processes files whose hashes have changed, making re-indexing fast after small changes.
-
-### Tree-Shaker
-
-The tree-shaker (`packages/core/src/semantic/tree-shaker.ts`) post-processes search results to improve readability:
-
-- Given a file and a set of relevant line ranges, it collapses irrelevant symbols
-- Imports and class structure are always preserved
-- Collapsed sections show `// ... N lines hidden ...` markers
-- This dramatically reduces noise when results come from large files
-
-### Index Watcher
-
-The watcher uses `@parcel/watcher` to monitor filesystem changes and trigger incremental reindexing at a configurable interval (default: 60 seconds). This keeps the index fresh without manual re-runs.
-
-## Packages
-
-| Package | Role |
-|---------|------|
-| `@sensegrep/core` | All indexing, search, and analysis logic |
-| `@sensegrep/cli` | Thin CLI wrapper that calls core |
-| `@sensegrep/mcp` | MCP server exposing core as tools |
-| `sensegrep` (vscode) | VS Code extension with UI |
-
-All packages depend on `@sensegrep/core`. The CLI, MCP, and VS Code extension are thin layers that map their respective interfaces to core functionality.
+Tool inputs are validated before execution. MCP schemas for indexing and duplicate detection are generated from the same Zod schemas used at runtime. New parameters should be added to one canonical schema and covered by invalid-input tests.

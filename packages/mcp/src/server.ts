@@ -8,6 +8,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { DuplicateToolArgsSchema, IndexToolArgsSchema, toInputSchema } from "./tool-inputs.js";
 
 let corePromise: Promise<any> | null = null;
 let searchToolPromise: Promise<any> | null = null;
@@ -330,53 +331,12 @@ async function generateTools(): Promise<Tool[]> {
     {
       name: TOOL_NAMES.detectDuplicates,
       description: "Detect logical duplicates using the existing semantic index.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          rootDir: { type: "string", description: "Root directory (default: cwd)" },
-          threshold: { type: "number", description: "Minimum similarity 0.0-1.0 (default: 0.85)" },
-          scope: { type: "string", description: "Scope: function, method, all (or comma-separated)" },
-          language: { type: "string", description: "Filter by language (comma-separated)" },
-          include: { type: "string", description: "Include only matching indexed file paths (e.g., 'convex/**/*.ts')" },
-          exclude: { type: "string", description: "Exclude matching indexed file paths (e.g., '*.test.ts')" },
-          crossLanguage: { type: "boolean", description: "Detect duplicates across languages (default: off)" },
-          ignoreTests: { type: "boolean", description: "Ignore test files" },
-          crossFileOnly: { type: "boolean", description: "Only report cross-file duplicates" },
-          onlyExported: { type: "boolean", description: "Only exported symbols" },
-          excludePattern: { type: "string", description: "Exclude symbols matching regex" },
-          minLines: { type: "number", description: "Minimum lines (default: 10)" },
-          minComplexity: { type: "number", description: "Minimum complexity (default: 0)" },
-          maxCandidates: { type: "number", description: "Max duplicate candidates to analyze (default: 1500)" },
-          ignoreAcceptablePatterns: { type: "boolean", description: "Do not ignore acceptable duplicates" },
-          normalizeIdentifiers: { type: "boolean", description: "Normalize identifiers (default: true)" },
-          rankByImpact: { type: "boolean", description: "Rank by impact (default: true)" },
-          limit: { type: "number", description: "Max duplicates to show (default: 10)" },
-          showCode: { type: "boolean", description: "Show code snippets" },
-          verbose: { type: "boolean", description: "Show detailed output" },
-          quiet: { type: "boolean", description: "Only show summary" },
-          json: { type: "boolean", description: "Return raw JSON result" },
-        },
-      },
+      inputSchema: toInputSchema(DuplicateToolArgsSchema) as Tool["inputSchema"],
     },
     {
       name: TOOL_NAMES.index,
       description: "Create/update semantic index or fetch index stats for the given root directory.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          action: {
-            type: "string",
-            enum: ["index", "stats"],
-            description: "Operation type: index (default) or stats",
-          },
-          rootDir: { type: "string", description: "Root directory to index" },
-          mode: {
-            type: "string",
-            enum: ["incremental", "full"],
-            description: "Index mode when action=index (default: incremental)",
-          },
-        },
-      },
+      inputSchema: toInputSchema(IndexToolArgsSchema) as Tool["inputSchema"],
     },
   ];
 
@@ -386,7 +346,7 @@ async function generateTools(): Promise<Tool[]> {
 const server = new Server(
   {
     name: "sensegrep",
-    version: "1.7.5",
+    version: "1.7.6",
   },
   {
     capabilities: {
@@ -400,7 +360,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   return { tools };
 });
 
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
+server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) => {
   const { name } = request.params;
   const args = ((request.params.arguments ?? {}) as Record<string, unknown>) as any;
   const rootDirArg = args.rootDir;
@@ -422,7 +382,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             sessionID: "mcp",
             messageID: "mcp",
             agent: "sensegrep-mcp",
-            abort: new AbortController().signal,
+            abort: requestContext.signal,
             metadata(_input: { title?: string; metadata?: unknown }) {},
           }),
       });
@@ -446,7 +406,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             sessionID: "mcp",
             messageID: "mcp",
             agent: "sensegrep-mcp",
-            abort: new AbortController().signal,
+            abort: requestContext.signal,
             metadata(_input: { title?: string; metadata?: unknown }) {},
           }),
       });
@@ -470,7 +430,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             sessionID: "mcp",
             messageID: "mcp",
             agent: "sensegrep-mcp",
-            abort: new AbortController().signal,
+            abort: requestContext.signal,
             metadata(_input: { title?: string; metadata?: unknown }) {},
           }),
       });
@@ -487,13 +447,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (matchesToolName(name, TOOL_NAMES.index, "sensegrep.index") || isLegacyStatsTool) {
       const { core } = await loadTool();
       const { Indexer, Instance } = core;
-      const action = String(
-        (args as any).action ?? (isLegacyStatsTool ? "stats" : "index"),
-      ).toLowerCase();
-
-      if (action !== "index" && action !== "stats") {
-        throw new Error(`Invalid action: ${action}. Expected "index" or "stats".`);
-      }
+      const indexArgs = IndexToolArgsSchema.parse({
+        ...args,
+        action: args.action ?? (isLegacyStatsTool ? "stats" : "index"),
+      });
+      const action = indexArgs.action;
 
       if (action === "stats") {
         const stats = await Instance.provide({
@@ -510,11 +468,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      const mode = String((args as any).mode ?? "incremental").toLowerCase();
+      const mode = indexArgs.mode;
       const full = mode === "full";
       const result = (await Instance.provide({
         directory: rootDir,
-        fn: () => (full ? Indexer.indexProject() : Indexer.indexProjectIncremental()),
+        fn: () => (full
+          ? Indexer.indexProject({ signal: requestContext.signal })
+          : Indexer.indexProjectIncremental({ signal: requestContext.signal })),
       })) as any;
       const stats = await Instance.provide({
         directory: rootDir,
@@ -552,11 +512,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     ) {
       const { core } = await loadTool();
       const { DuplicateDetector, Instance } = core;
-      const minThreshold =
-        typeof (args as any)?.threshold === "number" ? Number((args as any).threshold) : 0.85;
+      const duplicateArgs = DuplicateToolArgsSchema.parse(args);
+      const minThreshold = duplicateArgs.threshold;
 
       let scopeFilter: Array<"function" | "method"> | undefined;
-      const scopeRaw = (args as any)?.scope;
+      const scopeRaw = duplicateArgs.scope;
       if (scopeRaw) {
         const scopeStr = String(scopeRaw).toLowerCase();
         if (scopeStr === "all") {
@@ -572,13 +532,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         scopeFilter = ["function", "method"];
       }
 
-      const normalizeIdentifiers =
-        typeof (args as any)?.normalizeIdentifiers === "boolean"
-          ? Boolean((args as any).normalizeIdentifiers)
-          : true;
-      const rankByImpact =
-        typeof (args as any)?.rankByImpact === "boolean" ? Boolean((args as any).rankByImpact) : true;
-
       const options = {
         path: rootDir,
         thresholds: {
@@ -588,35 +541,33 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           low: minThreshold,
         },
         scopeFilter,
-        ignoreTests: Boolean((args as any)?.ignoreTests),
-        crossFileOnly: Boolean((args as any)?.crossFileOnly),
-        crossLanguage: Boolean((args as any)?.crossLanguage),
-        language: (args as any)?.language ? String((args as any).language) : undefined,
-        onlyExported: Boolean((args as any)?.onlyExported),
-        excludePattern: (args as any)?.excludePattern ? String((args as any).excludePattern) : undefined,
-        minLines: typeof (args as any)?.minLines === "number" ? Number((args as any).minLines) : 10,
-        minComplexity:
-          typeof (args as any)?.minComplexity === "number" ? Number((args as any).minComplexity) : 0,
-        maxCandidates:
-          typeof (args as any)?.maxCandidates === "number" ? Number((args as any).maxCandidates) : undefined,
-        include: (args as any)?.include ? String((args as any).include) : undefined,
-        exclude: (args as any)?.exclude ? String((args as any).exclude) : undefined,
-        ignoreAcceptablePatterns: Boolean((args as any)?.ignoreAcceptablePatterns),
-        normalizeIdentifiers,
-        rankByImpact,
+        ignoreTests: duplicateArgs.ignoreTests,
+        crossFileOnly: duplicateArgs.crossFileOnly,
+        crossLanguage: duplicateArgs.crossLanguage,
+        language: duplicateArgs.language,
+        onlyExported: duplicateArgs.onlyExported,
+        excludePattern: duplicateArgs.excludePattern,
+        minLines: duplicateArgs.minLines,
+        minComplexity: duplicateArgs.minComplexity,
+        maxCandidates: duplicateArgs.maxCandidates,
+        include: duplicateArgs.include,
+        exclude: duplicateArgs.exclude,
+        ignoreAcceptablePatterns: duplicateArgs.ignoreAcceptablePatterns,
+        normalizeIdentifiers: duplicateArgs.normalizeIdentifiers,
+        rankByImpact: duplicateArgs.rankByImpact,
       };
 
-      const showCode = Boolean((args as any)?.showCode);
-      const verbose = Boolean((args as any)?.verbose);
-      const quiet = Boolean((args as any)?.quiet);
-      const limit = typeof (args as any)?.limit === "number" ? Number((args as any).limit) : 10;
+      const showCode = duplicateArgs.showCode;
+      const verbose = duplicateArgs.verbose;
+      const quiet = duplicateArgs.quiet;
+      const limit = duplicateArgs.limit;
 
       const result = await Instance.provide({
         directory: rootDir,
         fn: () => DuplicateDetector.detect(options),
       });
 
-      if ((args as any)?.json) {
+      if (duplicateArgs.json) {
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
           structuredContent: result,

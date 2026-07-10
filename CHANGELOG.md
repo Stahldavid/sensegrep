@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+### Changed
+- Isolated project roots and embedding overrides per asynchronous operation.
+- Added project-keyed indexing locks, abortable embedding requests, typed HTTP retries, and validated staged index activation.
+- Reduced indexing memory pressure and reused TypeScript/JavaScript AST analysis for chunks and collapsible regions.
+- Added strict MCP argument validation and provider-scoped VS Code SecretStorage.
+- Raised the minimum runtime to Node.js 20 so supported dependencies remain security-maintained.
+
+### Fixed
+- Prevented concurrent MCP/VS Code operations from leaking roots or embedding models into one another.
+- Preserved the active index when full staging or incremental file replacement fails.
+- Restored explicit Ollama selection in the VS Code settings panel.
+- Made `--log-format` behave as a documented global CLI flag.
+
 ## 0.1.16/0.1.17 - 2026-02
 
 ### Added

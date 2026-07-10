@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Node.js 18+
+- Node.js 20+
 - OpenAI Codex CLI installed (`npm install -g @openai/codex`)
 - `@sensegrep/mcp` installed globally
 

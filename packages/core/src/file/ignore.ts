@@ -24,6 +24,7 @@ export namespace FileIgnore {
     ".svn",
     ".hg",
     ".vscode",
+    ".vscode-test",
     ".idea",
     ".turbo",
     ".output",

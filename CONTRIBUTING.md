@@ -34,7 +34,8 @@ packages/
 ├── core/       # Search engine library (@sensegrep/core)
 │   └── src/
 │       └── semantic/
-│           ├── chunker.ts       # Code chunking by symbol boundaries
+│           ├── chunking.ts      # Chunk orchestration and fallbacks
+│           ├── chunking-treesitter.ts # TypeScript/JavaScript AST chunking
 │           ├── embeddings-remote.ts # Remote embeddings providers
 │           ├── indexer.ts       # Index creation and incremental updates
 │           ├── lancedb.ts       # LanceDB vector store
@@ -66,6 +67,14 @@ packages/
    ```
 
    Common prefixes: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `perf`.
+
+For changes to the VS Code extension, also run:
+
+```bash
+npm test --workspace sensegrep
+```
+
+Concurrency changes must include overlapping-operation tests. Index persistence changes must prove that the previously active index remains readable when staging or writes fail.
 
 4. **Push** and open a Pull Request against `main`.
 

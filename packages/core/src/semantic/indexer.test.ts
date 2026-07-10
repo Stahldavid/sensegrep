@@ -12,13 +12,19 @@ const hasCollection = vi.fn()
 const deleteByFile = vi.fn()
 const embedDocuments = vi.fn()
 const addEmbeddedDocuments = vi.fn()
+const replaceFileDocuments = vi.fn()
 const updateDocuments = vi.fn()
 const writeIndexMeta = vi.fn()
 const deleteCollection = vi.fn()
+const createStagingCollection = vi.fn()
+const dropCollectionTable = vi.fn()
+const cleanupInactiveTables = vi.fn()
+const clearProjectCache = vi.fn()
 const files = vi.fn()
 const getConfig = vi.fn()
 const extractRegions = vi.fn()
 const chunkAsync = vi.fn()
+const analyzeAsync = vi.fn()
 const addOverlap = vi.fn((chunks) => chunks)
 const testChunkingSignature = {
   version: 2,
@@ -45,9 +51,14 @@ vi.mock("./lancedb.js", () => ({
     deleteByFile,
     embedDocuments,
     addEmbeddedDocuments,
+    replaceFileDocuments,
     updateDocuments,
     writeIndexMeta,
     deleteCollection,
+    createStagingCollection,
+    dropCollectionTable,
+    cleanupInactiveTables,
+    clearProjectCache,
   },
 }))
 
@@ -79,6 +90,7 @@ vi.mock("./tree-shaker.js", () => ({
 vi.mock("./chunking.js", () => ({
   Chunking: {
     chunkAsync,
+    analyzeAsync,
     addOverlap,
   },
 }))
@@ -122,6 +134,9 @@ describe("Indexer incremental updates", () => {
     getCollectionUnsafe.mockResolvedValue({})
     hasCollection.mockResolvedValue(true)
     getStats.mockResolvedValue({ count: 1, name: "chunks" })
+    createStagingCollection.mockResolvedValue({ collection: { staging: true }, tableName: "chunks_staging" })
+    dropCollectionTable.mockResolvedValue(undefined)
+    cleanupInactiveTables.mockResolvedValue(undefined)
     extractRegions.mockResolvedValue([])
     chunkAsync.mockResolvedValue([
       {
@@ -131,6 +146,10 @@ describe("Indexer incremental updates", () => {
         type: "variable",
       },
     ])
+    analyzeAsync.mockImplementation(async () => ({
+      chunks: await chunkAsync(),
+      collapsibleRegions: await extractRegions(),
+    }))
     embedDocuments.mockImplementation(async (documents) =>
       documents.map((document: any) => ({
         id: document.id,
@@ -175,8 +194,7 @@ describe("Indexer incremental updates", () => {
     expect(result.files).toBe(1)
     expect(updateDocuments).not.toHaveBeenCalled()
     expect(embedDocuments).toHaveBeenCalledTimes(1)
-    expect(deleteByFile).toHaveBeenCalledWith({}, "src/a.ts")
-    expect(addEmbeddedDocuments).toHaveBeenCalledTimes(1)
+    expect(replaceFileDocuments).toHaveBeenCalledWith({}, "src/a.ts", expect.any(Array))
     expect(writeIndexMeta).toHaveBeenCalledTimes(1)
     expect(writeIndexMeta.mock.calls[0][1].chunking).toEqual(testChunkingSignature)
   })
@@ -198,6 +216,7 @@ describe("Indexer incremental updates", () => {
     await Indexer.updateFile("src/a.ts")
 
     expect(embedDocuments).toHaveBeenCalledTimes(1)
+    expect(replaceFileDocuments).toHaveBeenCalledWith({}, "src/a.ts", expect.any(Array))
     expect(writeIndexMeta).toHaveBeenCalledTimes(1)
     expect(writeIndexMeta.mock.calls[0][1].files["src/a.ts"].collapsibleRegions).toEqual(regions)
     expect(writeIndexMeta.mock.calls[0][1].chunking).toEqual(testChunkingSignature)
@@ -244,5 +263,48 @@ describe("Indexer incremental updates", () => {
     expect(getConfig).not.toHaveBeenCalled()
     expect(writeIndexMeta).toHaveBeenCalledTimes(1)
     expect(writeIndexMeta.mock.calls[0][1].files["src/a.ts.map"]).toBeUndefined()
+  })
+
+  it("serializes concurrent indexing for the same project", async () => {
+    let activeReads = 0
+    let maxActiveReads = 0
+    let readCount = 0
+    let firstReadStarted!: () => void
+    let releaseFirstRead!: () => void
+    const firstReadStartedPromise = new Promise<void>((resolve) => { firstReadStarted = resolve })
+    const releaseFirstReadPromise = new Promise<void>((resolve) => { releaseFirstRead = resolve })
+    const meta = await readIndexMeta()
+    readIndexMeta.mockImplementation(async () => {
+      activeReads++
+      maxActiveReads = Math.max(maxActiveReads, activeReads)
+      readCount++
+      if (readCount === 1) {
+        firstReadStarted()
+        await releaseFirstReadPromise
+      }
+      activeReads--
+      return meta
+    })
+    const { Indexer } = await import("./indexer.js")
+
+    const first = Indexer.indexProjectIncremental()
+    await firstReadStartedPromise
+    const second = Indexer.indexProjectIncremental()
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    releaseFirstRead()
+    await Promise.all([first, second])
+
+    expect(maxActiveReads).toBe(1)
+  })
+
+  it("keeps the active index metadata when staged persistence fails", async () => {
+    addEmbeddedDocuments.mockRejectedValueOnce(new Error("disk full"))
+    const { Indexer } = await import("./indexer.js")
+
+    await expect(Indexer.indexProject()).rejects.toThrow("disk full")
+
+    expect(deleteCollection).not.toHaveBeenCalled()
+    expect(writeIndexMeta).not.toHaveBeenCalled()
+    expect(dropCollectionTable).toHaveBeenCalledWith(TEST_DIR, "chunks_staging")
   })
 })

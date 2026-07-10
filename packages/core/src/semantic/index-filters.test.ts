@@ -30,6 +30,7 @@ describe("index filters", () => {
     const dir = makeProject()
     expect(shouldIgnoreIndexedFile(dir, "frontend-admin/src/public/tinymce/plugin.min.js")).toBe(true)
     expect(shouldIgnoreIndexedFile(dir, "frontend-admin/src/public/tinymce/plugin.js.map")).toBe(true)
+    expect(shouldIgnoreIndexedFile(dir, "packages/vscode/.vscode-test/resources/app/index.js")).toBe(true)
   })
 
   it("applies project include globs", () => {

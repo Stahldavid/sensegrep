@@ -1,5 +1,6 @@
 import path from "node:path"
 import fs from "node:fs/promises"
+import crypto from "node:crypto"
 import { Instance } from "../project/instance.js"
 import { Log } from "../util/log.js"
 import { Indexer } from "./indexer.js"
@@ -67,50 +68,51 @@ export namespace IndexWatcher {
     }
   }
 
-  async function acquireLock(rootDir: string, entrypoint: string): Promise<boolean> {
+  async function acquireLock(rootDir: string, entrypoint: string): Promise<string | null> {
     const lockFile = lockPath(rootDir)
-
-    // Check existing lock
-    try {
-      const raw = await fs.readFile(lockFile, "utf8")
-      const lock = JSON.parse(raw) as { pid: number; startedAt: number; entrypoint: string }
-
-      if (isPidAlive(lock.pid)) {
-        log.info("watcher already running, skipping", {
-          existingPid: lock.pid,
-          entrypoint: lock.entrypoint,
-          rootDir,
-        })
-        return false
-      }
-
-      // PID is dead — check if lock is stale
-      const age = Date.now() - lock.startedAt
-      if (age < LOCK_STALE_MS) {
-        // Lock is fresh but PID is dead — process probably just crashed, take over
-        log.warn("stale lock from crashed process, taking over", { oldPid: lock.pid })
-      }
-    } catch {
-      // No lock file or unreadable — proceed
-    }
-
-    // Write our lock
     await fs.mkdir(path.dirname(lockFile), { recursive: true })
-    await fs.writeFile(lockFile, JSON.stringify({
-      pid: process.pid,
-      startedAt: Date.now(),
-      entrypoint,
-    }))
-    return true
+    const token = crypto.randomUUID()
+
+    while (true) {
+      try {
+        const handle = await fs.open(lockFile, "wx")
+        await handle.writeFile(JSON.stringify({
+          pid: process.pid,
+          token,
+          startedAt: Date.now(),
+          entrypoint,
+        }))
+        await handle.close()
+        return token
+      } catch (error: any) {
+        if (error?.code !== "EEXIST") throw error
+        const lock = await fs.readFile(lockFile, "utf8")
+          .then((raw) => JSON.parse(raw) as { pid?: number; startedAt?: number; entrypoint?: string })
+          .catch(() => null)
+        if (typeof lock?.pid === "number" && isPidAlive(lock.pid)) {
+          log.info("watcher already running, skipping", {
+            existingPid: lock.pid,
+            entrypoint: lock.entrypoint,
+            rootDir,
+          })
+          return null
+        }
+
+        const stat = await fs.stat(lockFile).catch(() => null)
+        const unreadableAndFresh = !lock && stat && Date.now() - stat.mtimeMs < LOCK_STALE_MS
+        if (unreadableAndFresh) return null
+        await fs.rm(lockFile, { force: true })
+      }
+    }
   }
 
-  async function releaseLock(rootDir: string): Promise<void> {
+  async function releaseLock(rootDir: string, token: string): Promise<void> {
     try {
       const lockFile = lockPath(rootDir)
       const raw = await fs.readFile(lockFile, "utf8")
-      const lock = JSON.parse(raw) as { pid: number }
+      const lock = JSON.parse(raw) as { pid: number; token?: string }
       // Only remove if it's our lock
-      if (lock.pid === process.pid) {
+      if (lock.pid === process.pid && lock.token === token) {
         await fs.unlink(lockFile)
       }
     } catch {
@@ -205,8 +207,8 @@ export namespace IndexWatcher {
 
     // Acquire lock — skip if another watcher is already running on this project
     const entrypoint = options.entrypoint ?? "unknown"
-    const acquired = await acquireLock(rootDir, entrypoint)
-    if (!acquired) {
+    const lockToken = await acquireLock(rootDir, entrypoint)
+    if (!lockToken) {
       return { stop: async () => {} }
     }
 
@@ -324,7 +326,7 @@ export namespace IndexWatcher {
           clearInterval(intervalHandle)
         }
         await subscription.unsubscribe()
-        await releaseLock(rootDir)
+        await releaseLock(rootDir, lockToken)
       },
     }
   }

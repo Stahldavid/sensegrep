@@ -13,7 +13,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        node-version: [18, 20, 22]
+        node-version: [20, 22, 24]
 
     steps:
       - uses: actions/checkout@v4
@@ -40,5 +40,4 @@ jobs:
         run: npm run version:check
 
       - name: Test
-        if: matrix.node-version != 18
         run: npm test

@@ -4,7 +4,7 @@
 
 ### What this repo is
 
-sensegrep is an **npm workspaces monorepo** (TypeScript, Node ≥18). There are **no Docker services or long-running HTTP servers**. Development centers on building packages and running Node CLIs:
+sensegrep is an **npm workspaces monorepo** (TypeScript, Node >=20). There are **no Docker services or long-running HTTP servers**. Development centers on building packages and running Node CLIs:
 
 | Package | Role | After `npm run build` |
 |---------|------|------------------------|
@@ -88,4 +88,4 @@ The MCP server speaks **stdio JSON-RPC**. It starts file watching by default; us
 
 - **`npm run check` always rebuilds** via `precheck` → `npm run build`. If you change core, rebuild before exercising cli/mcp dist copies.
 - **VS Code extension** (`packages/vscode`) is not fully covered by root `npm test`; extension dev uses `npm run dev --workspace sensegrep`.
-- **No `.nvmrc`** — use Node 18+ (CI tests 18, 20, 22).
+- **No `.nvmrc`** - use Node 20+ (CI tests 20, 22, 24).

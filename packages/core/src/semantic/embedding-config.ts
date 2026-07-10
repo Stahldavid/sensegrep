@@ -1,5 +1,6 @@
 import fs from "node:fs"
 import path from "node:path"
+import { AsyncLocalStorage } from "node:async_hooks"
 import { Global } from "../global/index.js"
 
 export type EmbeddingProvider = "gemini" | "openai" | "bedrock" | "ollama"
@@ -48,6 +49,7 @@ const DEFAULTS = {
 const CONFIG_FILENAME = "config.json"
 let cachedFileConfig: Partial<EmbeddingConfig> | null = null
 let runtimeOverrides: EmbeddingOverrides | null = null
+const scopedOverrides = new AsyncLocalStorage<EmbeddingOverrides>()
 
 function parseNumber(value: unknown): number | undefined {
   if (value === undefined || value === null) return undefined
@@ -112,7 +114,11 @@ export function clearEmbeddingOverrides() {
 
 export function getEmbeddingConfig(overrides?: EmbeddingOverrides): EmbeddingConfig {
   const fileConfig = loadFileConfig()
-  const mergedOverrides = { ...(runtimeOverrides || {}), ...(overrides || {}) }
+  const mergedOverrides = {
+    ...(runtimeOverrides || {}),
+    ...(scopedOverrides.getStore() || {}),
+    ...(overrides || {}),
+  }
   const fileProvider = readConfiguredProvider(fileConfig.provider, `${CONFIG_FILENAME} provider`)
 
   const provider =
@@ -201,8 +207,8 @@ export function getEmbeddingConfig(overrides?: EmbeddingOverrides): EmbeddingCon
         fileApiKey
       : provider === "gemini"
         ? process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || fileApiKey
-        : provider === "bedrock"
-          ? fileApiKey
+      : provider === "bedrock"
+          ? process.env.SENSEGREP_BEDROCK_API_KEY || fileApiKey
           : undefined)
 
   const rateLimit: RateLimitConfig = {}
@@ -234,15 +240,10 @@ export function getEmbeddingConfig(overrides?: EmbeddingOverrides): EmbeddingCon
 }
 
 export async function withEmbeddingConfig<T>(overrides: EmbeddingOverrides, fn: () => Promise<T>): Promise<T> {
-  const previous = runtimeOverrides
-  configureEmbedding(overrides)
-  try {
-    return await fn()
-  } finally {
-    runtimeOverrides = previous
-  }
+  const inherited = scopedOverrides.getStore()
+  return scopedOverrides.run({ ...(inherited || {}), ...overrides }, fn)
 }
 
 export function getEmbeddingOverrides(): EmbeddingOverrides | null {
-  return runtimeOverrides
+  return scopedOverrides.getStore() ?? runtimeOverrides
 }

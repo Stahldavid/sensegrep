@@ -8,7 +8,7 @@ export function getSettingsViewHtml(
     dimension?: number
     baseUrl?: string
     region?: string
-    apiKey?: string
+    apiKeyConfigured?: boolean
   } = {}
 ): string {
   const attr = (value: unknown) =>
@@ -192,6 +192,7 @@ export function getSettingsViewHtml(
       <label>Provider</label>
       <select id="provider">
         <option value="config" ${provider === 'config' ? 'selected' : ''}>Config file / environment</option>
+        <option value="ollama" ${provider === 'ollama' ? 'selected' : ''}>Ollama (local)</option>
         <option value="gemini" ${provider === 'gemini' ? 'selected' : ''}>Gemini (cloud)</option>
         <option value="openai" ${provider === 'openai' ? 'selected' : ''}>OpenAI-compatible</option>
         <option value="bedrock" ${provider === 'bedrock' ? 'selected' : ''}>Amazon Bedrock</option>
@@ -222,8 +223,9 @@ export function getSettingsViewHtml(
 
     <div class="field">
       <label>Provider API Key</label>
-      <input type="password" id="embeddingApiKey" placeholder="Optional; config/env preferred" value="${attr(settings.apiKey)}">
-      <div class="hint">For long-lived credentials, prefer ~/.config/sensegrep/config.json or environment variables.</div>
+      <input type="password" id="embeddingApiKey" placeholder="${settings.apiKeyConfigured ? 'Configured securely; enter to replace' : 'Optional; stored in VS Code SecretStorage'}" value="">
+      <div class="hint">Credentials entered here are stored in VS Code SecretStorage and are never written to workspace settings.</div>
+      <button id="clearEmbeddingApiKey" class="btn" ${settings.apiKeyConfigured ? '' : 'disabled'}>Clear provider key</button>
     </div>
 
     <div class="btn-group">
@@ -247,6 +249,7 @@ export function getSettingsViewHtml(
     const embeddingBaseUrl = document.getElementById('embeddingBaseUrl');
     const embeddingApiKey = document.getElementById('embeddingApiKey');
     const saveEmbeddingSettingsBtn = document.getElementById('saveEmbeddingSettings');
+    const clearEmbeddingApiKeyBtn = document.getElementById('clearEmbeddingApiKey');
     const openConfigBtn = document.getElementById('openConfig');
     const testEmbeddingsBtn = document.getElementById('testEmbeddings');
     
@@ -276,6 +279,10 @@ export function getSettingsViewHtml(
         baseUrl: embeddingBaseUrl.value.trim(),
         apiKey: embeddingApiKey.value.trim(),
       });
+    });
+
+    clearEmbeddingApiKeyBtn.addEventListener('click', () => {
+      vscode.postMessage({ type: 'clearEmbeddingApiKey' });
     });
 
     openConfigBtn.addEventListener('click', () => {
@@ -312,6 +319,11 @@ export function getSettingsViewHtml(
           break;
         case 'embeddingSettingsSaved':
           showStatus('Embedding settings saved', 'success');
+          break;
+        case 'embeddingApiKeyCleared':
+          showStatus('Provider API key cleared', 'warning');
+          embeddingApiKey.value = '';
+          clearEmbeddingApiKeyBtn.disabled = true;
           break;
         case 'embeddingTestResult':
           showStatus(

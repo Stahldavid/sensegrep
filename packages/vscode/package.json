@@ -573,16 +573,6 @@
           "type": "string",
           "default": "",
           "description": "Amazon Bedrock region. Leave empty to use ~/.config/sensegrep/config.json or environment variables"
-        },
-        "sensegrep.embeddings.apiKey": {
-          "type": "string",
-          "default": "",
-          "description": "API key for the selected embeddings provider. Leave empty to use ~/.config/sensegrep/config.json or environment variables"
-        },
-        "sensegrep.geminiApiKey": {
-          "type": "string",
-          "default": "",
-          "description": "Gemini API key (optional, can use GEMINI_API_KEY env var)"
         }
       }
     }
@@ -603,15 +593,15 @@
     "test": "node test/run-tests.cjs"
   },
   "devDependencies": {
-    "@types/node": "^20.19.27",
+    "@types/node": "^20.19.43",
     "@types/vscode": "^1.85.0",
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.28.1",
-    "picomatch": "^4.0.4",
+    "picomatch": "^4.0.5",
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@sensegrep/core": "^1.7.5"
+    "@sensegrep/core": "^1.7.6"
   }
 }

@@ -7,7 +7,7 @@ Run reproducible semantic checks in pull requests without requiring local setup.
 ## Prerequisites
 
 - Repository on GitHub
-- Node.js 18+ project
+- Node.js 20+ project
 - `@sensegrep/cli` available via npm
 
 ## Workflow (copy-paste)

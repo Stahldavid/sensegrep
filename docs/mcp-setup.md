@@ -143,6 +143,7 @@ Variables below are supported by the current runtime.
 | `SENSEGREP_OPENAI_API_KEY` | - | OpenAI-compatible API key |
 | `FIREWORKS_API_KEY` | - | OpenAI-compatible key fallback |
 | `OPENAI_API_KEY` | - | OpenAI-compatible key fallback |
+| `SENSEGREP_BEDROCK_API_KEY` | - | Amazon Bedrock bearer API key; omit to use the AWS SDK credential chain |
 | `SENSEGREP_OPENAI_BASE_URL` | `https://api.fireworks.ai/inference/v1` | OpenAI-compatible base URL |
 | `SENSEGREP_OPENROUTER_REFERER` | `https://github.com/Stahldavid/sensegrep` | Optional OpenRouter attribution header |
 | `SENSEGREP_OPENROUTER_TITLE` | `sensegrep` | Optional OpenRouter attribution header |

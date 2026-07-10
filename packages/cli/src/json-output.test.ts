@@ -92,6 +92,15 @@ describe("CLI JSON stdout contract", () => {
     expect(parsed).not.toHaveProperty("removed")
   })
 
+  itIfBuilt("accepts the documented global log format flag for status and selftest", async () => {
+    tempRoot = await mkdtemp(path.join(tmpdir(), "sensegrep-global-log-format-"))
+    const status = await runCli(["status", "--root", tempRoot, "--log-format", "none"])
+    const selftest = await runCli(["selftest", "--root", tempRoot, "--json", "--log-format", "none"])
+
+    expect(() => JSON.parse(status.stdout)).not.toThrow()
+    expect(() => JSON.parse(selftest.stdout)).not.toThrow()
+  })
+
   itIfBuilt("keeps simple JSON commands parseable without stderr noise", async () => {
     const { stdout, stderr } = await runCli(["semantic-kinds", "--json"])
 

@@ -59,7 +59,7 @@ is needed.
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 20+
 - `@sensegrep/mcp` installed globally
 - Cursor MCP support enabled
 

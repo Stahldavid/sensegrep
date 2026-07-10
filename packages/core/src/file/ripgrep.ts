@@ -233,7 +233,7 @@ export namespace Ripgrep {
     return filepath
   }
 
-  export async function* files(input: { cwd: string; glob?: string[] }) {
+  export async function* files(input: { cwd: string; glob?: string[]; signal?: AbortSignal }) {
     const rgPath = await filepath()
     const args = ["--files", "--follow", "--hidden", "--glob=!.git/*"]
     if (input.glob) {
@@ -254,15 +254,18 @@ export namespace Ripgrep {
     const proc = spawn(rgPath, args, {
       cwd: input.cwd,
       stdio: ["ignore", "pipe", "pipe"],
+      signal: input.signal,
     })
+    const closePromise = once(proc, "close") as Promise<[number | null, NodeJS.Signals | null]>
+    const stderrPromise = streamToString(proc.stderr)
 
     const rl = readline.createInterface({ input: proc.stdout })
     for await (const line of rl) {
       if (line) yield line
     }
-    const [code] = (await once(proc, "close")) as [number]
+    const [code] = await closePromise
     if (code !== 0) {
-      const stderr = await streamToString(proc.stderr)
+      const stderr = await stderrPromise
       throw new Error(
         `ripgrep --files failed with code ${code} in directory '${input.cwd}'${stderr ? `: ${stderr.trim()}` : ""}`
       )

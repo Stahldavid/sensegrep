@@ -158,6 +158,7 @@ const IGNORED_DIRS = new Set([
   "target",
   ".idea",
   ".vscode",
+  ".vscode-test",
   "coverage",
   ".nyc_output",
 ])

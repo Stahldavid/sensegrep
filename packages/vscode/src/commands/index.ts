@@ -9,12 +9,10 @@ import type { SearchRecord } from "../providers/history-tree"
 import { StatusBarManager } from "../providers/statusbar"
 import { DuplicateDiagnosticsManager } from "../providers/duplicate-diagnostics"
 import { tryRecoverIndex } from "../providers/index-repair"
-import { getNonce } from "../webview/nonce"
-import { getSettingsViewHtml } from "../webview/templates"
 import type { SensegrepOutput } from "../providers/log"
 import * as path from "path"
 import fs from "node:fs/promises"
-import os from "node:os"
+import { createSettingsPanelController } from "./settings"
 
 export function registerCommands(
   context: vscode.ExtensionContext,
@@ -28,121 +26,7 @@ export function registerCommands(
   output?: SensegrepOutput
 ): vscode.Disposable[] {
   const disposables: vscode.Disposable[] = []
-  let settingsPanel: vscode.WebviewPanel | null = null
-
-  const showSettingsPanel = async () => {
-    if (settingsPanel) {
-      settingsPanel.reveal()
-      return
-    }
-
-    const panel = vscode.window.createWebviewPanel(
-      "sensegrep.settings",
-      "Sensegrep Settings",
-      vscode.ViewColumn.One,
-      { enableScripts: true, retainContextWhenHidden: true }
-    )
-    settingsPanel = panel
-
-    const render = async () => {
-      const config = vscode.workspace.getConfiguration("sensegrep")
-      const inspected = config.inspect<string>("embeddings.provider")
-      const configuredProvider =
-        inspected?.workspaceFolderValue ??
-        inspected?.workspaceValue ??
-        inspected?.globalValue
-      const provider =
-        configuredProvider === "gemini" || configuredProvider === "openai" || configuredProvider === "bedrock"
-          ? configuredProvider
-          : "config"
-      const embeddingSettings = {
-        model: config.get<string>("embeddings.model") ?? "",
-        dimension: config.get<number>("embeddings.dimension") ?? 0,
-        baseUrl: config.get<string>("embeddings.baseUrl") ?? "",
-        region: config.get<string>("embeddings.region") ?? "",
-        apiKey: config.get<string>("embeddings.apiKey") ?? "",
-      }
-
-      const apiKey = await core.getApiKey()
-      const nonce = getNonce()
-      panel.webview.html = getSettingsViewHtml(panel.webview, nonce, apiKey, provider, embeddingSettings)
-    }
-
-    panel.onDidDispose(() => {
-      settingsPanel = null
-    })
-
-    panel.webview.onDidReceiveMessage(async (message) => {
-      switch (message.type) {
-        case "saveApiKey":
-          if (message.apiKey) {
-            await core.setApiKey(message.apiKey)
-            panel.webview.postMessage({ type: "apiKeySaved" })
-            await searchViewProvider.refreshApiKeyBanner()
-          }
-          break
-        case "clearApiKey":
-          await core.clearApiKey()
-          panel.webview.postMessage({ type: "apiKeyCleared" })
-          await searchViewProvider.refreshApiKeyBanner()
-          break
-        case "setProvider":
-          if (
-            message.provider === "config" ||
-            message.provider === "gemini" ||
-            message.provider === "openai" ||
-            message.provider === "bedrock"
-          ) {
-            const cfg = vscode.workspace.getConfiguration("sensegrep")
-            await cfg.update(
-              "embeddings.provider",
-              message.provider,
-              vscode.ConfigurationTarget.Workspace
-            )
-            await core.reloadSettings()
-            panel.webview.postMessage({ type: "providerChanged", provider: message.provider })
-            await searchViewProvider.refreshApiKeyBanner()
-          }
-          break
-        case "saveEmbeddingSettings": {
-          const cfg = vscode.workspace.getConfiguration("sensegrep")
-          await cfg.update("embeddings.model", String(message.model ?? ""), vscode.ConfigurationTarget.Workspace)
-          await cfg.update("embeddings.dimension", Number(message.dimension || 0), vscode.ConfigurationTarget.Workspace)
-          await cfg.update("embeddings.baseUrl", String(message.baseUrl ?? ""), vscode.ConfigurationTarget.Workspace)
-          await cfg.update("embeddings.region", String(message.region ?? ""), vscode.ConfigurationTarget.Workspace)
-          await cfg.update("embeddings.apiKey", String(message.apiKey ?? ""), vscode.ConfigurationTarget.Workspace)
-          await core.reloadSettings()
-          panel.webview.postMessage({ type: "embeddingSettingsSaved" })
-          await searchViewProvider.refreshApiKeyBanner()
-          break
-        }
-        case "openConfig": {
-          const configPath = path.join(os.homedir(), ".config", "sensegrep", "config.json")
-          await fs.mkdir(path.dirname(configPath), { recursive: true })
-          try {
-            await fs.access(configPath)
-          } catch {
-            await fs.writeFile(configPath, "{\n  \"provider\": \"openai\"\n}\n", "utf8")
-          }
-          const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(configPath))
-          await vscode.window.showTextDocument(doc, { preview: false })
-          break
-        }
-        case "testEmbeddings": {
-          try {
-            const result = await core.testEmbeddings()
-            panel.webview.postMessage({ type: "embeddingTestResult", result })
-          } catch (err) {
-            output?.error("Embedding test failed", err)
-            panel.webview.postMessage({ type: "embeddingTestError", message: String(err) })
-          }
-          break
-        }
-      }
-    })
-
-    await render()
-  }
+  const settingsPanel = createSettingsPanelController({ core, searchViewProvider, output })
 
   // Search command
   disposables.push(
@@ -664,7 +548,7 @@ export function registerCommands(
   // Open settings
   disposables.push(
     vscode.commands.registerCommand("sensegrep.openSettings", () => {
-      void showSettingsPanel()
+      void settingsPanel.show()
     })
   )
 

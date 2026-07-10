@@ -102,7 +102,7 @@ npm run package:darwin-arm64 --workspace sensegrep
 ## Requirements
 
 - VS Code 1.85+
-- Node.js 18+ (for the embedded search engine)
+- Node.js 20+ (for the embedded search engine)
 
 ## Links
 

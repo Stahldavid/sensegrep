@@ -84,14 +84,88 @@ function getLimiter(config: EmbeddingConfig): RateLimiter {
 
 // ── Retry helper ─────────────────────────────────────────────────────────────
 
-async function withRetry<T>(fn: () => Promise<T>, maxRetries: number, baseDelayMs: number, label: string): Promise<T> {
+class EmbeddingHttpError extends Error {
+  constructor(
+    message: string,
+    readonly statusCode: number,
+    readonly retryAfterMs?: number,
+  ) {
+    super(message)
+    this.name = "EmbeddingHttpError"
+  }
+}
+
+class RetriableEmbeddingResponseError extends Error {
+  readonly retriable = true
+
+  constructor(message: string) {
+    super(message)
+    this.name = "RetriableEmbeddingResponseError"
+  }
+}
+
+function abortError(signal: AbortSignal): Error {
+  return signal.reason instanceof Error ? signal.reason : new Error("Embedding request aborted")
+}
+
+async function waitForRetry(delayMs: number, signal?: AbortSignal): Promise<void> {
+  if (!signal) {
+    await new Promise<void>((resolve) => setTimeout(resolve, delayMs))
+    return
+  }
+  if (signal.aborted) throw abortError(signal)
+  const activeSignal = signal
+
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(done, delayMs)
+    const onAbort = () => done(abortError(activeSignal))
+    function done(error?: Error) {
+      clearTimeout(timer)
+      activeSignal.removeEventListener("abort", onAbort)
+      if (error) reject(error)
+      else resolve()
+    }
+    activeSignal.addEventListener("abort", onAbort, { once: true })
+  })
+}
+
+function parseRetryAfter(value: string | null): number | undefined {
+  if (!value) return undefined
+  const seconds = Number(value)
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1_000
+  const timestamp = Date.parse(value)
+  return Number.isFinite(timestamp) ? Math.max(0, timestamp - Date.now()) : undefined
+}
+
+async function readJsonResponse(response: Response, label: string): Promise<any> {
+  if (!response.ok) {
+    const text = await response.text().catch(() => "")
+    throw new EmbeddingHttpError(
+      `${label} embeddings request failed (${response.status}): ${text || response.statusText}`,
+      response.status,
+      parseRetryAfter(response.headers?.get?.("retry-after") ?? null),
+    )
+  }
+  return response.json().catch(() => ({}))
+}
+
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxRetries: number,
+  baseDelayMs: number,
+  label: string,
+  signal?: AbortSignal,
+): Promise<T> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
+      if (signal?.aborted) throw abortError(signal)
       return await fn()
     } catch (err: any) {
+      if (signal?.aborted || err?.name === "AbortError") throw err
       const message = typeof err?.message === "string" ? err.message : ""
-      const statusCode = err?.$metadata?.httpStatusCode
+      const statusCode = err?.statusCode ?? err?.$metadata?.httpStatusCode
       const isRetriable =
+        err?.retriable === true ||
         statusCode === 429 ||
         statusCode === 500 ||
         statusCode === 502 ||
@@ -105,12 +179,13 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries: number, baseDelayM
         message.includes("ServiceUnavailableException")
       if (!isRetriable || attempt >= maxRetries) throw err
       const jitter = 0.5 + Math.random() * 0.5
-      const delay = Math.min(baseDelayMs * Math.pow(2, attempt) * jitter, 60_000)
+      const retryAfterMs = typeof err?.retryAfterMs === "number" ? err.retryAfterMs : 0
+      const delay = Math.min(Math.max(retryAfterMs, baseDelayMs * Math.pow(2, attempt) * jitter), 60_000)
       log.warn(`${label}: transient error, retry ${attempt + 1}/${maxRetries} in ${Math.ceil(delay / 1000)}s`, {
         statusCode,
         errorName: err?.name,
       })
-      await new Promise<void>((r) => setTimeout(r, delay))
+      await waitForRetry(delay, signal)
     }
   }
   /* istanbul ignore next */
@@ -218,13 +293,12 @@ function assertEmbeddingShape(input: {
   expectedCount: number
   expectedDim: number
   vectors: number[][]
-}): void {
+}, options: { retryCountMismatch?: boolean } = {}): void {
   const { provider, model, expectedCount, expectedDim, vectors } = input
   if (vectors.length !== expectedCount) {
-    throw new Error(
-      `${provider} embeddings response returned ${vectors.length} vectors for ${expectedCount} inputs ` +
-        `(model=${model}).`,
-    )
+    const message = `${provider} embeddings response returned ${vectors.length} vectors for ${expectedCount} inputs ` +
+      `(model=${model}).`
+    throw options.retryCountMismatch ? new RetriableEmbeddingResponseError(message) : new Error(message)
   }
 
   const invalidIndex = vectors.findIndex(
@@ -358,6 +432,7 @@ export namespace EmbeddingsRemote {
     taskType?: TaskType
     title?: string | string[]
     outputDimensionality?: number
+    signal?: AbortSignal
   }
 
   export async function embed(
@@ -502,6 +577,7 @@ export namespace EmbeddingsRemote {
                 max_tokens: TOKEN_LIMITS.bedrock,
               }),
             }),
+            options?.signal ? { abortSignal: options.signal } : undefined,
           )
 
           const decoded = new TextDecoder().decode(response.body)
@@ -510,6 +586,7 @@ export namespace EmbeddingsRemote {
         maxRetries,
         retryBaseDelayMs,
         "Bedrock",
+        options?.signal,
       )
 
       const embeddings = parseBedrockFloatEmbeddings(data)
@@ -593,16 +670,14 @@ export namespace EmbeddingsRemote {
               "content-type": "application/json",
             },
             body: JSON.stringify({ requests }),
+            signal: options?.signal,
           })
-          if (!resp.ok) {
-            const text = await resp.text().catch(() => "")
-            throw new Error(`Gemini embeddings request failed (${resp.status}): ${text || resp.statusText}`)
-          }
-          return resp.json().catch(() => ({})) as Promise<any>
+          return readJsonResponse(resp, "Gemini")
         },
         maxRetries,
         retryBaseDelayMs,
         "Gemini",
+        options?.signal,
       )
 
       const embeddings: any[] = Array.isArray(data.embeddings)
@@ -699,34 +774,38 @@ export namespace EmbeddingsRemote {
         dimensions: outputDimensionality,
       })
 
-      const data = await withRetry(
+      return withRetry(
         async () => {
           const resp = await fetch(url, {
             method: "POST",
             headers: getOpenAiEmbeddingHeaders(apiKey, config, baseUrl),
             body: JSON.stringify(body),
+            signal: options?.signal,
           })
-          if (!resp.ok) {
-            const text = await resp.text().catch(() => "")
-            throw new Error(`OpenAI-compatible embeddings request failed (${resp.status}): ${text || resp.statusText}`)
-          }
-          return resp.json().catch(() => ({})) as Promise<any>
+          const data = await readJsonResponse(resp, "OpenAI-compatible")
+          const embeddings: any[] = Array.isArray(data.data) ? data.data : []
+          embeddings.sort((a: any, b: any) => (a.index ?? 0) - (b.index ?? 0))
+
+          const vectors = embeddings.map((embedding) => {
+            const values = embedding?.embedding
+            if (!Array.isArray(values)) return []
+            return normalize(values.map((value: any) => Number(value)))
+          })
+
+          assertEmbeddingShape({
+            provider: "openai",
+            model,
+            expectedCount: batch.length,
+            expectedDim: outputDimensionality,
+            vectors,
+          }, { retryCountMismatch: true })
+          return vectors
         },
         maxRetries,
         retryBaseDelayMs,
         "OpenAI",
+        options?.signal,
       )
-
-      const embeddings: any[] = Array.isArray(data.data) ? data.data : []
-      embeddings.sort((a: any, b: any) => (a.index ?? 0) - (b.index ?? 0))
-
-      const vectors = embeddings.map((embedding) => {
-        const values = embedding?.embedding
-        if (!Array.isArray(values)) return []
-        return normalize(values.map((value: any) => Number(value)))
-      })
-
-      return vectors
     })
 
     const allVectors = batchVectors.flat()
@@ -772,16 +851,14 @@ export namespace EmbeddingsRemote {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({ model, input: batch }),
+            signal: options?.signal,
           })
-          if (!resp.ok) {
-            const text = await resp.text().catch(() => "")
-            throw new Error(`Ollama embeddings request failed (${resp.status}): ${text || resp.statusText}`)
-          }
-          return resp.json().catch(() => ({})) as Promise<any>
+          return readJsonResponse(resp, "Ollama")
         },
         maxRetries,
         retryBaseDelayMs,
         "Ollama",
+        options?.signal,
       )
 
       const embeddings: any[] = Array.isArray(data.embeddings)

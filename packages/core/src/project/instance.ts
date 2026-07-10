@@ -1,30 +1,29 @@
 import path from "path"
 import fs from "fs/promises"
+import { AsyncLocalStorage } from "node:async_hooks"
 
-let currentDirectory = process.cwd()
+const defaultDirectory = process.cwd()
+const directoryContext = new AsyncLocalStorage<string>()
 
 export const Instance = {
   async provide<R>(input: { directory: string; init?: () => Promise<any>; fn: () => R | Promise<R> }): Promise<R> {
-    const prev = currentDirectory
     const resolved = await fs.realpath(input.directory).catch(() => path.resolve(input.directory))
-    currentDirectory = resolved
-    await input.init?.()
-    try {
+    return directoryContext.run(resolved, async () => {
+      await input.init?.()
       return await input.fn()
-    } finally {
-      currentDirectory = prev
-    }
+    })
   },
   get directory() {
-    return currentDirectory
+    return directoryContext.getStore() ?? defaultDirectory
   },
   get worktree() {
-    return currentDirectory
+    return directoryContext.getStore() ?? defaultDirectory
   },
   get project() {
+    const directory = directoryContext.getStore() ?? defaultDirectory
     return {
       id: "workspace",
-      worktree: currentDirectory,
+      worktree: directory,
       time: { created: Date.now(), updated: Date.now() },
     } as any
   },

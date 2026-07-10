@@ -5,7 +5,7 @@ Este guia usa o arquivo `.vsix` gerado a partir do repositório, sem depender do
 ## Pré-requisitos
 
 - VS Code 1.85+ ou Cursor com suporte a extensões VSIX
-- Node.js 18+ (para rebuild, se necessário)
+- Node.js 20+ (para rebuild, se necessário)
 - Build do monorepo concluído (`npm run build` na raiz)
 
 ## 1. Gerar o pacote (se ainda não existir)

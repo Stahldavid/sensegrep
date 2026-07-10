@@ -30,11 +30,11 @@ const DESCRIPTION = [
 ].join("\n")
 
 const commonSearchShape = {
-  query: z.string().describe("Natural language query to cluster into subthemes"),
+  query: z.string().trim().min(1).describe("Natural language query to cluster into subthemes"),
   pattern: z.string().optional().describe("Optional regex pattern to refine results"),
   include: z.string().optional().describe("File glob include filter"),
   exclude: z.string().optional().describe("File glob exclude filter"),
-  minScore: z.number().optional().describe("Minimum relevance score 0-1"),
+  minScore: z.number().min(0).max(1).optional().describe("Minimum relevance score 0-1"),
   symbol: z.string().optional().describe("Filter by symbol name"),
   name: z.string().optional().describe('Alias for "symbol"'),
   symbolType: z
@@ -62,11 +62,11 @@ const commonSearchShape = {
 
 const ClusterParametersSchema = z.object({
   ...commonSearchShape,
-  limit: z.number().optional().describe("Maximum number of clusters to return (default: 5)"),
-  rawLimit: z.number().optional().describe("Maximum raw matches to retrieve before clustering (default: 70)"),
-  perCluster: z.number().optional().describe("Representative snippets per cluster (default: 2)"),
-  clusterThreshold: z.number().optional().describe("Similarity threshold for linking matches into a cluster (default: 0.72)"),
-  minClusterSize: z.number().optional().describe("Minimum cluster size to keep before singleton fallback (default: 2)"),
+  limit: z.number().int().positive().max(100).optional().describe("Maximum number of clusters to return (default: 5)"),
+  rawLimit: z.number().int().positive().max(2000).optional().describe("Maximum raw matches to retrieve before clustering (default: 70)"),
+  perCluster: z.number().int().positive().max(20).optional().describe("Representative snippets per cluster (default: 2)"),
+  clusterThreshold: z.number().min(0).max(1).optional().describe("Similarity threshold for linking matches into a cluster (default: 0.72)"),
+  minClusterSize: z.number().int().positive().optional().describe("Minimum cluster size to keep before singleton fallback (default: 2)"),
 })
 
 type ClusterParams = z.infer<typeof ClusterParametersSchema>
@@ -326,7 +326,7 @@ async function formatClusterGroup(
   return lines
 }
 
-async function runCluster(params: ClusterParams) {
+async function runCluster(params: ClusterParams, ctx?: Tool.Context) {
   const perCluster = Math.max(1, params.perCluster ?? 2)
   const clusterThreshold = Math.min(0.95, Math.max(0.4, params.clusterThreshold ?? 0.72))
   const minClusterSize = Math.max(1, params.minClusterSize ?? 2)
@@ -336,6 +336,7 @@ async function runCluster(params: ClusterParams) {
     heading: "Clusters",
     groupLabel: "clusters",
     resultKey: "clusters",
+    signal: ctx?.abort,
     defaultRawLimit: 70,
     rawLimitMultiplier: 8,
     prepareResults: (resources, results) => hydrateResultsWithVectors(resources.collection, results),

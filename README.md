@@ -279,6 +279,7 @@ export SENSEGREP_OPENAI_BATCH_SIZE=96
 
 # Amazon Bedrock + Cohere Embed v4
 export AWS_REGION="us-east-1"
+export SENSEGREP_BEDROCK_API_KEY="your_bedrock_api_key"
 sensegrep search "auth flow" --provider bedrock --embed-model cohere.embed-v4:0 --embed-dim 1536
 ```
 
@@ -305,6 +306,7 @@ Common environment variables:
 - `SENSEGREP_OPENAI_BASE_URL` (OpenAI-compatible, default `https://api.fireworks.ai/inference/v1`)
 - `SENSEGREP_OPENAI_BATCH_SIZE` (OpenAI-compatible request batch size)
 - `SENSEGREP_OPENROUTER_REFERER` / `SENSEGREP_OPENROUTER_TITLE` (optional OpenRouter attribution headers)
+- `SENSEGREP_BEDROCK_API_KEY` (Amazon Bedrock bearer API key; omit when using the AWS SDK credential chain)
 - `SENSEGREP_BEDROCK_REGION` / `AWS_REGION` / `AWS_DEFAULT_REGION` (Amazon Bedrock)
 - `SENSEGREP_ROOT` (MCP root directory)
 - `SENSEGREP_WATCH` (MCP watcher toggle)
@@ -344,7 +346,7 @@ Reproducible qualitative examples from public repositories:
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, architecture overview, and contribution guidelines.
+See [the architecture guide](docs/architecture.md) for runtime and persistence design, and [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and contribution guidelines. The VS Code extension stores provider API keys in VS Code `SecretStorage`; workspace settings contain only non-secret configuration.
 
 ## Community
 

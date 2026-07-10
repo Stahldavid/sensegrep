@@ -7,6 +7,7 @@ import { getNonce } from "../webview/nonce"
 import { getSearchViewHtml } from "../webview/templates"
 import { tryRecoverIndex } from "../providers/index-repair"
 import * as path from "path"
+import { isEmbeddingProvider, type EmbeddingProviderSetting } from "../embedding-settings"
 
 export class SearchViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "sensegrep.search"
@@ -393,17 +394,14 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private getEffectiveProvider(): "gemini" | "openai" | "bedrock" | "config" {
+  private getEffectiveProvider(): EmbeddingProviderSetting {
     const config = vscode.workspace.getConfiguration("sensegrep")
     const inspected = config.inspect<string>("embeddings.provider")
     const explicit =
       inspected?.workspaceFolderValue ??
       inspected?.workspaceValue ??
       inspected?.globalValue
-    if (explicit === "gemini" || explicit === "openai" || explicit === "bedrock") {
-      return explicit
-    }
-    return "config"
+    return isEmbeddingProvider(explicit) ? explicit : "config"
   }
 
   private async updateApiKeyBanner() {

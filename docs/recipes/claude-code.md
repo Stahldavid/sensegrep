@@ -40,7 +40,7 @@ works without any MCP wiring.
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 20+
 - `@sensegrep/mcp` installed globally
 - Claude Code MCP enabled
 

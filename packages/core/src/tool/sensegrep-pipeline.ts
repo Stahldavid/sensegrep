@@ -130,6 +130,7 @@ type CollectWorkingResultsOptions = {
   diversify?: boolean
   maxPerFile?: number
   maxPerSymbol?: number
+  signal?: AbortSignal
 }
 
 const MAX_LINE_LENGTH = 2000
@@ -197,11 +198,15 @@ export function summarizeFreshness(
 
 export async function getFreshnessSummary(): Promise<FreshnessSummary> {
   let timeout: ReturnType<typeof setTimeout> | undefined
+  const controller = new AbortController()
   try {
     const verify = await Promise.race([
-      Indexer.verifyIndex(),
+      Indexer.verifyIndex({ signal: controller.signal, contentHash: false }),
       new Promise<undefined>((resolve) => {
-        timeout = setTimeout(() => resolve(undefined), 2_000)
+        timeout = setTimeout(() => {
+          controller.abort(new Error("Freshness verification timed out"))
+          resolve(undefined)
+        }, 2_000)
         timeout.unref?.()
       }),
     ])
@@ -227,6 +232,7 @@ export async function getFreshnessSummary(): Promise<FreshnessSummary> {
     }
   } finally {
     if (timeout) clearTimeout(timeout)
+    if (!controller.signal.aborted) controller.abort()
   }
 }
 
@@ -271,7 +277,6 @@ export async function withIndexedSearchResources<T extends ToolLikeResult>(
     return Instance.provide({
       directory: resolved.root,
       fn: async () => {
-        VectorStore.clearProjectCache(resolved.root)
         const freshness = await getFreshnessSummary()
         const collection = await VectorStore.getCollectionUnsafe(resolved.root, meta.embeddings.dimension)
         return fn({
@@ -852,7 +857,10 @@ export async function collectWorkingResults(
 
   let semanticResults: Awaited<ReturnType<typeof VectorStore.search>> = []
   if (!(params.exact === true && literalFallbackResults.length > 0)) {
-    semanticResults = await VectorStore.search(resources.collection, params.query, searchOptions)
+    semanticResults = await VectorStore.search(resources.collection, params.query, {
+      ...searchOptions,
+      signal: options.signal,
+    })
 
     if (fileFiltering.includeMatcher) {
       semanticResults = semanticResults.filter((result) =>
@@ -1474,6 +1482,7 @@ export async function runGroupedSearch<TGroup>(input: {
   formatGroup: (resources: SearchResources, group: TGroup) => Promise<string[]>
   mapGroup: (group: TGroup) => Record<string, unknown>
   metadata?: (groups: TGroup[]) => Record<string, unknown>
+  signal?: AbortSignal
 }) {
   return withIndexedSearchResources(input.params.query, async (resources) => {
     const limit = input.params.limit ?? 5
@@ -1481,6 +1490,7 @@ export async function runGroupedSearch<TGroup>(input: {
     const collected = await collectWorkingResults(resources, input.params, {
       rawLimit,
       diversify: false,
+      signal: input.signal,
     })
 
     if ("output" in collected) return collected

@@ -5,6 +5,7 @@ const ENV_KEYS = [
   "SENSEGREP_EMBED_MODEL",
   "SENSEGREP_EMBED_DIM",
   "SENSEGREP_BEDROCK_REGION",
+  "SENSEGREP_BEDROCK_API_KEY",
   "SENSEGREP_OPENAI_API_KEY",
   "SENSEGREP_OPENAI_BASE_URL",
   "SENSEGREP_OPENAI_BATCH_SIZE",
@@ -210,5 +211,35 @@ describe("embedding config", () => {
       maxRetries: 3,
       retryBaseDelayMs: 250,
     })
+  })
+
+  it("isolates temporary overrides across concurrent operations", async () => {
+    mockMissingGlobalConfig()
+    const { getEmbeddingConfig, getEmbeddingOverrides, withEmbeddingConfig } = await import("./embedding-config.js")
+    let firstStarted!: () => void
+    let secondStarted!: () => void
+    let firstChecked!: () => void
+    const firstStartedPromise = new Promise<void>((resolve) => { firstStarted = resolve })
+    const secondStartedPromise = new Promise<void>((resolve) => { secondStarted = resolve })
+    const firstCheckedPromise = new Promise<void>((resolve) => { firstChecked = resolve })
+
+    await Promise.all([
+      withEmbeddingConfig({ provider: "openai", embedModel: "model-a", embedDim: 11 }, async () => {
+        firstStarted()
+        await secondStartedPromise
+        expect(getEmbeddingConfig()).toMatchObject({ provider: "openai", embedModel: "model-a", embedDim: 11 })
+        firstChecked()
+      }),
+      (async () => {
+        await firstStartedPromise
+        return withEmbeddingConfig({ provider: "ollama", embedModel: "model-b", embedDim: 22 }, async () => {
+          secondStarted()
+          await firstCheckedPromise
+          expect(getEmbeddingConfig()).toMatchObject({ provider: "ollama", embedModel: "model-b", embedDim: 22 })
+        })
+      })(),
+    ])
+
+    expect(getEmbeddingOverrides()).toBeNull()
   })
 })

@@ -1864,7 +1864,10 @@ ${content}`
   /**
    * Main entry point: chunk a TypeScript/JavaScript file using tree-sitter
    */
-  export async function chunk(content: string, filePath: string): Promise<Chunking.Chunk[]> {
+  export async function analyze(
+    content: string,
+    filePath: string,
+  ): Promise<{ chunks: Chunking.Chunk[]; tree?: Tree; lines: string[] }> {
     // Select parser based on file extension
     const isTSX = filePath.endsWith(".tsx") || filePath.endsWith(".jsx")
     const parser = isTSX ? await tsxParser() : await tsParser()
@@ -1875,7 +1878,7 @@ ${content}`
     // Handle parse failure
     if (!tree) {
       log.warn("tree-sitter failed to parse file", { filePath })
-      return []
+      return { chunks: [], lines: content.split("\n") }
     }
 
     // Check for parse errors
@@ -1913,6 +1916,10 @@ ${content}`
       chunks = chunks.map((c) => ({ ...c, imports: importsValue }))
     }
 
-    return chunks
+    return { chunks, tree, lines }
+  }
+
+  export async function chunk(content: string, filePath: string): Promise<Chunking.Chunk[]> {
+    return (await analyze(content, filePath)).chunks
   }
 }

@@ -1,6 +1,9 @@
 import * as lancedb from "@lancedb/lancedb"
 import path from "path"
 import fs from "fs/promises"
+import { existsSync } from "node:fs"
+import crypto from "node:crypto"
+import z from "zod"
 
 import { Log } from "../util/log.js"
 import { Global } from "../global/index.js"
@@ -30,6 +33,7 @@ export namespace VectorStore {
   export type IndexMeta = {
     version: number
     root: string
+    tableName?: string
     embeddings: {
       provider: string
       model?: string
@@ -63,6 +67,51 @@ export namespace VectorStore {
     updatedAt: number
   }
 
+  const CollapsibleRegionSchema = z.object({
+    type: z.enum(["method", "function", "constructor", "arrow_function"]),
+    name: z.string(),
+    startLine: z.number(),
+    endLine: z.number(),
+    signatureEndLine: z.number(),
+    indentation: z.string(),
+  })
+
+  const IndexMetaSchema = z.object({
+    version: z.number(),
+    root: z.string().min(1),
+    tableName: z.string().min(1).optional(),
+    embeddings: z.object({
+      provider: z.string().min(1),
+      model: z.string().optional(),
+      dimension: z.number().int().positive(),
+      device: z.string().optional(),
+      distanceMetric: z.enum(["cosine", "l2", "dot"]).optional(),
+    }),
+    chunking: z.object({
+      version: z.number(),
+      provider: z.string(),
+      model: z.string(),
+      dimension: z.number(),
+      maxInputTokens: z.number().optional(),
+      modelMaxTokens: z.number(),
+      usableModelTokens: z.number(),
+      maxChars: z.number(),
+      minChars: z.number(),
+      overlapChars: z.number(),
+      simpleChars: z.number(),
+      mediumChars: z.number(),
+      complexChars: z.number(),
+    }).optional(),
+    files: z.record(z.string(), z.object({
+      size: z.number(),
+      mtimeMs: z.number(),
+      hash: z.string().optional(),
+      chunks: z.array(z.string()).optional(),
+      collapsibleRegions: z.array(CollapsibleRegionSchema).optional(),
+    })),
+    updatedAt: z.number(),
+  })
+
   // Filter operators for structured queries
   export type FilterOperator =
     | "equals"
@@ -91,7 +140,7 @@ export namespace VectorStore {
     none?: Filter[] // NOT logic - none of the conditions must match
   }
 
-  function getProjectHash(projectPath: string): string {
+  function getLegacyProjectHash(projectPath: string): string {
     let hash = 0
     for (let i = 0; i < projectPath.length; i++) {
       hash = (hash << 5) - hash + projectPath.charCodeAt(i)
@@ -100,8 +149,17 @@ export namespace VectorStore {
     return Math.abs(hash).toString(16)
   }
 
+  function getProjectHash(projectPath: string): string {
+    const resolved = path.resolve(projectPath)
+    const canonical = process.platform === "win32" ? resolved.toLowerCase() : resolved
+    return crypto.createHash("sha256").update(canonical).digest("hex").slice(0, 24)
+  }
+
   function projectDir(projectPath: string): string {
-    return path.join(BASE_PATH, `project_${getProjectHash(projectPath)}`)
+    const current = path.join(BASE_PATH, `project_${getProjectHash(projectPath)}`)
+    if (existsSync(current)) return current
+    const legacy = path.join(BASE_PATH, `project_${getLegacyProjectHash(projectPath)}`)
+    return existsSync(legacy) ? legacy : current
   }
 
   function indexMetaPath(projectPath: string): string {
@@ -164,8 +222,10 @@ export namespace VectorStore {
       if (!text) continue
 
       try {
-        const meta = JSON.parse(text) as IndexMeta
-        if (!meta.root || !isSupportedIndexMeta(meta)) continue
+        const parsed = IndexMetaSchema.safeParse(JSON.parse(text))
+        if (!parsed.success) continue
+        const meta = parsed.data as IndexMeta
+        if (!isSupportedIndexMeta(meta)) continue
         const root = await resolveProjectPath(meta.root)
         projects.push({ root, meta: { ...meta, root }, updatedAt: meta.updatedAt ?? 0 })
       } catch {
@@ -179,8 +239,8 @@ export namespace VectorStore {
   const dbCache = new Map<string, Promise<LanceDBConnection>>()
   const tableCache = new Map<string, Promise<LanceTable>>()
 
-  function tableCacheKey(projectPath: string): string {
-    return `${projectPath}:${Embeddings.getProvider()}:${Embeddings.getModel()}:${Embeddings.getDimension()}`
+  function tableCacheKey(projectPath: string, tableName: string): string {
+    return `${projectPath}:${tableName}:${Embeddings.getProvider()}:${Embeddings.getModel()}:${Embeddings.getDimension()}`
   }
 
   export function getDistanceMetric(meta?: IndexMeta | null): DistanceMetric {
@@ -260,10 +320,15 @@ export namespace VectorStore {
     const text = await fs.readFile(filepath, "utf8").catch(() => null)
     if (!text) return null
     try {
-      const parsed = JSON.parse(text) as IndexMeta
-      if (!parsed || typeof parsed !== "object") return null
-      return parsed
-    } catch {
+      const result = IndexMetaSchema.safeParse(JSON.parse(text))
+      if (result.success) return result.data as IndexMeta
+      log.warn("Invalid index metadata", { projectPath, issues: result.error.issues.length })
+      return null
+    } catch (error) {
+      log.warn("Failed to parse index metadata", {
+        projectPath,
+        error: error instanceof Error ? error.message : String(error),
+      })
       return null
     }
   }
@@ -271,7 +336,15 @@ export namespace VectorStore {
   export async function writeIndexMeta(projectPath: string, meta: IndexMeta): Promise<void> {
     const dir = projectDir(projectPath)
     await fs.mkdir(dir, { recursive: true })
-    await fs.writeFile(indexMetaPath(projectPath), JSON.stringify(meta, null, 2))
+    const filepath = indexMetaPath(projectPath)
+    const temporaryPath = `${filepath}.${process.pid}.${crypto.randomUUID()}.tmp`
+    try {
+      await fs.writeFile(temporaryPath, `${JSON.stringify(meta, null, 2)}\n`, { encoding: "utf8", flag: "wx" })
+      await fs.rename(temporaryPath, filepath)
+    } catch (error) {
+      await fs.rm(temporaryPath, { force: true }).catch(() => {})
+      throw error
+    }
   }
 
   /**
@@ -326,12 +399,16 @@ export namespace VectorStore {
     }
   }
 
-  async function ensureTable(db: LanceDBConnection, expectedDim?: number): Promise<LanceTable> {
+  async function ensureTable(
+    db: LanceDBConnection,
+    expectedDim?: number,
+    tableName = TABLE_NAME,
+  ): Promise<LanceTable> {
     let table: LanceTable | null = null
     let needsCreate = false
 
     try {
-      table = await db.openTable(TABLE_NAME)
+      table = await db.openTable(tableName)
     } catch (error) {
       needsCreate = true
     }
@@ -371,11 +448,11 @@ export namespace VectorStore {
         ]
         if (fieldNames.length > 0 && required.some((name) => !fieldNames.includes(name))) {
           log.warn("Existing table schema missing fields; recreating", {
-            tableName: TABLE_NAME,
+            tableName,
             missing: required.filter((name) => !fieldNames.includes(name)),
           })
           try {
-            await db.dropTable(TABLE_NAME)
+            await db.dropTable(tableName)
           } catch {
             // ignore drop failures and fall back to create
           }
@@ -387,14 +464,14 @@ export namespace VectorStore {
     }
 
     if (table && !needsCreate) {
-      log.debug("Opened existing table", { tableName: TABLE_NAME })
+      log.debug("Opened existing table", { tableName })
       return table
     }
 
     // Create table lazily on first insert. We create a single sentinel row and
     // delete it right away to avoid schema inference issues on empty creates.
     const dim = expectedDim ?? Embeddings.getDimension()
-    log.debug("Creating new table", { tableName: TABLE_NAME, dimension: dim })
+    log.debug("Creating new table", { tableName, dimension: dim })
     const sentinel = {
       id: "__opencode_init__",
       content: "",
@@ -424,7 +501,7 @@ export namespace VectorStore {
       isAbstract: false,
       decorators: "",
     }
-    const created = await db.createTable(TABLE_NAME, [sentinel], {
+    const created = await db.createTable(tableName, [sentinel], {
       mode: "overwrite",
     } as any)
     await created.delete("id = '__opencode_init__'")
@@ -622,13 +699,14 @@ export namespace VectorStore {
    * Get or create a table for a project.
    */
   export async function getCollection(projectPath: string): Promise<LanceTable> {
-    const key = tableCacheKey(projectPath)
+    const tableName = (await readIndexMeta(projectPath))?.tableName ?? TABLE_NAME
+    const key = tableCacheKey(projectPath, tableName)
     const cached = tableCache.get(key)
     if (cached) return cached
 
     const p = (async () => {
       const db = await connect(projectPath)
-      const table = await ensureTable(db)
+      const table = await ensureTable(db, undefined, tableName)
       await assertCompatibleDimension(projectPath, table)
       return table
     })()
@@ -644,7 +722,48 @@ export namespace VectorStore {
    */
   export async function getCollectionUnsafe(projectPath: string, expectedDim?: number): Promise<LanceTable> {
     const db = await connect(projectPath)
-    return await ensureTable(db, expectedDim)
+    const tableName = (await readIndexMeta(projectPath))?.tableName ?? TABLE_NAME
+    return await ensureTable(db, expectedDim, tableName)
+  }
+
+  export async function createStagingCollection(
+    projectPath: string,
+    expectedDim: number,
+  ): Promise<{ collection: LanceTable; tableName: string }> {
+    const db = await connect(projectPath)
+    const tableName = `chunks_${Date.now()}_${crypto.randomUUID().replaceAll("-", "")}`
+    const collection = await ensureTable(db, expectedDim, tableName)
+    return { collection, tableName }
+  }
+
+  export async function dropCollectionTable(projectPath: string, tableName: string): Promise<void> {
+    const db = await connect(projectPath)
+    await db.dropTable(tableName)
+    for (const key of tableCache.keys()) {
+      if (key.startsWith(`${projectPath}:${tableName}:`)) tableCache.delete(key)
+    }
+  }
+
+  export async function cleanupInactiveTables(projectPath: string, activeTableName: string): Promise<void> {
+    const db = await connect(projectPath)
+    const tableNames = await db.tableNames()
+    const cutoff = Date.now() - 60 * 60_000
+    const inactive = tableNames.filter(
+      (name) => {
+        if (name === activeTableName || !name.startsWith("chunks_")) return false
+        const timestamp = Number(name.split("_", 3)[1])
+        return Number.isFinite(timestamp) && timestamp < cutoff
+      },
+    )
+    for (const tableName of inactive) {
+      await dropCollectionTable(projectPath, tableName).catch((error) => {
+        log.warn("Failed to remove inactive index table", {
+          projectPath,
+          tableName,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      })
+    }
   }
 
   function documentToRow(document: AddDocumentInput, vector: number[]): EmbeddedDocumentRow {
@@ -680,13 +799,17 @@ export namespace VectorStore {
     }
   }
 
-  export async function embedDocuments(documents: AddDocumentInput[]): Promise<EmbeddedDocumentRow[]> {
+  export async function embedDocuments(
+    documents: AddDocumentInput[],
+    options: { signal?: AbortSignal } = {},
+  ): Promise<EmbeddedDocumentRow[]> {
     if (documents.length === 0) return []
 
     const contents = documents.map((d) => d.content)
     const embeddings = await Embeddings.embed(contents, {
       taskType: "RETRIEVAL_DOCUMENT",
       title: documents.map((d) => String(d.metadata.file ?? "")),
+      signal: options.signal,
     })
     const expectedDim = Embeddings.getDimension()
     if (embeddings.length !== documents.length) {
@@ -758,6 +881,39 @@ export namespace VectorStore {
     const variants = expandFilePathVariants(filePath)
     const predicate = variants.map((value) => `file = '${escapeSqlString(value)}'`).join(" OR ")
     await (collection as any).delete(predicate)
+  }
+
+  export async function replaceFileDocuments(
+    collection: LanceTable,
+    filePath: string,
+    rows: EmbeddedDocumentRow[],
+  ): Promise<void> {
+    const variants = expandFilePathVariants(filePath)
+    const predicate = variants.map((value) => `file = '${escapeSqlString(value)}'`).join(" OR ")
+    const previousRows: EmbeddedDocumentRow[] = await (collection as any)
+      .query()
+      .where(predicate)
+      .toArray()
+      .then((items: any[]) => items.map((item) => ({
+        ...item,
+        vector: Array.from(item.vector ?? [], Number),
+      })))
+
+    await deleteByFile(collection, filePath)
+    try {
+      await addEmbeddedDocuments(collection, rows)
+    } catch (error) {
+      await deleteByFile(collection, filePath).catch(() => {})
+      if (previousRows.length > 0) {
+        await addEmbeddedDocuments(collection, previousRows).catch((restoreError) => {
+          log.error("Failed to restore file rows after replacement error", {
+            filePath,
+            error: restoreError instanceof Error ? restoreError.message : String(restoreError),
+          })
+        })
+      }
+      throw error
+    }
   }
 
   export async function countByFile(collection: LanceTable, filePath: string): Promise<number> {
@@ -868,6 +1024,7 @@ export namespace VectorStore {
       limit?: number
       where?: Record<string, string> // Legacy format (kept for backward compatibility)
       filters?: SearchFilters // New structured filters
+      signal?: AbortSignal
     } = {},
   ): Promise<
     {
@@ -878,7 +1035,11 @@ export namespace VectorStore {
     }[]
   > {
     const limit = options.limit ?? 20
-    const [queryEmbedding] = await Embeddings.embed(query, { taskType: "RETRIEVAL_QUERY" })
+    const [queryEmbedding] = await Embeddings.embed(query, {
+      taskType: "RETRIEVAL_QUERY",
+      signal: options.signal,
+    })
+    options.signal?.throwIfAborted()
 
     // Build WHERE clause: prioritize structured filters, fall back to legacy where
     let whereClause: string | undefined

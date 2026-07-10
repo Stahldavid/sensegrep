@@ -283,6 +283,77 @@ describe("EmbeddingsRemote OpenAI-compatible", () => {
     expect(vectors[3][1]).toBeCloseTo(Math.SQRT1_2)
   })
 
+  it("retries retriable HTTP status codes", async () => {
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        statusText: "Service Unavailable",
+        headers: { get: () => null },
+        text: async () => "temporarily unavailable",
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [{ index: 0, embedding: [1, 0, 0] }] }),
+      })
+    const { EmbeddingsRemote } = await import("./embeddings-remote.js")
+    EmbeddingsRemote.configure({
+      provider: "openai",
+      embedModel: "test-embedding",
+      embedDim: 3,
+      baseUrl: "http://127.0.0.1:1234/v1",
+      apiKey: "test-key",
+      rateLimit: { maxRetries: 1, retryBaseDelayMs: 1 },
+    })
+
+    await expect(EmbeddingsRemote.embed("retry me", { skipValidation: true })).resolves.toHaveLength(1)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it("retries successful responses that omit batch embeddings", async () => {
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [{ index: 0, embedding: [1, 0, 0] }] }),
+      })
+    const { EmbeddingsRemote } = await import("./embeddings-remote.js")
+    EmbeddingsRemote.configure({
+      provider: "openai",
+      embedModel: "test-embedding",
+      embedDim: 3,
+      baseUrl: "http://127.0.0.1:1234/v1",
+      apiKey: "test-key",
+      rateLimit: { maxRetries: 1, retryBaseDelayMs: 1 },
+    })
+
+    await expect(EmbeddingsRemote.embed("retry malformed response", { skipValidation: true })).resolves.toHaveLength(1)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it("passes the caller abort signal to fetch", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: [{ index: 0, embedding: [1, 0, 0] }] }),
+    })
+    const controller = new AbortController()
+    const { EmbeddingsRemote } = await import("./embeddings-remote.js")
+    EmbeddingsRemote.configure({
+      provider: "openai",
+      embedModel: "test-embedding",
+      embedDim: 3,
+      baseUrl: "http://127.0.0.1:1234/v1",
+      apiKey: "test-key",
+    })
+
+    await EmbeddingsRemote.embed("cancel me", { skipValidation: true, signal: controller.signal })
+
+    expect(fetchMock.mock.calls[0][1].signal).toBe(controller.signal)
+  })
+
   it("keeps Qwen3 embedding inputs within the 32K token limit", async () => {
     fetchMock.mockResolvedValue({
       ok: true,
@@ -347,6 +418,7 @@ describe("EmbeddingsRemote OpenAI-compatible", () => {
       embedDim: 2,
       baseUrl: "http://127.0.0.1:1234/v1",
       apiKey: "test-key",
+      rateLimit: { maxRetries: 0 },
     })
 
     await expect(EmbeddingsRemote.embed(["one", "two"], { skipValidation: true })).rejects.toThrow(

@@ -1,5 +1,14 @@
 # @sensegrep/mcp
 
+## 1.7.6
+
+### Patch Changes
+
+- Harden concurrent indexing with transactional activation, cancellation, validated embedding retries, faster freshness checks, strict tool inputs, and safer credential handling. Indexing now streams bounded embedding batches, reuses parsed syntax trees, rejects stale generated artifacts, and requires Node.js 20 or newer so runtime dependencies remain security-maintained.
+
+- Updated dependencies []:
+  - @sensegrep/core@1.7.6
+
 ## 1.7.5
 
 ### Patch Changes

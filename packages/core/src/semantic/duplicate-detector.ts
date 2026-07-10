@@ -485,7 +485,7 @@ export namespace DuplicateDetector {
 
         if (entry.isDirectory()) {
           // Ignorar node_modules, .git, dist, etc
-          if (["node_modules", ".git", "dist", "build", ".next"].includes(entry.name)) {
+          if (["node_modules", ".git", "dist", "build", ".next", ".vscode-test"].includes(entry.name)) {
             continue
           }
           await walk(fullPath)

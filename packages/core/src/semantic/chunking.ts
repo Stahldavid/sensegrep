@@ -2,6 +2,7 @@ import { Log } from "../util/log.js"
 import { TreeSitterChunking } from "./chunking-treesitter.js"
 import { getLanguageForFile, chunkPython, chunkJava, chunkVue } from "./language/index.js"
 import { getGeneralChunkLimits } from "./chunk-limits.js"
+import { TreeShaker } from "./tree-shaker.js"
 
 const log = Log.create({ service: "semantic.chunking" })
 
@@ -134,6 +135,11 @@ export namespace Chunking {
     hasDocumentation?: boolean // Whether JSDoc/comments are present
     language?: string // "typescript" | "javascript" | "python" etc
     imports?: string // Comma-separated imported module names for filtering
+  }
+
+  export type Analysis = {
+    chunks: Chunk[]
+    collapsibleRegions: TreeShaker.CollapsibleRegion[]
   }
 
   /**
@@ -440,6 +446,39 @@ export namespace Chunking {
       return enforceMaxChunkSize(await chunkCodeAsync(content, filePath))
     }
     return enforceMaxChunkSize(chunkText(content, filePath))
+  }
+
+  export async function analyzeAsync(content: string, filePath: string): Promise<Analysis> {
+    if (TreeSitterChunking.isSupported(filePath)) {
+      try {
+        const parsed = await TreeSitterChunking.analyze(content, filePath)
+        const chunks = content.length < getMinChunkSize()
+          ? [{
+              content,
+              startLine: 1,
+              endLine: parsed.lines.length,
+              type: "code" as const,
+            }]
+          : enforceMaxChunkSize(
+              parsed.chunks.length > 0 ? parsed.chunks : chunkCodeRegex(content, filePath),
+            )
+        const collapsibleRegions = parsed.tree
+          ? TreeShaker.findCollapsibleRegions(parsed.tree, parsed.lines)
+          : []
+        return { chunks, collapsibleRegions }
+      } catch (error) {
+        log.warn("shared tree-sitter analysis failed, using independent fallbacks", {
+          filePath,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+
+    const [chunks, collapsibleRegions] = await Promise.all([
+      chunkAsync(content, filePath),
+      TreeShaker.extractRegions(filePath, content),
+    ])
+    return { chunks, collapsibleRegions }
   }
 
   /**

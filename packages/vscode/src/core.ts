@@ -3,6 +3,12 @@ import path from "node:path"
 import { pathToFileURL } from "node:url"
 import fs from "node:fs"
 import picomatch from "picomatch"
+import {
+  embeddingSecretKey,
+  isCredentialProvider,
+  isEmbeddingProvider,
+  type CredentialProvider,
+} from "./embedding-settings"
 
 type CoreModule = typeof import("@sensegrep/core")
 const dynamicImport = new Function(
@@ -261,16 +267,17 @@ export class SensegrepCore {
       return undefined
     }
 
-    const explicitProvider = explicitSetting<string>("embeddings.provider")
+    const explicitProviderValue = explicitSetting<string>("embeddings.provider")
+    const explicitProvider = isEmbeddingProvider(explicitProviderValue) ? explicitProviderValue : "config"
     const explicitModel = explicitSetting<string>("embeddings.model")
     const explicitDim = explicitSetting<number>("embeddings.dimension")
     const explicitBaseUrl = explicitSetting<string>("embeddings.baseUrl")
-    const explicitApiKey = explicitSetting<string>("embeddings.apiKey")
+    const legacyApiKey = explicitSetting<string>("embeddings.apiKey")
     const explicitRegion = explicitSetting<string>("embeddings.region")
 
     // Only push embedding env vars when the user explicitly set them in VS Code.
     // Otherwise ~/.config/sensegrep/config.json is the source of truth (e.g. LM Studio).
-    if (explicitProvider === "gemini" || explicitProvider === "openai" || explicitProvider === "bedrock" || explicitProvider === "ollama") {
+    if (explicitProvider !== "config") {
       process.env.SENSEGREP_PROVIDER = explicitProvider
     } else {
       delete process.env.SENSEGREP_PROVIDER
@@ -301,11 +308,18 @@ export class SensegrepCore {
       delete process.env.SENSEGREP_OLLAMA_BASE_URL
     }
 
-    if (explicitApiKey) {
-      process.env.SENSEGREP_OPENAI_API_KEY = explicitApiKey
-    } else {
-      delete process.env.SENSEGREP_OPENAI_API_KEY
+    if (legacyApiKey && isCredentialProvider(explicitProvider)) {
+      await this.context.secrets.store(embeddingSecretKey(explicitProvider), legacyApiKey)
+      await config.update("embeddings.apiKey", undefined, vscode.ConfigurationTarget.Workspace)
     }
+
+    const providerApiKey = isCredentialProvider(explicitProvider)
+      ? await this.getEmbeddingApiKey(explicitProvider)
+      : undefined
+    delete process.env.SENSEGREP_OPENAI_API_KEY
+    delete process.env.SENSEGREP_BEDROCK_API_KEY
+    if (explicitProvider === "openai" && providerApiKey) process.env.SENSEGREP_OPENAI_API_KEY = providerApiKey
+    if (explicitProvider === "bedrock" && providerApiKey) process.env.SENSEGREP_BEDROCK_API_KEY = providerApiKey
 
     if (explicitRegion) {
       process.env.SENSEGREP_BEDROCK_REGION = explicitRegion
@@ -313,9 +327,10 @@ export class SensegrepCore {
       delete process.env.SENSEGREP_BEDROCK_REGION
     }
 
-    // Gemini key only when the user explicitly chose Gemini in settings.
+    // Preserve the legacy Gemini setting/secret while migrating new writes to
+    // the provider-scoped secret key.
     if (explicitProvider === "gemini") {
-      let geminiKey = config.get<string>("geminiApiKey")
+      let geminiKey = providerApiKey || config.get<string>("geminiApiKey")
       if (!geminiKey) {
         geminiKey = await this.context.secrets.get("sensegrep.geminiApiKey")
       }
@@ -346,19 +361,32 @@ export class SensegrepCore {
   }
 
   async setApiKey(apiKey: string): Promise<void> {
-    await this.context.secrets.store("sensegrep.geminiApiKey", apiKey)
+    await this.setEmbeddingApiKey("gemini", apiKey)
     process.env.GEMINI_API_KEY = apiKey
     vscode.window.showInformationMessage("Sensegrep: Gemini API key saved securely")
   }
 
   async getApiKey(): Promise<string | undefined> {
-    return await this.context.secrets.get("sensegrep.geminiApiKey")
+    return await this.getEmbeddingApiKey("gemini") || await this.context.secrets.get("sensegrep.geminiApiKey")
   }
 
   async clearApiKey(): Promise<void> {
+    await this.clearEmbeddingApiKey("gemini")
     await this.context.secrets.delete("sensegrep.geminiApiKey")
     delete process.env.GEMINI_API_KEY
     vscode.window.showInformationMessage("Sensegrep: Gemini API key cleared")
+  }
+
+  async setEmbeddingApiKey(provider: CredentialProvider, apiKey: string): Promise<void> {
+    await this.context.secrets.store(embeddingSecretKey(provider), apiKey)
+  }
+
+  async getEmbeddingApiKey(provider: CredentialProvider): Promise<string | undefined> {
+    return this.context.secrets.get(embeddingSecretKey(provider))
+  }
+
+  async clearEmbeddingApiKey(provider: CredentialProvider): Promise<void> {
+    await this.context.secrets.delete(embeddingSecretKey(provider))
   }
 
   async getLanguageCapabilities(): Promise<{

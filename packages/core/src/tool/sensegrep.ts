@@ -74,16 +74,16 @@ async function collectExactSymbolResults(
 export const SenseGrepTool = Tool.define("sensegrep", {
   description: DESCRIPTION,
   parameters: z.object({
-    query: z.string().describe("Natural language query to search for semantically similar code/content"),
+    query: z.string().trim().min(1).describe("Natural language query to search for semantically similar code/content"),
     pattern: z.string().optional().describe("Optional regex pattern for keyword matching (BM25-style)"),
-    limit: z.number().optional().describe("Maximum number of results to return (default: 10)"),
-    maxPerFile: z.number().optional().describe("Maximum results per file (default: 2)"),
-    maxPerSymbol: z.number().optional().describe("Maximum results per symbol (default: 2)"),
+    limit: z.number().int().positive().max(500).optional().describe("Maximum number of results to return (default: 10)"),
+    maxPerFile: z.number().int().nonnegative().optional().describe("Maximum results per file (default: 2)"),
+    maxPerSymbol: z.number().int().nonnegative().optional().describe("Maximum results per symbol (default: 2)"),
 
     include: z.string().optional().describe('File glob include filter (e.g. "*.ts", "src/**/*.tsx")'),
     exclude: z.string().optional().describe('File glob exclude filter (e.g. "*.md", "docs/**")'),
     rerank: z.boolean().default(false).describe("Compatibility flag. Remote-only mode does not perform reranking."),
-    minScore: z.number().optional().describe("Minimum relevance score 0-1 (filters low-confidence results)"),
+    minScore: z.number().min(0).max(1).optional().describe("Minimum relevance score 0-1 (filters low-confidence results)"),
     symbol: z.string().optional().describe('Filter by symbol name (e.g. "VectorStore")'),
     name: z.string().optional().describe('Alias for "symbol"'),
     exact: z.boolean().optional().describe("Prefer exact symbol-name lookup for identifier queries"),
@@ -103,8 +103,8 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     isStatic: z.boolean().optional().describe("Filter for static methods"),
     isAbstract: z.boolean().optional().describe("Filter for abstract classes/methods"),
     decorator: z.string().optional().describe('Filter by decorator (e.g. "@property", "@dataclass")'),
-    minComplexity: z.number().optional().describe("Minimum cyclomatic complexity (e.g. 5 for moderately complex code)"),
-    maxComplexity: z.number().optional().describe("Maximum cyclomatic complexity"),
+    minComplexity: z.number().nonnegative().optional().describe("Minimum cyclomatic complexity (e.g. 5 for moderately complex code)"),
+    maxComplexity: z.number().nonnegative().optional().describe("Maximum cyclomatic complexity"),
     hasDocumentation: z.boolean().optional().describe("Filter for code with/without documentation"),
     language: z
       .enum(["typescript", "javascript", "python", "java", "vue"])
@@ -118,7 +118,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     strictImports: z.boolean().optional().describe("Require strict import metadata when filtering by imports"),
     shake: z.boolean().default(true).describe("Enable semantic tree-shaking to show full file context with irrelevant regions collapsed (default: true)"),
   }),
-  async execute(params, _ctx): Promise<Tool.Result<Record<string, unknown>>> {
+  async execute(params, ctx): Promise<Tool.Result<Record<string, unknown>>> {
     // Read index metadata first (before any embedding initialization)
     const resolved = await VectorStore.resolveIndexedProject(Instance.directory)
     if (!resolved?.meta.embeddings) {
@@ -344,7 +344,10 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     let semanticResults: Awaited<ReturnType<typeof VectorStore.search>> = []
     if (!useLexicalOnly) {
       const semanticStartedAt = Date.now()
-      semanticResults = await VectorStore.search(collection, params.query, searchOptions)
+      semanticResults = await VectorStore.search(collection, params.query, {
+        ...searchOptions,
+        signal: ctx.abort,
+      })
       metrics.semanticSearchMs = Date.now() - semanticStartedAt
 
       // Apply file globs again as a safety net after semantic search.

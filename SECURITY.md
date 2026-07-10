@@ -6,8 +6,9 @@ The latest release line is supported for security updates.
 
 | Version | Supported |
 | --- | --- |
-| Latest `0.x` | Yes |
-| Older `0.x` | Best effort |
+| Latest `1.x` | Yes |
+| Older `1.x` | Best effort |
+| `0.x` | No |
 
 ## Reporting a Vulnerability
 

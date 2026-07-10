@@ -6,7 +6,7 @@ Run sensegrep checks in any CI provider (GitLab CI, CircleCI, Jenkins, Buildkite
 
 ## Prerequisites
 
-- Node.js 18+
+- Node.js 20+
 - Internet access to install `@sensegrep/cli`
 
 ## Baseline CI Script

@@ -5,7 +5,7 @@ This document is publication-ready and ordered to reduce risk.
 
 ## 0. Prerequisites
 
-- Node.js >= 18 and npm installed
+- Node.js >= 20 and npm installed
 - npm auth is valid for publish rights
 - GitHub auth is valid (`gh auth status`)
 - VS Code Marketplace PAT is configured for `vsce` (`VSCE_PAT` is set in your shell/CI)
