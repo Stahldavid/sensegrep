@@ -1,5 +1,21 @@
 # @sensegrep/mcp
 
+## 1.10.1
+
+### Patch Changes
+
+- [`6abb2b1`](https://github.com/Stahldavid/sensegrep/commit/6abb2b1fd3b25384bd89ea3bcb240873454bf1f9) Thanks [@Stahldavid](https://github.com/Stahldavid)! - Harden agent evidence workflows and reduce repeated embedding work.
+
+  - enforce global token, byte, and batch budgets across complete audit runs
+  - return compact, deduplicated continuation cards with separate retrieval, context, and emitted-token metrics
+  - merge fragmented chunks into logical graph symbols and improve domain-aware executable-code ranking
+  - make `--log-format none` fully silent and rename the query embedding deadline to `--embedding-timeout`
+  - add duplicate-detection wall-clock timeouts, progress, partial results, and resumable cursors
+  - reuse compatible vectors during structural full-index migrations
+
+- Updated dependencies [[`6abb2b1`](https://github.com/Stahldavid/sensegrep/commit/6abb2b1fd3b25384bd89ea3bcb240873454bf1f9)]:
+  - @sensegrep/core@1.10.1
+
 ## 1.10.0
 
 ### Minor Changes
