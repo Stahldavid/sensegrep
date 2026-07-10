@@ -4,13 +4,15 @@ Sensegrep has four runtime surfaces: `@sensegrep/core`, the CLI, the stdio MCP s
 
 ## Operation Context
 
-Project roots and temporary embedding overrides are operation-scoped through Node `AsyncLocalStorage`. Code running under `Instance.provide()` or `Embeddings.withConfig()` may overlap with another operation without observing its directory, provider, model, or dimension. Do not replace these contexts with process-global mutation.
+Project roots, named index profiles, and temporary embedding overrides are operation-scoped through Node `AsyncLocalStorage`. Code running under `Instance.provide()` or `Embeddings.withConfig()` may overlap with another operation without observing its directory, profile, provider, model, or dimension. Do not replace these contexts with process-global mutation.
 
 ## Index Lifecycle
 
 Index writes are serialized per canonical project root in-process and across processes. Disk locks contain a PID and ownership token; only the owner can release them.
 
-A full index is built in a versioned LanceDB table. Sensegrep embeds and persists bounded windows, validates the final row count and vector dimension, then atomically updates `index-meta.json` to activate the staged table. A failed stage is removed while the previous metadata and table remain active. Incremental file replacement snapshots prior rows and restores them if append fails.
+A full index is built in a versioned LanceDB table. Sensegrep embeds and persists bounded windows, validates the final row count and vector dimension, then atomically updates `index-meta.json` to activate the staged table. Interrupted stages are fingerprinted and resumed by skipping persisted IDs; `resume: false` discards failed stages. Incremental file replacement snapshots prior rows, reuses vectors for content-identical chunks, and restores prior rows if append fails.
+
+Indexes with at least `SENSEGREP_ANN_MIN_CHUNKS` rows (10,000 by default) receive a vector ANN index plus scalar indexes for common file/symbol filters. Named profiles use independent directories and metadata for side-by-side provider/model experiments.
 
 Metadata is schema-validated and written using a temporary file plus rename. Project directories use a strong hash while retaining read compatibility with legacy directory names.
 
@@ -24,4 +26,4 @@ The CLI and MCP can read credentials from environment variables or `~/.config/se
 
 ## Contracts
 
-Tool inputs are validated before execution. MCP schemas for indexing and duplicate detection are generated from the same Zod schemas used at runtime. New parameters should be added to one canonical schema and covered by invalid-input tests.
+Tool inputs are validated before execution. Search, context, survey, cluster, indexing, graph, and duplicate inputs have runtime Zod schemas reused by MCP. New parameters should be added to one canonical schema and covered by invalid-input tests.

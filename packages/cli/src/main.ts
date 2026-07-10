@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs"
 import { createHumanLogger, writeJson, writeStderrLine, writeStdoutLine } from "./output.js"
 import { CLI_USAGE } from "./usage.js"
 import { parseArgs, validateKnownFlags } from "./args.js"
+import { runAnalysisCommand } from "./analysis-commands.js"
+import { CliUsageError } from "./cli-errors.js"
 import {
   assignNumberParam,
   buildCommonSearchParams,
@@ -12,13 +14,6 @@ import {
   toBool,
   type Flags,
 } from "./search-commands.js"
-
-class CliUsageError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = "CliUsageError"
-  }
-}
 
 function parseRequiredNumberFlag(flags: Flags, name: string, options: { min?: number; max?: number } = {}): number | undefined {
   const value = flags[name]
@@ -164,6 +159,7 @@ function createIndexRunOptions(flags: Flags): {
   timeoutMs?: number
   maxFiles?: number
   onProgress?: (progress: any) => void
+  resume?: boolean
 } {
   const timeoutMs = parseDurationMs(flags.timeout)
   const maxFiles = parsePositiveIntFlag(flags["max-files"] ?? flags.maxFiles, "max-files")
@@ -195,7 +191,11 @@ function createIndexRunOptions(flags: Flags): {
       progress.filesParsed !== undefined ? `filesParsed=${progress.filesParsed}` : undefined,
       progress.chunksPrepared !== undefined ? `chunksPrepared=${progress.chunksPrepared}` : undefined,
       progress.chunksEmbedded !== undefined ? `chunksEmbedded=${progress.chunksEmbedded}` : undefined,
+      progress.reusedChunks !== undefined ? `reusedChunks=${progress.reusedChunks}` : undefined,
       progress.chunksPersisted !== undefined ? `chunksPersisted=${progress.chunksPersisted}` : undefined,
+      progress.estimatedTokens !== undefined ? `tokens~${progress.estimatedTokens}` : undefined,
+      progress.requests !== undefined ? `requests~${progress.requests}` : undefined,
+      progress.etaMs !== undefined && progress.etaMs > 0 ? `eta=${Math.ceil(progress.etaMs / 1000)}s` : undefined,
       progress.skipped !== undefined ? `skipped=${progress.skipped}` : undefined,
       progress.failed !== undefined ? `failed=${progress.failed}` : undefined,
     ].filter(Boolean).join(" ")
@@ -240,6 +240,7 @@ async function run() {
   const argv = process.argv.slice(2)
   const command = argv[0]
   const { flags, positional } = parseArgs(argv.slice(1))
+  if (typeof flags.profile === "string") process.env.SENSEGREP_PROFILE = flags.profile
 
   if (!command || command === "--help" || command === "-h" || flags.help || flags.h) {
     usage()
@@ -260,6 +261,7 @@ async function run() {
 
   const {
     SenseGrepTool,
+    SenseGrepContextTool,
     SenseGrepSurveyTool,
     SenseGrepClusterTool,
     Indexer,
@@ -276,6 +278,7 @@ async function run() {
 
   const rootDir = (flags.root as string | undefined) || process.cwd()
   applyEmbeddingOverrides(flags, Embeddings)
+  if (await runAnalysisCommand({ command, flags, positional, rootDir, core: await loadCore() })) return
 
   if (command === "index") {
     const full = flags.full === true
@@ -286,10 +289,28 @@ async function run() {
     const includeConfig = flags["include-config"] === true
     const humanLog = createHumanLogger({ json: flags.json === true })
     const indexRunOptions = createIndexRunOptions(flags)
+    indexRunOptions.resume = flags["no-resume"] !== true
 
     // Configure index options
     const { Indexer } = await loadCore()
     Indexer.setIndexOptions({ includeDocs, includeConfig })
+
+    if (flags["dry-run"] === true) {
+      const plan = await Instance.provide({
+        directory: rootDir,
+        fn: () => Indexer.planIndex({ ...indexRunOptions, full }),
+      })
+      if (flags.json) {
+        writeJson(plan)
+      } else {
+        writeStdoutLine(`Index plan (${plan.mode}): files=${plan.files} add=${plan.added.length} change=${plan.changed.length} remove=${plan.removed.length} unchanged=${plan.unchanged}`)
+        writeStdoutLine(`Embedding estimate: chunks=${plan.chunks} tokens~${plan.estimatedTokens} requests~${plan.estimatedRequests} batch=${plan.batchSize}`)
+        for (const file of plan.added) writeStdoutLine(`  + ${file}`)
+        for (const file of plan.changed) writeStdoutLine(`  ~ ${file}`)
+        for (const file of plan.removed) writeStdoutLine(`  - ${file}`)
+      }
+      return
+    }
 
     if (checkOnly) {
       const verify = await Instance.provide({
@@ -479,7 +500,7 @@ async function run() {
     return
   }
 
-  if (command === "search") {
+  if (command === "search" || command === "context" || command === "audit") {
     const query = getSearchQuery(flags, positional)
     if (!query) {
       writeStderrLine("Missing query")
@@ -488,7 +509,12 @@ async function run() {
       return
     }
 
-    const params = buildCommonSearchParams(query, flags, { rerank: false, shake: true })
+    const params = buildCommonSearchParams(query, flags, {
+      rerank: command === "context" || command === "audit",
+      shake: true,
+      ...(command === "context" || command === "audit" ? { maxTokens: 12_000 } : {}),
+      ...(command === "audit" ? { gitChanged: true } : {}),
+    })
     if (flags.exact !== undefined) params.exact = true
     assignNumberParam(params, flags, "maxPerFile", ["max-per-file", "maxPerFile"])
     assignNumberParam(params, flags, "maxPerSymbol", ["max-per-symbol", "maxPerSymbol"])
@@ -499,7 +525,13 @@ async function run() {
     if (flags["no-rerank"] !== undefined) params.rerank = false
 
     await ensureFreshIfRequested(flags, rootDir, Instance, Indexer)
-    await executeSearchLikeTool({ flags, rootDir, Instance, toolFactory: SenseGrepTool, params })
+    await executeSearchLikeTool({
+      flags,
+      rootDir,
+      Instance,
+      toolFactory: command === "context" || command === "audit" ? SenseGrepContextTool : SenseGrepTool,
+      params,
+    })
     return
   }
 
@@ -954,7 +986,7 @@ async function runSelftestCommand(
         directory: rootDir,
         fn: () =>
           tool.execute(
-            { query: "code search", limit: 1, rerank: false, shake: true },
+            { query: "code search", limit: 1, hybrid: true, rerank: false, shake: true },
             {
               sessionID: "cli-selftest",
               messageID: "cli-selftest",

@@ -22,5 +22,8 @@ describe("Tool.define", () => {
 
     await expect(tool.execute({} as never, context)).resolves.toMatchObject({ output: "3" })
     await expect(tool.execute({ count: "4" } as never, context)).resolves.toMatchObject({ output: "4" })
+
+    const initializedAgain = await definition.init()
+    await expect(initializedAgain.execute({ count: "5" } as never, context)).resolves.toMatchObject({ output: "5" })
   })
 })

@@ -1,5 +1,6 @@
 import z from "zod"
 import { Tool } from "./tool.js"
+import { CommonSearchShape } from "./search-schema.js"
 import {
   type CommonSensegrepParams,
   type SearchResources,
@@ -30,37 +31,12 @@ const DESCRIPTION = [
 ].join("\n")
 
 const commonSearchShape = {
+  ...CommonSearchShape,
   query: z.string().trim().min(1).describe("Natural language query to cluster into subthemes"),
-  pattern: z.string().optional().describe("Optional regex pattern to refine results"),
-  include: z.string().optional().describe("File glob include filter"),
-  exclude: z.string().optional().describe("File glob exclude filter"),
-  minScore: z.number().min(0).max(1).optional().describe("Minimum relevance score 0-1"),
-  symbol: z.string().optional().describe("Filter by symbol name"),
-  name: z.string().optional().describe('Alias for "symbol"'),
-  symbolType: z
-    .enum(["function", "class", "method", "type", "variable", "enum", "module"])
-    .optional()
-    .describe("Filter by semantic symbol type"),
-  variant: z.string().optional().describe("Filter by language-specific variant"),
-  decorator: z.string().optional().describe("Filter by decorator"),
-  isExported: z.boolean().optional().describe("Only exported/public symbols"),
-  isAsync: z.boolean().optional().describe("Only async functions/methods"),
-  isStatic: z.boolean().optional().describe("Only static methods"),
-  isAbstract: z.boolean().optional().describe("Only abstract classes/methods"),
-  minComplexity: z.number().optional().describe("Minimum cyclomatic complexity"),
-  maxComplexity: z.number().optional().describe("Maximum cyclomatic complexity"),
-  hasDocumentation: z.boolean().optional().describe("Require documentation"),
-  language: z.enum(["typescript", "javascript", "python", "java", "vue"]).optional().describe("Filter by language"),
-  parentScope: z.string().optional().describe("Filter by parent scope/class"),
-  imports: z.string().optional().describe("Filter by imported module name"),
-  semanticKind: z.string().optional().describe('Filter by framework-aware kind (e.g. "convexMutation", "reactComponent")'),
-  explainFilters: z.boolean().optional().describe("Include deterministic filter match explanations in JSON results"),
-  strictParent: z.boolean().optional().describe("Require strict parent metadata when filtering by parent"),
-  strictImports: z.boolean().optional().describe("Require strict import metadata when filtering by imports"),
   shake: z.boolean().default(true).describe("Enable tree-shaken representative snippets"),
 } as const
 
-const ClusterParametersSchema = z.object({
+export const ClusterParametersSchema = z.object({
   ...commonSearchShape,
   limit: z.number().int().positive().max(100).optional().describe("Maximum number of clusters to return (default: 5)"),
   rawLimit: z.number().int().positive().max(2000).optional().describe("Maximum raw matches to retrieve before clustering (default: 70)"),

@@ -1,14 +1,13 @@
-import z from "zod"
 import { readFileSync } from "node:fs"
 import { Tool } from "./tool.js"
 import { VectorStore } from "../semantic/lancedb.js"
 import { Instance } from "../project/instance.js"
 import { Embeddings } from "../semantic/embeddings.js"
 import { TreeShaker } from "../semantic/tree-shaker.js"
-import { Log } from "../util/log.js"
 import {
   annotateWorkingResults,
   canonicalizeProjectFilePath,
+  collectLexicalQueryResults,
   collectLiteralFallbackResults,
   collectRipgrepFallbackResults,
   createGlobMatcher,
@@ -17,19 +16,23 @@ import {
   expandFilePathVariants,
   expandImportFilterValues,
   formatFreshnessWarning,
+  fuseHybridResults,
   getFreshnessSummary,
   getScopedFilePath,
   matchesScopedGlob,
   prependFreshnessWarning,
   queryLooksLikeIdentifier,
+  rerankWorkingResults,
   runRipgrepOnFiles,
+  selectWithinTokenBudget,
   toStructuredSearchResult,
 } from "./sensegrep-pipeline.js"
 import { expandSemanticKindFilter } from "../semantic/language/index.js"
+import { SenseGrepParametersSchema } from "./search-schema.js"
+import { GitScope } from "../project/git.js"
+import { embeddingConfigFingerprint } from "../semantic/embedding-config.js"
 
 const DESCRIPTION = readFileSync(new URL("./sensegrep.txt", import.meta.url), "utf8")
-const log = Log.create({ service: "tool.sensegrep" })
-
 const MAX_LINE_LENGTH = 2000
 
 function queryLooksLikeSimpleIdentifier(query: string): boolean {
@@ -73,51 +76,7 @@ async function collectExactSymbolResults(
 
 export const SenseGrepTool = Tool.define("sensegrep", {
   description: DESCRIPTION,
-  parameters: z.object({
-    query: z.string().trim().min(1).describe("Natural language query to search for semantically similar code/content"),
-    pattern: z.string().optional().describe("Optional regex pattern for keyword matching (BM25-style)"),
-    limit: z.number().int().positive().max(500).optional().describe("Maximum number of results to return (default: 10)"),
-    maxPerFile: z.number().int().nonnegative().optional().describe("Maximum results per file (default: 2)"),
-    maxPerSymbol: z.number().int().nonnegative().optional().describe("Maximum results per symbol (default: 2)"),
-
-    include: z.string().optional().describe('File glob include filter (e.g. "*.ts", "src/**/*.tsx")'),
-    exclude: z.string().optional().describe('File glob exclude filter (e.g. "*.md", "docs/**")'),
-    rerank: z.boolean().default(false).describe("Compatibility flag. Remote-only mode does not perform reranking."),
-    minScore: z.number().min(0).max(1).optional().describe("Minimum relevance score 0-1 (filters low-confidence results)"),
-    symbol: z.string().optional().describe('Filter by symbol name (e.g. "VectorStore")'),
-    name: z.string().optional().describe('Alias for "symbol"'),
-    exact: z.boolean().optional().describe("Prefer exact symbol-name lookup for identifier queries"),
-
-
-    // Semantic metadata filters
-    symbolType: z
-      .enum(["function", "class", "method", "type", "variable", "enum", "module"])
-      .optional()
-      .describe('Filter by semantic symbol type (universal across languages)'),
-    variant: z
-      .string()
-      .optional()
-      .describe('Filter by symbol variant (e.g. "interface", "dataclass", "async", "static")'),
-    isExported: z.boolean().optional().describe("Filter for exported/public symbols only"),
-    isAsync: z.boolean().optional().describe("Filter for async functions/methods"),
-    isStatic: z.boolean().optional().describe("Filter for static methods"),
-    isAbstract: z.boolean().optional().describe("Filter for abstract classes/methods"),
-    decorator: z.string().optional().describe('Filter by decorator (e.g. "@property", "@dataclass")'),
-    minComplexity: z.number().nonnegative().optional().describe("Minimum cyclomatic complexity (e.g. 5 for moderately complex code)"),
-    maxComplexity: z.number().nonnegative().optional().describe("Maximum cyclomatic complexity"),
-    hasDocumentation: z.boolean().optional().describe("Filter for code with/without documentation"),
-    language: z
-      .enum(["typescript", "javascript", "python", "java", "vue"])
-      .optional()
-      .describe('Filter by programming language'),
-    parentScope: z.string().optional().describe('Filter by parent scope/class (e.g. "VectorStore")'),
-    imports: z.string().optional().describe('Filter by imported module name (e.g. "react")'),
-    semanticKind: z.string().optional().describe('Filter by framework-aware kind (e.g. "convexMutation", "reactComponent", "routeHandler")'),
-    explainFilters: z.boolean().optional().describe("Include deterministic filter match explanations in JSON results"),
-    strictParent: z.boolean().optional().describe("Require strict parent metadata when filtering by parent"),
-    strictImports: z.boolean().optional().describe("Require strict import metadata when filtering by imports"),
-    shake: z.boolean().default(true).describe("Enable semantic tree-shaking to show full file context with irrelevant regions collapsed (default: true)"),
-  }),
+  parameters: SenseGrepParametersSchema,
   async execute(params, ctx): Promise<Tool.Result<Record<string, unknown>>> {
     // Read index metadata first (before any embedding initialization)
     const resolved = await VectorStore.resolveIndexedProject(Instance.directory)
@@ -141,6 +100,17 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     }
 
     const run = async () => {
+    if (
+      meta.embeddings.configFingerprint &&
+      meta.embeddings.configFingerprint !== embeddingConfigFingerprint(Embeddings.getConfig())
+    ) {
+      return {
+        title: params.query,
+        metadata: { matches: 0, indexed: true, incompatibleEmbeddingConfig: true },
+        results: [],
+        output: "Embedding endpoint/configuration differs from the indexed vector space. Reindex this profile with `sensegrep index --full --no-watch`, or select the matching profile.",
+      }
+    }
     const startedAt = Date.now()
     const metrics: Record<string, number> = {}
     const warnings: string[] = []
@@ -242,11 +212,15 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     let excludeMatcher: ReturnType<typeof createGlobMatcher> | undefined
     if (params.include) includeMatcher = createGlobMatcher(params.include)
     if (params.exclude) excludeMatcher = createGlobMatcher(params.exclude)
+    const gitFiles = params.gitChanged
+      ? new Set(await GitScope.changedFiles(Instance.directory, { base: params.gitBase, signal: ctx.abort }))
+      : undefined
 
     let candidateFiles: string[] | undefined
-    if (includeMatcher || excludeMatcher || resolved.subdirPrefix) {
+    if (includeMatcher || excludeMatcher || resolved.subdirPrefix || gitFiles) {
       const indexedFiles = Object.keys(meta.files ?? {})
       candidateFiles = indexedFiles.filter((file) => {
+        if (gitFiles && !gitFiles.has(canonicalizeProjectFilePath(file))) return false
         if (getScopedFilePath(file, resolved.subdirPrefix) === undefined) return false
         if (!matchesScopedGlob(file, includeMatcher, resolved.subdirPrefix)) return false
         if (excludeMatcher && matchesScopedGlob(file, excludeMatcher, resolved.subdirPrefix)) return false
@@ -258,6 +232,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
           params.include ? `include="${params.include}"` : null,
           params.exclude ? `exclude="${params.exclude}"` : null,
           resolved.subdirPrefix ? `scope="${resolved.subdirPrefix}"` : null,
+          gitFiles ? "git-changed" : null,
         ]
           .filter(Boolean)
           .join(", ")
@@ -310,7 +285,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     }
     let literalFallbackResults: WorkingResult[] = []
     const lexicalCandidateFiles =
-      shouldRunLiteralFallback || params.pattern
+      params.hybrid !== false || shouldRunLiteralFallback || params.pattern
         ? candidateFiles ??
           Object.keys(meta.files ?? {}).filter((file) => {
             if (getScopedFilePath(file, resolved.subdirPrefix) === undefined) return false
@@ -334,6 +309,19 @@ export const SenseGrepTool = Tool.define("sensegrep", {
         whyMatched: result.whyMatched,
       }))
     }
+
+    const hybridLexicalStartedAt = Date.now()
+    const hybridLexicalResults = params.hybrid !== false && !params.pattern && params.exact !== true && !shouldRunLiteralFallback && !exactSymbolQuery
+      ? await collectLexicalQueryResults(params.query, lexicalCandidateFiles, collection, filters, {
+          signal: ctx.abort,
+          limit: searchOptions.limit,
+        }).catch((error) => {
+          if (ctx.abort.aborted) throw error
+          warnings.push(`Lexical retrieval unavailable; using semantic results only: ${error instanceof Error ? error.message : String(error)}`)
+          return []
+        })
+      : []
+    metrics.lexicalSearchMs = Date.now() - hybridLexicalStartedAt
 
     const useLexicalOnly =
       !params.pattern &&
@@ -433,30 +421,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     }))
 
     const fallbackResults = [...exactSymbolResults, ...literalFallbackResults, ...patternFallbackResults]
-    if (fallbackResults.length > 0) {
-      const merged = new Map<string, WorkingResult>()
-
-      for (const result of workingResults) {
-        const key = `${result.file}:${result.startLine}:${result.endLine}`
-        merged.set(key, result)
-      }
-
-      for (const result of fallbackResults) {
-        const key = `${result.file}:${result.startLine}:${result.endLine}`
-        const existing = merged.get(key)
-        if (existing) {
-          merged.set(key, {
-            ...existing,
-            semanticScore: Math.max(existing.semanticScore, result.semanticScore),
-            whyMatched: [...new Set([...(existing.whyMatched ?? []), ...(result.whyMatched ?? [])])],
-          })
-        } else {
-          merged.set(key, result)
-        }
-      }
-
-      workingResults = [...merged.values()]
-    }
+    workingResults = fuseHybridResults(workingResults, [...hybridLexicalResults, ...fallbackResults])
 
     workingResults = annotateWorkingResults(workingResults, {
       ...(params as any),
@@ -469,7 +434,9 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     // Optional rerank (cross-encoder) on top-N candidates
     let rankedResults = workingResults
     if (shouldRerank && workingResults.length > 1) {
-      log.warn("rerank requested but reranking is disabled in remote-only mode")
+      const rerankStartedAt = Date.now()
+      rankedResults = rerankWorkingResults(params.query, workingResults)
+      metrics.rerankMs = Date.now() - rerankStartedAt
     }
 
     const minScore = typeof params.minScore === "number" ? params.minScore : undefined
@@ -486,7 +453,10 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     const diversifiedResults = diversifyResults(dedupedResults, { maxPerFile, maxPerSymbol })
 
     // Take top results
-    const finalResults = diversifiedResults.slice(0, limit)
+    const limitedResults = diversifiedResults.slice(0, limit)
+    const budgeted = selectWithinTokenBudget(limitedResults, params.maxTokens)
+    const finalResults = budgeted.results
+    metrics.estimatedOutputTokens = budgeted.estimatedTokens
 
     if (finalResults.length === 0) {
       metrics.totalMs = Date.now() - startedAt

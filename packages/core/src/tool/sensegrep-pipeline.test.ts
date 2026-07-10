@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { annotateWorkingResults, getDominantSymbolPhrases } from "./sensegrep-pipeline.js"
+import {
+  annotateWorkingResults,
+  fuseHybridResults,
+  getDominantSymbolPhrases,
+  rerankWorkingResults,
+  selectWithinTokenBudget,
+} from "./sensegrep-pipeline.js"
 
 describe("sensegrep pipeline result metadata", () => {
   it("raises confidence for exact symbol matches even with weak embedding scores", () => {
@@ -61,5 +67,47 @@ describe("sensegrep pipeline result metadata", () => {
 
     expect(phrases).toContain("notification delivery model")
     expect(phrases).toContain("send email notification")
+  })
+})
+
+describe("hybrid retrieval ranking", () => {
+  const result = (file: string, score: number, content: string, symbolName?: string) => ({
+    file,
+    content,
+    startLine: 1,
+    endLine: 5,
+    semanticScore: score,
+    metadata: { symbolName, isExported: true },
+    whyMatched: ["semantic similarity"],
+  })
+
+  it("fuses semantic and lexical ranks without duplicating chunks", () => {
+    const shared = result("src/auth.ts", 0.7, "validate authentication token", "validateToken")
+    const fused = fuseHybridResults(
+      [shared, result("src/session.ts", 0.8, "session storage")],
+      [{ ...shared, semanticScore: 0.95, whyMatched: ["lexical retrieval: token"] }],
+    )
+
+    expect(fused).toHaveLength(2)
+    expect(fused[0].file).toBe("src/auth.ts")
+    expect(fused[0].whyMatched).toEqual(expect.arrayContaining(["semantic similarity", "lexical retrieval: token"]))
+  })
+
+  it("reranks with lexical and structural signals", () => {
+    const reranked = rerankWorkingResults("validate token", [
+      result("src/general.ts", 0.7, "generic helper"),
+      result("src/token.ts", 0.7, "validate token and reject invalid token", "validateToken"),
+    ])
+    expect(reranked[0].file).toBe("src/token.ts")
+    expect(reranked[0].rerankScore).toBeGreaterThan(reranked[1].rerankScore ?? 0)
+  })
+
+  it("selects the best results inside an output token budget", () => {
+    const selected = selectWithinTokenBudget([
+      result("a.ts", 0.9, "x".repeat(400)),
+      result("b.ts", 0.8, "y".repeat(400)),
+    ], 150)
+    expect(selected.results).toHaveLength(1)
+    expect(selected.estimatedTokens).toBeLessThanOrEqual(150)
   })
 })

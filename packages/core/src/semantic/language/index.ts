@@ -8,6 +8,8 @@
 // Types
 export type {
   LanguageSupport,
+  LanguageChunk,
+  BuiltinLanguage,
   ChunkMetadata,
   SemanticSymbolType,
   SymbolVariant,
@@ -21,6 +23,7 @@ export type {
 // Registry
 export {
   registerLanguage,
+  unregisterLanguage,
   getLanguageForFile,
   getLanguageById,
   getSupportedExtensions,
@@ -47,6 +50,7 @@ export {
   formatDetectedLanguages,
   type DetectedLanguage,
 } from "./autodetect.js"
+export { loadLanguagePlugins, clearLoadedLanguagePlugins } from "./plugin.js"
 
 // Language Implementations
 export { TypeScriptLanguage, JavaScriptLanguage, tsParser, tsxParser } from "./typescript.js"
@@ -62,10 +66,13 @@ import { TypeScriptLanguage, JavaScriptLanguage } from "./typescript.js"
 import { PythonLanguage } from "./python.js"
 import { JavaLanguage } from "./java.js"
 import { VueLanguage } from "./vue.js"
+import { chunk as chunkPython } from "./python.js"
+import { chunk as chunkJava } from "./java.js"
+import { chunk as chunkVue } from "./vue.js"
 
 // Register all built-in languages
 registerLanguage(TypeScriptLanguage)
 registerLanguage(JavaScriptLanguage)
-registerLanguage(PythonLanguage)
-registerLanguage(JavaLanguage)
-registerLanguage(VueLanguage)
+registerLanguage({ ...PythonLanguage, chunk: chunkPython })
+registerLanguage({ ...JavaLanguage, chunk: chunkJava })
+registerLanguage({ ...VueLanguage, chunk: chunkVue })

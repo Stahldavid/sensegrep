@@ -14,6 +14,8 @@ import type { SupportedLanguage } from "../semantic/language/types.js"
  * Configuration file schema (.sensegreprc.json or sensegrep.config.json)
  */
 export interface SensegrepConfig {
+  /** ESM package names or project-relative modules that register LanguageSupport implementations. */
+  languagePlugins?: string[]
   /**
    * Languages to use for indexing.
    * - Array of language IDs: ["typescript", "python"]

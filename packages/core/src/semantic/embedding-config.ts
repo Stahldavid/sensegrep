@@ -33,6 +33,17 @@ export type EmbeddingConfig = {
 
 export type EmbeddingOverrides = Partial<EmbeddingConfig>
 
+export function embeddingConfigFingerprint(config: EmbeddingConfig): string {
+  return JSON.stringify({
+    provider: config.provider,
+    model: config.embedModel,
+    dimension: config.embedDim,
+    baseUrl: config.baseUrl ?? "",
+    region: config.region ?? "",
+    maxInputTokens: config.maxInputTokens ?? null,
+  })
+}
+
 const DEFAULTS = {
   geminiModel: "gemini-embedding-001",
   geminiDim: 768,

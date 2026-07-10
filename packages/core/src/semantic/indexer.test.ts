@@ -11,6 +11,7 @@ const getCollectionUnsafe = vi.fn()
 const hasCollection = vi.fn()
 const deleteByFile = vi.fn()
 const embedDocuments = vi.fn()
+const embedDocumentsReusingFile = vi.fn()
 const addEmbeddedDocuments = vi.fn()
 const replaceFileDocuments = vi.fn()
 const updateDocuments = vi.fn()
@@ -20,6 +21,7 @@ const createStagingCollection = vi.fn()
 const dropCollectionTable = vi.fn()
 const cleanupInactiveTables = vi.fn()
 const clearProjectCache = vi.fn()
+const optimizeForSearch = vi.fn()
 const files = vi.fn()
 const getConfig = vi.fn()
 const extractRegions = vi.fn()
@@ -50,6 +52,7 @@ vi.mock("./lancedb.js", () => ({
     hasCollection,
     deleteByFile,
     embedDocuments,
+    embedDocumentsReusingFile,
     addEmbeddedDocuments,
     replaceFileDocuments,
     updateDocuments,
@@ -59,6 +62,7 @@ vi.mock("./lancedb.js", () => ({
     dropCollectionTable,
     cleanupInactiveTables,
     clearProjectCache,
+    optimizeForSearch,
   },
 }))
 
@@ -179,6 +183,10 @@ describe("Indexer incremental updates", () => {
         decorators: "",
       })),
     )
+    embedDocumentsReusingFile.mockImplementation(async (_collection, _file, documents) => {
+      const rows = await embedDocuments(documents)
+      return { rows, embedded: rows.length, reused: 0 }
+    })
   })
 
   afterEach(async () => {
@@ -193,10 +201,26 @@ describe("Indexer incremental updates", () => {
     expect(result.mode).toBe("incremental")
     expect(result.files).toBe(1)
     expect(updateDocuments).not.toHaveBeenCalled()
+    expect(embedDocumentsReusingFile).toHaveBeenCalledTimes(1)
     expect(embedDocuments).toHaveBeenCalledTimes(1)
     expect(replaceFileDocuments).toHaveBeenCalledWith({}, "src/a.ts", expect.any(Array))
     expect(writeIndexMeta).toHaveBeenCalledTimes(1)
     expect(writeIndexMeta.mock.calls[0][1].chunking).toEqual(testChunkingSignature)
+  })
+
+  it("plans embedding work without calling the provider or mutating the index", async () => {
+    const { Indexer } = await import("./indexer.js")
+
+    const plan = await Indexer.planIndex()
+
+    expect(plan.mode).toBe("incremental")
+    expect(plan.changed).toEqual(["src/a.ts"])
+    expect(plan.chunks).toBe(1)
+    expect(plan.estimatedTokens).toBeGreaterThan(0)
+    expect(embedDocuments).not.toHaveBeenCalled()
+    expect(embedDocumentsReusingFile).not.toHaveBeenCalled()
+    expect(replaceFileDocuments).not.toHaveBeenCalled()
+    expect(writeIndexMeta).not.toHaveBeenCalled()
   })
 
   it("updates collapsible regions during watched file updates", async () => {
@@ -215,6 +239,7 @@ describe("Indexer incremental updates", () => {
 
     await Indexer.updateFile("src/a.ts")
 
+    expect(embedDocumentsReusingFile).toHaveBeenCalledTimes(1)
     expect(embedDocuments).toHaveBeenCalledTimes(1)
     expect(replaceFileDocuments).toHaveBeenCalledWith({}, "src/a.ts", expect.any(Array))
     expect(writeIndexMeta).toHaveBeenCalledTimes(1)
@@ -230,6 +255,7 @@ describe("Indexer incremental updates", () => {
 
     expect(deleteByFile).toHaveBeenCalledWith({}, "src/a.ts")
     expect(embedDocuments).not.toHaveBeenCalled()
+    expect(embedDocumentsReusingFile).not.toHaveBeenCalled()
     expect(writeIndexMeta).toHaveBeenCalledTimes(1)
     expect(writeIndexMeta.mock.calls[0][1].files["src/a.ts"]).toBeUndefined()
   })
@@ -260,6 +286,7 @@ describe("Indexer incremental updates", () => {
 
     expect(deleteByFile).toHaveBeenCalledWith({}, "src/a.ts.map")
     expect(embedDocuments).not.toHaveBeenCalled()
+    expect(embedDocumentsReusingFile).not.toHaveBeenCalled()
     expect(getConfig).not.toHaveBeenCalled()
     expect(writeIndexMeta).toHaveBeenCalledTimes(1)
     expect(writeIndexMeta.mock.calls[0][1].files["src/a.ts.map"]).toBeUndefined()
@@ -301,7 +328,7 @@ describe("Indexer incremental updates", () => {
     addEmbeddedDocuments.mockRejectedValueOnce(new Error("disk full"))
     const { Indexer } = await import("./indexer.js")
 
-    await expect(Indexer.indexProject()).rejects.toThrow("disk full")
+    await expect(Indexer.indexProject({ resume: false })).rejects.toThrow("disk full")
 
     expect(deleteCollection).not.toHaveBeenCalled()
     expect(writeIndexMeta).not.toHaveBeenCalled()

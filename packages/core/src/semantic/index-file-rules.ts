@@ -1,4 +1,5 @@
 import path from "path"
+import { getLanguageForFile } from "./language/registry.js"
 
 export type IndexFileKind = "code" | "doc" | "config"
 
@@ -33,6 +34,7 @@ const INDEXABLE_EXTENSIONS = new Set([
 ])
 
 export function isIndexableFilePath(filePath: string): boolean {
+  if (getLanguageForFile(filePath)) return true
   const ext = path.extname(filePath).toLowerCase()
   return INDEXABLE_EXTENSIONS.has(ext)
 }

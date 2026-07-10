@@ -242,4 +242,14 @@ describe("embedding config", () => {
 
     expect(getEmbeddingOverrides()).toBeNull()
   })
+
+  it("fingerprints endpoint identity without including credentials", async () => {
+    const { embeddingConfigFingerprint } = await import("./embedding-config.js")
+    const base = { provider: "openai" as const, embedModel: "model", embedDim: 1024, baseUrl: "https://one.test/v1" }
+
+    expect(embeddingConfigFingerprint({ ...base, apiKey: "secret-a" }))
+      .toBe(embeddingConfigFingerprint({ ...base, apiKey: "secret-b" }))
+    expect(embeddingConfigFingerprint(base))
+      .not.toBe(embeddingConfigFingerprint({ ...base, baseUrl: "https://two.test/v1" }))
+  })
 })

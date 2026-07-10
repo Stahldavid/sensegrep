@@ -3,6 +3,7 @@ import path from "node:path"
 import { pathToFileURL } from "node:url"
 import fs from "node:fs"
 import picomatch from "picomatch"
+import { selectWorkspaceRoot } from "./workspace-roots"
 import {
   embeddingSecretKey,
   isCredentialProvider,
@@ -229,7 +230,7 @@ export class SensegrepCore {
   private context: vscode.ExtensionContext
   private rootDir: string
   private isInitialized = false
-  private watcherStop: (() => Promise<void>) | null = null
+  private watcherStops = new Map<string, () => Promise<void>>()
 
   constructor(context: vscode.ExtensionContext, rootDir: string) {
     this.context = context
@@ -237,14 +238,29 @@ export class SensegrepCore {
   }
 
   private resolveRootDir(): string {
-    const config = vscode.workspace.getConfiguration("sensegrep")
+    const activeFolder = vscode.window.activeTextEditor
+      ? vscode.workspace.getWorkspaceFolder(vscode.window.activeTextEditor.document.uri)
+      : undefined
+    const folders = vscode.workspace.workspaceFolders ?? []
+    const baseRoot = selectWorkspaceRoot(
+      folders.map((folder) => folder.uri.fsPath),
+      activeFolder?.uri.fsPath,
+      this.rootDir,
+    )
+    const workspaceFolder = folders.find((folder) => folder.uri.fsPath === baseRoot)
+    const config = vscode.workspace.getConfiguration("sensegrep", workspaceFolder?.uri)
     const override = config.get<string>("indexRoot")
     if (override && override.trim().length > 0) {
       return path.isAbsolute(override)
         ? override
-        : path.join(this.rootDir, override)
+        : path.join(baseRoot, override)
     }
-    return this.rootDir
+    return baseRoot
+  }
+
+  private workspaceRoots(): string[] {
+    const folders = vscode.workspace.workspaceFolders ?? []
+    return folders.length > 0 ? folders.map((folder) => folder.uri.fsPath) : [this.rootDir]
   }
 
   private async ensureInitialized() {
@@ -256,7 +272,10 @@ export class SensegrepCore {
   }
 
   private async applySettings() {
-    const config = vscode.workspace.getConfiguration("sensegrep")
+    const activeFolder = vscode.window.activeTextEditor
+      ? vscode.workspace.getWorkspaceFolder(vscode.window.activeTextEditor.document.uri)
+      : undefined
+    const config = vscode.workspace.getConfiguration("sensegrep", activeFolder?.uri)
 
     const explicitSetting = <T>(key: string): T | undefined => {
       const inspected = config.inspect<T>(key)
@@ -512,6 +531,7 @@ export class SensegrepCore {
           tool.execute(
             {
               query,
+              hybrid: true,
               limit: options?.limit ?? 20,
               pattern: options?.pattern,
               include: options?.include,
@@ -736,6 +756,31 @@ export class SensegrepCore {
     }
   }
 
+  async indexAllProjects(full: boolean = false): Promise<IndexResult[]> {
+    await this.ensureInitialized()
+    const { Indexer, Instance } = await loadCore()
+    return Promise.all(this.workspaceRoots().map(async (directory) => {
+      const folder = vscode.workspace.workspaceFolders?.find((entry) => entry.uri.fsPath === directory)
+      const config = vscode.workspace.getConfiguration("sensegrep", folder?.uri)
+      Indexer.setIndexOptions({
+        includeDocs: config.get<boolean>("includeDocs") ?? false,
+        includeConfig: config.get<boolean>("includeConfig") ?? false,
+      })
+      const result = await Instance.provide({
+        directory,
+        fn: () => full ? Indexer.indexProject() : Indexer.indexProjectIncremental(),
+      })
+      return {
+        mode: full ? "full" : "incremental",
+        files: result.files ?? 0,
+        chunks: result.chunks ?? 0,
+        skipped: (result as any).skipped,
+        removed: (result as any).removed,
+        duration: result.duration ?? 0,
+      }
+    }))
+  }
+
   async getStats(): Promise<IndexStats> {
     await this.ensureInitialized()
 
@@ -907,16 +952,16 @@ export class SensegrepCore {
     await this.ensureInitialized()
     const { IndexWatcher, Indexer } = await loadCore()
     this.applyIndexOptions(Indexer)
-    if (this.watcherStop) {
-      await this.watcherStop()
+    await this.stopIndexWatcher()
+    for (const rootDir of this.workspaceRoots()) {
+      const handle = await IndexWatcher.start({
+        rootDir,
+        intervalMs: options.intervalMs,
+        onIndex: options.onIndex as any,
+        onError: options.onError,
+      })
+      this.watcherStops.set(rootDir, handle.stop)
     }
-    const handle = await IndexWatcher.start({
-      rootDir: this.resolveRootDir(),
-      intervalMs: options.intervalMs,
-      onIndex: options.onIndex as any,
-      onError: options.onError,
-    })
-    this.watcherStop = handle.stop
   }
 
   async testEmbeddings(): Promise<{
@@ -1048,6 +1093,8 @@ export class SensegrepCore {
   private toThematicParams(query: string, options?: SearchOptions) {
     return {
       query,
+      hybrid: true,
+      rerank: options?.rerank ?? false,
       pattern: options?.pattern,
       limit: options?.limit,
       include: options?.include,
@@ -1095,7 +1142,10 @@ export class SensegrepCore {
   }
 
   private applyIndexOptions(Indexer: { setIndexOptions?: (options: { includeDocs?: boolean; includeConfig?: boolean }) => void }) {
-    const config = vscode.workspace.getConfiguration("sensegrep")
+    const activeFolder = vscode.window.activeTextEditor
+      ? vscode.workspace.getWorkspaceFolder(vscode.window.activeTextEditor.document.uri)
+      : undefined
+    const config = vscode.workspace.getConfiguration("sensegrep", activeFolder?.uri)
     Indexer.setIndexOptions?.({
       includeDocs: config.get<boolean>("includeDocs") ?? false,
       includeConfig: config.get<boolean>("includeConfig") ?? false,
@@ -1103,10 +1153,9 @@ export class SensegrepCore {
   }
 
   async stopIndexWatcher(): Promise<void> {
-    if (this.watcherStop) {
-      await this.watcherStop()
-      this.watcherStop = null
-    }
+    const stops = [...this.watcherStops.values()]
+    this.watcherStops.clear()
+    await Promise.all(stops.map((stop) => stop()))
   }
 
   getRootDir(): string {

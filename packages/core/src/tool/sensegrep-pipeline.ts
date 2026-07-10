@@ -4,6 +4,7 @@ import { once } from "node:events"
 import picomatch from "picomatch"
 import { VectorStore } from "../semantic/lancedb.js"
 import { Instance } from "../project/instance.js"
+import { GitScope } from "../project/git.js"
 import { Embeddings } from "../semantic/embeddings.js"
 import { Indexer } from "../semantic/indexer.js"
 import { Ripgrep } from "../file/ripgrep.js"
@@ -81,6 +82,11 @@ export type CommonSensegrepParams = {
   strictImports?: boolean
   shake?: boolean
   exact?: boolean
+  hybrid?: boolean
+  rerank?: boolean
+  maxTokens?: number
+  gitChanged?: boolean
+  gitBase?: string
 }
 
 type IndexMeta = NonNullable<Awaited<ReturnType<typeof VectorStore.readIndexMeta>>>
@@ -375,6 +381,8 @@ export async function runRipgrepOnFiles(
   options?: {
     caseSensitive?: boolean
     fixedStrings?: boolean
+    signal?: AbortSignal
+    maxMatches?: number
   },
 ): Promise<{ file: string; line: number; text: string }[]> {
   if (files.length === 0) return []
@@ -422,7 +430,10 @@ export async function runRipgrepOnFiles(
     const proc = spawn(rgPath, args, {
       cwd: Instance.directory,
       stdio: ["ignore", "pipe", "pipe"],
+      signal: options?.signal,
     })
+
+    const closePromise = once(proc, "close") as Promise<[number | null]>
 
     let output = ""
     let stderr = ""
@@ -433,7 +444,7 @@ export async function runRipgrepOnFiles(
       stderr += chunk.toString()
     })
 
-    const [code] = (await once(proc, "close")) as [number]
+    const [code] = await closePromise
     if (code && code !== 1) {
       throw new Error(`ripgrep failed with code ${code}: ${stderr}`)
     }
@@ -450,10 +461,156 @@ export async function runRipgrepOnFiles(
         line: parseInt(lineNum, 10),
         text: text.trim(),
       })
+      if (options?.maxMatches && matches.length >= options.maxMatches) return matches
     }
   }
 
   return matches
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+function lexicalRelevance(queryTokens: string[], result: Pick<WorkingResult, "content" | "file" | "metadata">): number {
+  if (queryTokens.length === 0) return 0
+  const content = result.content.toLowerCase()
+  const symbol = String(result.metadata.symbolName ?? "").toLowerCase()
+  const file = result.file.toLowerCase()
+  let covered = 0
+  let weightedFrequency = 0
+
+  for (const token of queryTokens) {
+    const occurrences = content.match(new RegExp(`\\b${escapeRegex(token)}\\b`, "gi"))?.length ?? 0
+    const symbolHit = symbol.includes(token) ? 1 : 0
+    const pathHit = file.includes(token) ? 1 : 0
+    if (occurrences > 0 || symbolHit || pathHit) covered++
+    weightedFrequency += Math.min(occurrences, 4) + symbolHit * 3 + pathHit
+  }
+
+  const coverage = covered / queryTokens.length
+  const density = Math.min(1, weightedFrequency / Math.max(3, queryTokens.length * 3))
+  return Math.min(1, coverage * 0.7 + density * 0.3)
+}
+
+export async function collectLexicalQueryResults(
+  query: string,
+  files: string[],
+  collection: Awaited<ReturnType<typeof VectorStore.getCollectionUnsafe>>,
+  filters: VectorStore.SearchFilters,
+  options: { signal?: AbortSignal; limit?: number } = {},
+): Promise<WorkingResult[]> {
+  const tokens = getQueryTokens(query).filter((token) => token.length >= 2).slice(0, 12)
+  if (tokens.length === 0 || files.length === 0) return []
+  const matches = await runRipgrepOnFiles(tokens.map(escapeRegex).join("|"), files, {
+    signal: options.signal,
+    maxMatches: Math.max(100, (options.limit ?? 50) * 20),
+  })
+  const byFile = new Map<string, number[]>()
+  for (const match of matches) {
+    const file = canonicalizeProjectFilePath(match.file)
+    const lines = byFile.get(file) ?? []
+    lines.push(match.line)
+    byFile.set(file, lines)
+  }
+
+  const found = new Map<string, WorkingResult>()
+  for (const [file, lines] of byFile) {
+    const documents = await VectorStore.listDocuments(collection, {
+      filters: buildFiltersWithFileVariants(filters, file),
+    })
+    for (const line of lines) {
+      const selected = pickBestLiteralDocument(documents, line)
+      if (!selected) continue
+      const key = `${selected.metadata.file}:${selected.metadata.startLine}:${selected.metadata.endLine}`
+      if (found.has(key)) continue
+      const candidate: WorkingResult = {
+        id: selected.id,
+        file: String(selected.metadata.file),
+        content: selected.content,
+        startLine: Number(selected.metadata.startLine),
+        endLine: Number(selected.metadata.endLine),
+        semanticScore: 0,
+        metadata: selected.metadata,
+      }
+      candidate.semanticScore = lexicalRelevance(tokens, candidate)
+      const matchedTokens = tokens.filter((token) => candidate.content.toLowerCase().includes(token))
+      candidate.whyMatched = [`lexical retrieval: ${matchedTokens.join(", ")}`]
+      found.set(key, candidate)
+    }
+  }
+  return [...found.values()].sort((a, b) => b.semanticScore - a.semanticScore).slice(0, options.limit ?? 50)
+}
+
+export function fuseHybridResults(semantic: WorkingResult[], lexical: WorkingResult[]): WorkingResult[] {
+  const keyOf = (result: WorkingResult) => `${result.file}:${result.startLine}:${result.endLine}`
+  const semanticRank = new Map(semantic.map((result, index) => [keyOf(result), index + 1]))
+  const lexicalRank = new Map(lexical.map((result, index) => [keyOf(result), index + 1]))
+  const merged = new Map<string, WorkingResult>()
+  for (const result of [...semantic, ...lexical]) {
+    const key = keyOf(result)
+    const existing = merged.get(key)
+    merged.set(key, existing ? {
+      ...existing,
+      id: existing.id ?? result.id,
+      semanticScore: Math.max(existing.semanticScore, result.semanticScore),
+      whyMatched: [...new Set([...(existing.whyMatched ?? []), ...(result.whyMatched ?? [])])],
+    } : result)
+  }
+
+  const k = 60
+  const maxRrf = 2 / (k + 1)
+  return [...merged.entries()].map(([key, result]) => {
+    const semanticPosition = semanticRank.get(key)
+    const lexicalPosition = lexicalRank.get(key)
+    const rrf = (
+      (semanticPosition ? 1 / (k + semanticPosition) : 0) +
+      (lexicalPosition ? 1 / (k + lexicalPosition) : 0)
+    ) / maxRrf
+    const score = result.semanticScore > 1
+      ? result.semanticScore
+      : Math.min(1, result.semanticScore * 0.65 + rrf * 0.35)
+    return { ...result, semanticScore: score }
+  }).sort((a, b) => b.semanticScore - a.semanticScore)
+}
+
+export function rerankWorkingResults(query: string, results: WorkingResult[]): WorkingResult[] {
+  const tokens = getQueryTokens(query)
+  return results.map((result) => {
+    if (result.semanticScore > 1) return { ...result, rerankScore: result.semanticScore }
+    const lexical = lexicalRelevance(tokens, result)
+    const symbol = String(result.metadata.symbolName ?? "").toLowerCase()
+    const exactSymbol = tokens.some((token) => symbol === token) ? 1 : 0
+    const exported = result.metadata.isExported === true ? 1 : 0
+    const structural = exactSymbol * 0.7 + exported * 0.3
+    const rerankScore = Math.min(1, result.semanticScore * 0.72 + lexical * 0.2 + structural * 0.08)
+    return {
+      ...result,
+      rerankScore,
+      whyMatched: [...new Set([...(result.whyMatched ?? []), `reranked: lexical=${lexical.toFixed(2)} structural=${structural.toFixed(2)}`])],
+    }
+  }).sort((a, b) => (b.rerankScore ?? b.semanticScore) - (a.rerankScore ?? a.semanticScore))
+}
+
+export function estimateResultTokens(result: Pick<WorkingResult, "content" | "file" | "metadata">): number {
+  const metadataOverhead = result.file.length + String(result.metadata.symbolName ?? "").length + 80
+  return Math.max(1, Math.ceil((result.content.length + metadataOverhead) / 4))
+}
+
+export function selectWithinTokenBudget(results: WorkingResult[], maxTokens?: number): { results: WorkingResult[]; estimatedTokens: number } {
+  if (!maxTokens) {
+    return { results, estimatedTokens: results.reduce((sum, result) => sum + estimateResultTokens(result), 0) }
+  }
+  const selected: WorkingResult[] = []
+  let estimatedTokens = 0
+  for (const result of results) {
+    const tokens = estimateResultTokens(result)
+    if (selected.length > 0 && estimatedTokens + tokens > maxTokens) continue
+    selected.push(result)
+    estimatedTokens += tokens
+    if (estimatedTokens >= maxTokens) break
+  }
+  return { results: selected, estimatedTokens }
 }
 
 function buildSearchFilters(params: CommonSensegrepParams): VectorStore.SearchFilters {
@@ -550,18 +707,20 @@ function resolveFileFiltering(
   params: CommonSensegrepParams,
   filters: VectorStore.SearchFilters,
   subdirPrefix?: string,
+  gitFiles?: Set<string>,
 ): FileFilterContext | ToolLikeResult {
   let includeMatcher: ReturnType<typeof createGlobMatcher> | undefined
   let excludeMatcher: ReturnType<typeof createGlobMatcher> | undefined
   if (params.include) includeMatcher = createGlobMatcher(params.include)
   if (params.exclude) excludeMatcher = createGlobMatcher(params.exclude)
 
-  if (!includeMatcher && !excludeMatcher && !subdirPrefix) {
+  if (!includeMatcher && !excludeMatcher && !subdirPrefix && !gitFiles) {
     return { includeMatcher, excludeMatcher }
   }
 
   const indexedFiles = Object.keys(meta.files ?? {})
   const candidateFiles = indexedFiles.filter((file) => {
+    if (gitFiles && !gitFiles.has(canonicalizeProjectFilePath(file))) return false
     if (getScopedFilePath(file, subdirPrefix) === undefined) return false
     if (!matchesScopedGlob(file, includeMatcher, subdirPrefix)) return false
     if (excludeMatcher && matchesScopedGlob(file, excludeMatcher, subdirPrefix)) return false
@@ -573,6 +732,7 @@ function resolveFileFiltering(
       params.include ? `include="${params.include}"` : null,
       params.exclude ? `exclude="${params.exclude}"` : null,
       subdirPrefix ? `scope="${subdirPrefix}"` : null,
+      gitFiles ? "git-changed" : null,
     ]
       .filter(Boolean)
       .join(", ")
@@ -823,7 +983,10 @@ export async function collectWorkingResults(
   options: CollectWorkingResultsOptions,
 ): Promise<{ results: WorkingResult[]; filters: VectorStore.SearchFilters; candidateFiles?: string[] } | ToolLikeResult> {
   const filters = buildSearchFilters(params)
-  const fileFiltering = resolveFileFiltering(resources.meta, params, filters, resources.subdirPrefix)
+  const gitFiles = params.gitChanged
+    ? new Set(await GitScope.changedFiles(Instance.directory, { base: params.gitBase, signal: options.signal }))
+    : undefined
+  const fileFiltering = resolveFileFiltering(resources.meta, params, filters, resources.subdirPrefix, gitFiles)
   if ("output" in fileFiltering) return fileFiltering
 
   const searchOptions: { limit: number; filters?: VectorStore.SearchFilters } = {
@@ -836,7 +999,7 @@ export async function collectWorkingResults(
   const shouldRunLiteralFallback = !params.pattern && queryLooksLikeIdentifier(params.query)
   let literalFallbackResults: WorkingResult[] = []
   const lexicalCandidateFiles =
-    shouldRunLiteralFallback || params.pattern
+    params.hybrid !== false || shouldRunLiteralFallback || params.pattern
       ? fileFiltering.candidateFiles ??
         Object.keys(resources.meta.files ?? {}).filter((file) => {
           if (getScopedFilePath(file, resources.subdirPrefix) === undefined) return false
@@ -854,6 +1017,19 @@ export async function collectWorkingResults(
       filters,
     )
   }
+
+  const hybridLexicalResults = params.hybrid !== false && !params.pattern && params.exact !== true && !shouldRunLiteralFallback
+    ? await collectLexicalQueryResults(
+        params.query,
+        lexicalCandidateFiles,
+        resources.collection,
+        filters,
+        { signal: options.signal, limit: options.rawLimit },
+      ).catch((error) => {
+        if (options.signal?.aborted) throw error
+        return []
+      })
+    : []
 
   let semanticResults: Awaited<ReturnType<typeof VectorStore.search>> = []
   if (!(params.exact === true && literalFallbackResults.length > 0)) {
@@ -912,30 +1088,11 @@ export async function collectWorkingResults(
   }))
 
   const fallbackResults = [...literalFallbackResults, ...patternFallbackResults]
-  if (fallbackResults.length > 0) {
-    const merged = new Map<string, WorkingResult>()
-    for (const result of workingResults) {
-      merged.set(`${result.file}:${result.startLine}:${result.endLine}`, result)
-    }
-    for (const result of fallbackResults) {
-      const key = `${result.file}:${result.startLine}:${result.endLine}`
-      const existing = merged.get(key)
-      if (existing) {
-        merged.set(key, {
-          ...existing,
-          id: existing.id ?? result.id,
-          semanticScore: Math.max(existing.semanticScore, result.semanticScore),
-          whyMatched: [...new Set([...(existing.whyMatched ?? []), ...(result.whyMatched ?? [])])],
-        })
-      } else {
-        merged.set(key, result)
-      }
-    }
-    workingResults = [...merged.values()]
-  }
+  workingResults = fuseHybridResults(workingResults, [...hybridLexicalResults, ...fallbackResults])
 
   workingResults = annotateWorkingResults(workingResults, params)
-  workingResults.sort((a, b) => b.semanticScore - a.semanticScore)
+  workingResults = params.rerank ? rerankWorkingResults(params.query, workingResults) : workingResults
+  workingResults.sort((a, b) => (b.rerankScore ?? b.semanticScore) - (a.rerankScore ?? a.semanticScore))
 
   const minScore = typeof params.minScore === "number" ? params.minScore : undefined
   if (minScore !== undefined) {

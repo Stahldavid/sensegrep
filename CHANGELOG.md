@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 ## Unreleased
 
 ### Changed
+- Added hybrid lexical/vector fusion, deterministic reranking, token-budgeted context packs, and Git-changed audit scope.
+- Added resumable full indexing, chunk-vector reuse, dry-run estimates, provider benchmarks, named profiles, and automatic large-index ANN optimization.
+- Added local symbol references/impact/trace analysis, extensible language plugins, and VS Code multi-root indexing/watchers.
 - Isolated project roots and embedding overrides per asynchronous operation.
 - Added project-keyed indexing locks, abortable embedding requests, typed HTTP retries, and validated staged index activation.
 - Reduced indexing memory pressure and reused TypeScript/JavaScript AST analysis for chunks and collapsible regions.
@@ -12,6 +15,8 @@ All notable changes to this project will be documented in this file.
 - Raised the minimum runtime to Node.js 20 so supported dependencies remain security-maintained.
 
 ### Fixed
+- Hybrid search now degrades to semantic-only retrieval when optional ripgrep execution is unavailable.
+- Tool initialization is idempotent, profile caches are isolated, and interrupted staging no longer loses completed embedding work.
 - Prevented concurrent MCP/VS Code operations from leaking roots or embedding models into one another.
 - Preserved the active index when full staging or incremental file replacement fails.
 - Restored explicit Ollama selection in the VS Code settings panel.

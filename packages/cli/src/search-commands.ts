@@ -85,6 +85,11 @@ export function buildCommonSearchParams(query: string, flags: Flags, defaults: O
   assignStringParam(params, flags, "symbol", ["symbol", "name"])
   if (flags["no-shake"] !== undefined) params.shake = false
   assignNumberParam(params, flags, "minScore", ["min-score", "minScore"])
+  assignNumberParam(params, flags, "maxTokens", ["max-tokens", "maxTokens"])
+  if (flags.hybrid !== undefined) params.hybrid = toBool(flags.hybrid) ?? true
+  if (flags["no-hybrid"] !== undefined) params.hybrid = false
+  if (flags.changed !== undefined) params.gitChanged = true
+  assignStringParam(params, flags, "gitBase", ["base"])
 
   return params
 }

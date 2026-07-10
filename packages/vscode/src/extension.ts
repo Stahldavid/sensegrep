@@ -126,12 +126,14 @@ export async function activate(context: vscode.ExtensionContext) {
   if (config.get("autoIndex")) {
     statusBar.setIndexing()
     coreInstance
-      .indexProject(false)
-      .then((result) => {
-        statusBar.setIndexed(result.chunks)
-        output.info(`Indexed ${result.files} files (${result.chunks} chunks)`)
-        if (result.chunks > 0) {
-          vscode.window.showInformationMessage(`Sensegrep: Indexed ${result.files} files (${result.chunks} chunks)`)
+      .indexAllProjects(false)
+      .then((results) => {
+        const files = results.reduce((total, result) => total + result.files, 0)
+        const chunks = results.reduce((total, result) => total + result.chunks, 0)
+        statusBar.setIndexed(chunks)
+        output.info(`Indexed ${files} files (${chunks} chunks) across ${results.length} workspace folders`)
+        if (chunks > 0) {
+          vscode.window.showInformationMessage(`Sensegrep: Indexed ${files} files (${chunks} chunks) across ${results.length} folders`)
         }
       })
       .catch((err) => {
@@ -256,6 +258,13 @@ export async function activate(context: vscode.ExtensionContext) {
           .get<boolean>("watchMode")
         void updateWatcher(enabled ?? false)
       }
+    })
+  )
+
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      const enabled = vscode.workspace.getConfiguration("sensegrep").get<boolean>("watchMode") ?? false
+      void updateWatcher(enabled)
     })
   )
 

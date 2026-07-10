@@ -1,5 +1,16 @@
 # @sensegrep/cli
 
+## 1.8.0
+
+### Minor Changes
+
+- Add hybrid retrieval and reranking, token-budgeted context, Git audit scope, resumable and reusable indexing, embedding benchmarks, named profiles, code graph analysis, language plugins, and large-index ANN optimization.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @sensegrep/core@1.8.0
+
 ## 1.7.6
 
 ### Patch Changes

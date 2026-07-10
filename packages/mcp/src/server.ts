@@ -8,10 +8,11 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { DuplicateToolArgsSchema, IndexToolArgsSchema, toInputSchema } from "./tool-inputs.js";
+import { DuplicateToolArgsSchema, GraphToolArgsSchema, IndexToolArgsSchema, toInputSchema, toRootedInputSchema } from "./tool-inputs.js";
 
 let corePromise: Promise<any> | null = null;
 let searchToolPromise: Promise<any> | null = null;
+let contextToolPromise: Promise<any> | null = null;
 let surveyToolPromise: Promise<any> | null = null;
 let clusterToolPromise: Promise<any> | null = null;
 let cachedTools: Tool[] | null = null;
@@ -21,10 +22,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const TOOL_NAMES = {
   search: "sensegrep_search",
+  context: "sensegrep_context",
   survey: "sensegrep_survey",
   cluster: "sensegrep_cluster",
   detectDuplicates: "sensegrep_detect_duplicates",
   index: "sensegrep_index",
+  graph: "sensegrep_graph",
 } as const;
 
 function matchesToolName(name: string, canonical: string, ...legacy: string[]): boolean {
@@ -58,6 +61,13 @@ async function loadTool() {
   const core = await loadCore();
   if (!searchToolPromise) searchToolPromise = core.SenseGrepTool.init();
   const tool = await searchToolPromise;
+  return { core, tool };
+}
+
+async function loadContextTool() {
+  const core = await loadCore();
+  if (!contextToolPromise) contextToolPromise = core.SenseGrepContextTool.init();
+  const tool = await contextToolPromise;
   return { core, tool };
 }
 
@@ -338,7 +348,21 @@ async function generateTools(): Promise<Tool[]> {
       description: "Create/update semantic index or fetch index stats for the given root directory.",
       inputSchema: toInputSchema(IndexToolArgsSchema) as Tool["inputSchema"],
     },
+    {
+      name: TOOL_NAMES.graph,
+      description: "Find symbol references, calculate transitive change impact, or trace a reference path.",
+      inputSchema: toInputSchema(GraphToolArgsSchema) as Tool["inputSchema"],
+    },
   ];
+
+  cachedTools[0].inputSchema = toRootedInputSchema(core.SenseGrepParametersSchema) as Tool["inputSchema"];
+  cachedTools[1].inputSchema = toRootedInputSchema(core.SurveyParametersSchema) as Tool["inputSchema"];
+  cachedTools[2].inputSchema = toRootedInputSchema(core.ClusterParametersSchema) as Tool["inputSchema"];
+  cachedTools.splice(1, 0, {
+    name: TOOL_NAMES.context,
+    description: "Build a diversified, tree-shaken context pack constrained by a token budget.",
+    inputSchema: toRootedInputSchema(core.SenseGrepContextParametersSchema) as Tool["inputSchema"],
+  });
 
   return cachedTools;
 }
@@ -346,7 +370,7 @@ async function generateTools(): Promise<Tool[]> {
 const server = new Server(
   {
     name: "sensegrep",
-    version: "1.7.6",
+    version: "1.8.0",
   },
   {
     capabilities: {
@@ -368,15 +392,35 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
     typeof rootDirArg === "string" && rootDirArg.length > 0
       ? rootDirArg
       : process.env.SENSEGREP_ROOT || process.cwd();
+  const profile = typeof args.profile === "string" ? args.profile : undefined;
 
   try {
+    if (matchesToolName(name, TOOL_NAMES.context, "sensegrep.context")) {
+      const { core, tool } = await loadContextTool();
+      const { rootDir: _root, profile: _profile, ...toolArgs } = args as any;
+      const { Instance } = core;
+      const res = await Instance.provide({
+        directory: rootDir,
+        profile,
+        fn: () => tool.execute(toolArgs, {
+          sessionID: "mcp",
+          messageID: "mcp",
+          agent: "sensegrep-mcp",
+          abort: requestContext.signal,
+          metadata(_input: unknown) {},
+        }),
+      });
+      return { content: [{ type: "text", text: res.output }], structuredContent: res };
+    }
+
     if (matchesToolName(name, TOOL_NAMES.search, "sensegrep.search")) {
       const { core, tool } = await loadTool();
-      const { rootDir: _root, ...toolArgs } = args as any;
+      const { rootDir: _root, profile: _profile, ...toolArgs } = args as any;
       const { Instance } = core;
       // Search tool now reads embeddings config from index automatically
       const res = await Instance.provide({
         directory: rootDir,
+        profile,
         fn: () =>
           tool.execute(toolArgs, {
             sessionID: "mcp",
@@ -397,10 +441,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
 
     if (matchesToolName(name, TOOL_NAMES.survey, "sensegrep.survey")) {
       const { core, tool } = await loadSurveyTool();
-      const { rootDir: _root, ...toolArgs } = args as any;
+      const { rootDir: _root, profile: _profile, ...toolArgs } = args as any;
       const { Instance } = core;
       const res = await Instance.provide({
         directory: rootDir,
+        profile,
         fn: () =>
           tool.execute(toolArgs, {
             sessionID: "mcp",
@@ -421,10 +466,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
 
     if (matchesToolName(name, TOOL_NAMES.cluster, "sensegrep.cluster")) {
       const { core, tool } = await loadClusterTool();
-      const { rootDir: _root, ...toolArgs } = args as any;
+      const { rootDir: _root, profile: _profile, ...toolArgs } = args as any;
       const { Instance } = core;
       const res = await Instance.provide({
         directory: rootDir,
+        profile,
         fn: () =>
           tool.execute(toolArgs, {
             sessionID: "mcp",
@@ -456,6 +502,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
       if (action === "stats") {
         const stats = await Instance.provide({
           directory: rootDir,
+          profile,
           fn: () => Indexer.getStats(),
         });
         return {
@@ -468,16 +515,30 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
         };
       }
 
+      if (action === "plan") {
+        const plan = await Instance.provide({
+          directory: rootDir,
+          profile,
+          fn: () => Indexer.planIndex({ full: indexArgs.mode === "full", signal: requestContext.signal }),
+        });
+        return {
+          content: [{ type: "text", text: JSON.stringify(plan, null, 2) }],
+          structuredContent: { action: "plan", rootDir, plan },
+        };
+      }
+
       const mode = indexArgs.mode;
       const full = mode === "full";
       const result = (await Instance.provide({
         directory: rootDir,
+        profile,
         fn: () => (full
           ? Indexer.indexProject({ signal: requestContext.signal })
           : Indexer.indexProjectIncremental({ signal: requestContext.signal })),
       })) as any;
       const stats = await Instance.provide({
         directory: rootDir,
+        profile,
         fn: () => Indexer.getStats(),
       });
       const files = result.files ?? 0;
@@ -499,6 +560,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
           stats,
           summary: text,
         },
+      };
+    }
+
+    if (matchesToolName(name, TOOL_NAMES.graph, "sensegrep.graph")) {
+      const { CodeGraph, Instance } = await loadCore();
+      const graphArgs = GraphToolArgsSchema.parse(args);
+      const result = await Instance.provide({
+        directory: rootDir,
+        profile,
+        fn: () => graphArgs.action === "references"
+          ? CodeGraph.findReferences(graphArgs.symbol!, graphArgs)
+          : graphArgs.action === "impact"
+            ? CodeGraph.impact(graphArgs.symbol!, graphArgs)
+            : CodeGraph.trace(graphArgs.from!, graphArgs.to!, graphArgs),
+      });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        structuredContent: { action: graphArgs.action, rootDir, result },
       };
     }
 
@@ -564,6 +643,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
 
       const result = await Instance.provide({
         directory: rootDir,
+        profile,
         fn: () => DuplicateDetector.detect(options),
       });
 

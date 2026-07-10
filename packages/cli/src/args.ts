@@ -26,7 +26,7 @@ export function parseArgs(argv: string[]): { flags: Flags; positional: string[] 
   return { flags, positional }
 }
 
-const GLOBAL_FLAGS = new Set(["help", "h", "root", "json", "log-format"])
+const GLOBAL_FLAGS = new Set(["help", "h", "root", "profile", "json", "log-format"])
 const EMBEDDING_FLAGS = new Set(["provider", "embed-model", "embedModel", "embed-dim", "embedDim"])
 const INDEX_RUN_FLAGS = new Set(["timeout", "max-files", "maxFiles", "verbose"])
 const SEARCH_FILTER_FLAGS = new Set([
@@ -36,17 +36,19 @@ const SEARCH_FILTER_FLAGS = new Set([
   "maxPerFile", "max-per-symbol", "maxPerSymbol", "has-docs", "hasDocs", "language", "parent",
   "parentScope", "imports", "rerank", "no-rerank", "semantic-kind", "semanticKind", "explain-filters",
   "explainFilters", "strict-parent", "strictParent", "strict-imports", "strictImports", "ensure-fresh",
-  "ensureFresh", "no-shake",
+  "ensureFresh", "no-shake", "hybrid", "no-hybrid", "max-tokens", "maxTokens", "changed", "base",
 ])
 
 const ALLOWED_FLAGS_BY_COMMAND: Record<string, Set<string>> = {
   index: new Set([
     ...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, "full", "incremental", "verify", "check",
-    "watch", "no-watch", "include-docs", "include-config", "max-changed", "max-missing", "max-removed",
+    "watch", "no-watch", "include-docs", "include-config", "max-changed", "max-missing", "max-removed", "dry-run", "resume", "no-resume",
   ]),
   verify: new Set([...GLOBAL_FLAGS, "strict"]),
   status: new Set([...GLOBAL_FLAGS, "verbose", "verify"]),
   search: new Set([...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, ...SEARCH_FILTER_FLAGS]),
+  context: new Set([...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, ...SEARCH_FILTER_FLAGS]),
+  audit: new Set([...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, ...SEARCH_FILTER_FLAGS]),
   survey: new Set([
     ...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, ...SEARCH_FILTER_FLAGS,
     "raw-limit", "rawLimit", "per-group", "perGroup",
@@ -66,6 +68,11 @@ const ALLOWED_FLAGS_BY_COMMAND: Record<string, Set<string>> = {
   languages: new Set([...GLOBAL_FLAGS, "detect", "variants"]),
   "semantic-kinds": new Set(GLOBAL_FLAGS),
   selftest: new Set([...GLOBAL_FLAGS, "strict", "deep"]),
+  benchmark: new Set([...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, "concurrency", "samples", "repeats"]),
+  references: new Set([...GLOBAL_FLAGS, "limit", "max-documents"]),
+  impact: new Set([...GLOBAL_FLAGS, "limit", "depth", "max-documents"]),
+  trace: new Set([...GLOBAL_FLAGS, "depth", "max-documents"]),
+  profiles: new Set(GLOBAL_FLAGS),
 }
 
 export function validateKnownFlags(command: string, flags: Flags): string | undefined {

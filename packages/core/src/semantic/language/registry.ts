@@ -23,12 +23,36 @@ const languageByExtension = new Map<string, LanguageSupport>()
  * Register a language support implementation.
  * This should be called once per language during module initialization.
  */
-export function registerLanguage(language: LanguageSupport): void {
+export function registerLanguage(language: LanguageSupport, options: { replace?: boolean } = {}): () => void {
+  if (!/^[a-z][a-z0-9_-]*$/i.test(language.id)) throw new Error(`Invalid language id: ${language.id}`)
+  if (language.extensions.length === 0) throw new Error(`Language ${language.id} must declare at least one extension.`)
+  const existing = languageById.get(language.id)
+  if (existing && existing !== language && !options.replace) {
+    throw new Error(`Language ${language.id} is already registered.`)
+  }
+  if (existing) unregisterLanguage(language.id)
   languageById.set(language.id, language)
 
   for (const ext of language.extensions) {
-    languageByExtension.set(ext.toLowerCase(), language)
+    const normalized = ext.startsWith(".") ? ext.toLowerCase() : `.${ext.toLowerCase()}`
+    const owner = languageByExtension.get(normalized)
+    if (owner && owner.id !== language.id && !options.replace) {
+      languageById.delete(language.id)
+      throw new Error(`Extension ${normalized} is already registered by ${owner.id}.`)
+    }
+    languageByExtension.set(normalized, language)
   }
+  return () => unregisterLanguage(language.id)
+}
+
+export function unregisterLanguage(id: SupportedLanguage): boolean {
+  const language = languageById.get(id)
+  if (!language) return false
+  languageById.delete(id)
+  for (const [extension, owner] of languageByExtension) {
+    if (owner.id === id) languageByExtension.delete(extension)
+  }
+  return true
 }
 
 // ============================================================================

@@ -8,6 +8,7 @@ import z from "zod"
 import { Log } from "../util/log.js"
 import { Global } from "../global/index.js"
 import { Embeddings } from "./embeddings.js"
+import { Instance } from "../project/instance.js"
 
 const log = Log.create({ service: "semantic.lancedb" })
 
@@ -33,6 +34,7 @@ export namespace VectorStore {
   export type IndexMeta = {
     version: number
     root: string
+    profile?: string
     tableName?: string
     embeddings: {
       provider: string
@@ -40,6 +42,7 @@ export namespace VectorStore {
       dimension: number
       device?: string
       distanceMetric?: DistanceMetric
+      configFingerprint?: string
     }
     chunking?: {
       version: number
@@ -79,6 +82,7 @@ export namespace VectorStore {
   const IndexMetaSchema = z.object({
     version: z.number(),
     root: z.string().min(1),
+    profile: z.string().min(1).optional(),
     tableName: z.string().min(1).optional(),
     embeddings: z.object({
       provider: z.string().min(1),
@@ -86,6 +90,7 @@ export namespace VectorStore {
       dimension: z.number().int().positive(),
       device: z.string().optional(),
       distanceMetric: z.enum(["cosine", "l2", "dot"]).optional(),
+      configFingerprint: z.string().optional(),
     }),
     chunking: z.object({
       version: z.number(),
@@ -156,8 +161,11 @@ export namespace VectorStore {
   }
 
   function projectDir(projectPath: string): string {
-    const current = path.join(BASE_PATH, `project_${getProjectHash(projectPath)}`)
+    const profile = Instance.profile
+    const suffix = profile === "default" ? "" : `_${crypto.createHash("sha256").update(profile).digest("hex").slice(0, 12)}`
+    const current = path.join(BASE_PATH, `project_${getProjectHash(projectPath)}${suffix}`)
     if (existsSync(current)) return current
+    if (profile !== "default") return current
     const legacy = path.join(BASE_PATH, `project_${getLegacyProjectHash(projectPath)}`)
     return existsSync(legacy) ? legacy : current
   }
@@ -226,6 +234,7 @@ export namespace VectorStore {
         if (!parsed.success) continue
         const meta = parsed.data as IndexMeta
         if (!isSupportedIndexMeta(meta)) continue
+        if ((meta.profile ?? "default") !== Instance.profile) continue
         const root = await resolveProjectPath(meta.root)
         projects.push({ root, meta: { ...meta, root }, updatedAt: meta.updatedAt ?? 0 })
       } catch {
@@ -236,11 +245,44 @@ export namespace VectorStore {
     return projects
   }
 
+  export async function listProfiles(projectPath: string): Promise<Array<{
+    profile: string
+    updatedAt: number
+    tableName?: string
+    embeddings: IndexMeta["embeddings"]
+  }>> {
+    const requested = await resolveProjectPath(projectPath)
+    const entries = await fs.readdir(BASE_PATH, { withFileTypes: true }).catch(() => [])
+    const profiles: Array<{ profile: string; updatedAt: number; tableName?: string; embeddings: IndexMeta["embeddings"] }> = []
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !entry.name.startsWith("project_")) continue
+      const raw = await fs.readFile(path.join(BASE_PATH, entry.name, "index-meta.json"), "utf8").catch(() => null)
+      if (!raw) continue
+      let json: unknown
+      try {
+        json = JSON.parse(raw)
+      } catch {
+        continue
+      }
+      const parsed = IndexMetaSchema.safeParse(json)
+      if (!parsed.success) continue
+      const meta = parsed.data as IndexMeta
+      if (await resolveProjectPath(meta.root) !== requested) continue
+      profiles.push({
+        profile: meta.profile ?? "default",
+        updatedAt: meta.updatedAt ?? 0,
+        tableName: meta.tableName,
+        embeddings: meta.embeddings,
+      })
+    }
+    return profiles.sort((left, right) => right.updatedAt - left.updatedAt || left.profile.localeCompare(right.profile))
+  }
+
   const dbCache = new Map<string, Promise<LanceDBConnection>>()
   const tableCache = new Map<string, Promise<LanceTable>>()
 
   function tableCacheKey(projectPath: string, tableName: string): string {
-    return `${projectPath}:${tableName}:${Embeddings.getProvider()}:${Embeddings.getModel()}:${Embeddings.getDimension()}`
+    return `${projectPath}:${Instance.profile}:${tableName}:${Embeddings.getProvider()}:${Embeddings.getModel()}:${Embeddings.getDimension()}`
   }
 
   export function getDistanceMetric(meta?: IndexMeta | null): DistanceMetric {
@@ -303,7 +345,8 @@ export namespace VectorStore {
   }
 
   async function connect(projectPath: string): Promise<LanceDBConnection> {
-    const existing = dbCache.get(projectPath)
+    const cacheKey = `${projectPath}:${Instance.profile}`
+    const existing = dbCache.get(cacheKey)
     if (existing) return existing
 
     const dir = projectDir(projectPath)
@@ -311,7 +354,7 @@ export namespace VectorStore {
       await fs.mkdir(dir, { recursive: true })
       return lancedb.connect(dir)
     })()
-    dbCache.set(projectPath, p)
+    dbCache.set(cacheKey, p)
     return p
   }
 
@@ -736,11 +779,20 @@ export namespace VectorStore {
     return { collection, tableName }
   }
 
+  export async function openCollectionTable(
+    projectPath: string,
+    tableName: string,
+    expectedDim: number,
+  ): Promise<LanceTable> {
+    const db = await connect(projectPath)
+    return ensureTable(db, expectedDim, tableName)
+  }
+
   export async function dropCollectionTable(projectPath: string, tableName: string): Promise<void> {
     const db = await connect(projectPath)
     await db.dropTable(tableName)
     for (const key of tableCache.keys()) {
-      if (key.startsWith(`${projectPath}:${tableName}:`)) tableCache.delete(key)
+      if (key.startsWith(`${projectPath}:${Instance.profile}:${tableName}:`)) tableCache.delete(key)
     }
   }
 
@@ -764,6 +816,26 @@ export namespace VectorStore {
         })
       })
     }
+  }
+
+  export async function optimizeForSearch(collection: LanceTable, rowCount: number): Promise<boolean> {
+    const configured = Number(process.env.SENSEGREP_ANN_MIN_CHUNKS ?? 10_000)
+    if (!Number.isFinite(configured) || configured < 0) {
+      throw new Error(`SENSEGREP_ANN_MIN_CHUNKS must be a non-negative number, got "${process.env.SENSEGREP_ANN_MIN_CHUNKS}".`)
+    }
+    if (configured === 0 || rowCount < configured || typeof (collection as any).createIndex !== "function") return false
+    const existing = typeof (collection as any).listIndices === "function"
+      ? await (collection as any).listIndices().catch(() => [])
+      : []
+    const names = new Set((existing as any[]).map((index) => String(index?.name ?? index)))
+    for (const column of ["vector", "file", "symbolName"]) {
+      if (names.has(`${column}_idx`)) continue
+      await (collection as any).createIndex(column).catch((error: unknown) => {
+        log.warn("Failed to create search index", { column, error: error instanceof Error ? error.message : String(error) })
+      })
+    }
+    if (typeof (collection as any).optimize === "function") await (collection as any).optimize().catch(() => {})
+    return true
   }
 
   function documentToRow(document: AddDocumentInput, vector: number[]): EmbeddedDocumentRow {
@@ -827,6 +899,55 @@ export namespace VectorStore {
     }
 
     return documents.map((document, i) => documentToRow(document, embeddings[i]))
+  }
+
+  export function materializeDocument(document: AddDocumentInput, vector: number[]): EmbeddedDocumentRow {
+    return documentToRow(document, vector)
+  }
+
+  export async function embedDocumentsReusingFile(
+    collection: LanceTable,
+    filePath: string,
+    documents: AddDocumentInput[],
+    options: { signal?: AbortSignal } = {},
+  ): Promise<{ rows: EmbeddedDocumentRow[]; embedded: number; reused: number }> {
+    if (documents.length === 0) return { rows: [], embedded: 0, reused: 0 }
+    const previous = await listDocuments(collection, {
+      filters: { all: [{ key: "file", operator: "in", value: expandFilePathVariants(filePath) }] },
+      columns: ["id", "content", "vector"],
+    })
+    const expectedDim = Embeddings.getDimension()
+    const reusable = new Map<string, number[][]>()
+    for (const row of previous) {
+      if (!Array.isArray(row.vector) || row.vector.length !== expectedDim) continue
+      const hash = crypto.createHash("sha1").update(row.content).digest("hex")
+      const vectors = reusable.get(hash) ?? []
+      vectors.push(row.vector.map(Number))
+      reusable.set(hash, vectors)
+    }
+
+    const rows: Array<EmbeddedDocumentRow | undefined> = new Array(documents.length)
+    const pending: AddDocumentInput[] = []
+    const pendingPositions: number[] = []
+    let reused = 0
+    for (let index = 0; index < documents.length; index++) {
+      const document = documents[index]
+      const hash = crypto.createHash("sha1").update(document.content).digest("hex")
+      const vector = reusable.get(hash)?.shift()
+      if (vector) {
+        rows[index] = documentToRow(document, vector)
+        reused++
+      } else {
+        pending.push(document)
+        pendingPositions.push(index)
+      }
+    }
+
+    const embeddedRows = await embedDocuments(pending, options)
+    for (let index = 0; index < embeddedRows.length; index++) {
+      rows[pendingPositions[index]] = embeddedRows[index]
+    }
+    return { rows: rows.filter((row): row is EmbeddedDocumentRow => Boolean(row)), embedded: pending.length, reused }
   }
 
   export async function addEmbeddedDocuments(
@@ -1099,7 +1220,9 @@ export namespace VectorStore {
   }
 
   export function clearProjectCache(projectPath: string): void {
-    dbCache.delete(projectPath)
+    for (const key of dbCache.keys()) {
+      if (key.startsWith(`${projectPath}:`)) dbCache.delete(key)
+    }
     for (const key of tableCache.keys()) {
       if (key.startsWith(`${projectPath}:`)) tableCache.delete(key)
     }

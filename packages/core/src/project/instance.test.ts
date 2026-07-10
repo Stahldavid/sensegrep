@@ -41,4 +41,23 @@ describe("Instance", () => {
       })(),
     ])
   })
+
+  it("isolates named profiles across concurrent operations", async () => {
+    const first = deferred()
+    const second = deferred()
+    await Promise.all([
+      Instance.provide({ directory: ".", profile: "local", fn: async () => {
+        first.resolve()
+        await second.promise
+        expect(Instance.profile).toBe("local")
+      } }),
+      (async () => {
+        await first.promise
+        return Instance.provide({ directory: ".", profile: "remote", fn: async () => {
+          second.resolve()
+          expect(Instance.profile).toBe("remote")
+        } })
+      })(),
+    ])
+  })
 })

@@ -146,6 +146,7 @@ export namespace Chunking {
    * Detect if file is code based on extension
    */
   function isCodeFile(filePath: string): boolean {
+    if (getLanguageForFile(filePath)) return true
     const codeExtensions = [
       ".ts",
       ".tsx",
@@ -177,6 +178,22 @@ export namespace Chunking {
    */
   async function chunkCodeAsync(content: string, filePath: string): Promise<Chunk[]> {
     const language = getLanguageForFile(filePath)
+
+    if (language?.chunk) {
+      try {
+        const chunks = await language.chunk(content, filePath)
+        if (chunks.length > 0) {
+          log.info("used registered language chunker", { language: language.id, filePath, chunks: chunks.length })
+          return chunks
+        }
+      } catch (error) {
+        log.warn("registered language chunker failed, falling back", {
+          language: language.id,
+          filePath,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
 
     if (language?.id === "python") {
       try {

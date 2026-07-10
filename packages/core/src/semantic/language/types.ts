@@ -111,7 +111,31 @@ export interface ChunkMetadata {
  * Supported programming languages.
  * Add new languages here as they are implemented.
  */
-export type SupportedLanguage = "typescript" | "javascript" | "python" | "java" | "vue"
+export type BuiltinLanguage = "typescript" | "javascript" | "python" | "java" | "vue"
+export type SupportedLanguage = BuiltinLanguage | (string & {})
+
+export interface LanguageChunk {
+  content: string
+  startLine: number
+  endLine: number
+  type: "code" | "text"
+  symbolName?: string
+  symbolType?: string
+  variant?: string
+  complexity?: number
+  isExported?: boolean
+  isAsync?: boolean
+  isStatic?: boolean
+  isAbstract?: boolean
+  decorators?: string[]
+  parentScope?: string
+  semanticKind?: string
+  framework?: string
+  scopeDepth?: number
+  hasDocumentation?: boolean
+  language?: string
+  imports?: string
+}
 
 /**
  * Variant definition with metadata for discovery and help text.
@@ -155,6 +179,9 @@ export interface LanguageSupport {
 
   /** Common decorators in this language */
   readonly decorators: readonly string[]
+
+  /** Optional plugin-owned chunker. Built-ins may use the shared tree-sitter pipeline. */
+  chunk?(content: string, filePath: string): Promise<LanguageChunk[]> | LanguageChunk[]
 
   // ==========================================================================
   // AST Analysis

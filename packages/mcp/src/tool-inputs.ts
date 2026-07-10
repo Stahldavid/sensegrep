@@ -1,12 +1,33 @@
 import z from "zod"
 
 const RootDir = z.string().min(1).optional().describe("Root directory (default: cwd)")
+const Profile = z.string().regex(/^[A-Za-z0-9._-]+$/).optional().describe("Named side-by-side index profile")
 
 export const IndexToolArgsSchema = z.object({
-  action: z.enum(["index", "stats"]).default("index").describe("Operation type"),
+  action: z.enum(["index", "stats", "plan"]).default("index").describe("Operation type"),
   rootDir: RootDir,
+  profile: Profile,
   mode: z.enum(["incremental", "full"]).default("incremental").describe("Index mode"),
 }).strict()
+
+export const GraphToolArgsSchema = z.object({
+  action: z.enum(["references", "impact", "trace"]),
+  rootDir: RootDir,
+  profile: Profile,
+  symbol: z.string().min(1).optional(),
+  from: z.string().min(1).optional(),
+  to: z.string().min(1).optional(),
+  depth: z.number().int().positive().max(20).optional(),
+  limit: z.number().int().positive().max(1000).optional(),
+  maxDocuments: z.number().int().positive().max(1_000_000).optional(),
+}).strict().superRefine((value, context) => {
+  if (value.action !== "trace" && !value.symbol) {
+    context.addIssue({ code: "custom", path: ["symbol"], message: "symbol is required" })
+  }
+  if (value.action === "trace" && (!value.from || !value.to)) {
+    context.addIssue({ code: "custom", path: ["from"], message: "from and to are required for trace" })
+  }
+})
 
 const DuplicateScope = z.string()
   .refine((value) => {
@@ -18,6 +39,7 @@ const DuplicateScope = z.string()
 
 export const DuplicateToolArgsSchema = z.object({
   rootDir: RootDir,
+  profile: Profile,
   threshold: z.number().min(0).max(1).default(0.85),
   scope: DuplicateScope.optional(),
   language: z.string().optional(),
@@ -43,4 +65,16 @@ export const DuplicateToolArgsSchema = z.object({
 
 export function toInputSchema(schema: z.ZodType): Record<string, unknown> {
   return z.toJSONSchema(schema, { target: "draft-7" }) as Record<string, unknown>
+}
+
+export function toRootedInputSchema(schema: z.ZodType): Record<string, unknown> {
+  const json = toInputSchema(schema)
+  return {
+    ...json,
+    properties: {
+      ...((json.properties as Record<string, unknown> | undefined) ?? {}),
+      rootDir: { type: "string", minLength: 1, description: "Project root directory (default: cwd)" },
+      profile: { type: "string", minLength: 1, description: "Optional named index profile" },
+    },
+  }
 }

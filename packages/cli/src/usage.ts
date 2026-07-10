@@ -6,6 +6,7 @@ Usage:
   sensegrep verify [--root <dir>] [--strict] [--json]
   sensegrep status [--root <dir>] [--verify|--verbose]
   sensegrep search <query...> [options]
+  sensegrep context <query...> [--max-tokens <n>] [options]
   sensegrep survey <query...> [options]
   sensegrep cluster <query...> [options]
   sensegrep detect-duplicates [--root <dir>] [options]
@@ -40,6 +41,21 @@ Search options:
   --imports <name>          Filter by imported module name
   --rerank <true|false>     Compatibility flag; semantic ranking is kept as-is
   --no-rerank               Disable reranking
+  --hybrid <true|false>     Fuse lexical and vector retrieval (default: true)
+  --no-hybrid               Disable lexical/vector fusion
+  --max-tokens <n>          Limit estimated output tokens (context default: 12000)
+  --dry-run                 Plan indexing and estimate embedding work without API calls
+  --no-resume               Discard interrupted full-index staging data
+  benchmark                 Measure embedding throughput and recommend concurrency
+  audit <query>             Build review context restricted to Git changes
+  references <symbol>       Find indexed references to a symbol
+  impact <symbol>           Traverse reverse references for change impact
+  trace <from> <to>         Find a symbol-reference path
+  profiles                  List side-by-side index profiles for this root
+  --concurrency 1,2,4       Benchmark candidate concurrency levels
+  --changed                 Restrict retrieval to Git-changed files
+  --base <revision>         Base revision for --changed (default: HEAD)
+  --profile <name>          Select a side-by-side named index profile
   --embed-model <name>      Override remote embedding model
   --embed-dim <n>           Override embedding dimension
   --provider <name>         ollama|gemini|openai|bedrock

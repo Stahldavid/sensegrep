@@ -47,7 +47,7 @@ export namespace Tool {
       init: async () => {
         const toolInfo = init instanceof Function ? await init() : init
         const execute = toolInfo.execute
-        toolInfo.execute = (args, ctx) => {
+        const validatedExecute = (args: z.infer<Parameters>, ctx: Context) => {
           let parsed: z.infer<Parameters>
           try {
             parsed = toolInfo.parameters.parse(args)
@@ -62,7 +62,7 @@ export namespace Tool {
           }
           return execute(parsed, ctx)
         }
-        return toolInfo
+        return { ...toolInfo, execute: validatedExecute }
       },
     }
   }

@@ -148,7 +148,7 @@ npm install -g @sensegrep/mcp
 }
 ```
 
-The MCP server provides canonical `sensegrep_search`, `sensegrep_survey`, `sensegrep_cluster`, `sensegrep_index`, and `sensegrep_detect_duplicates` tools. Legacy dotted names such as `sensegrep.search` remain available as compatibility aliases where supported.
+The MCP server provides canonical `sensegrep_search`, `sensegrep_context`, `sensegrep_survey`, `sensegrep_cluster`, `sensegrep_graph`, `sensegrep_index`, and `sensegrep_detect_duplicates` tools. Legacy dotted names such as `sensegrep.search` remain available as compatibility aliases where supported.
 
 ### Agent Skill — CLI (no MCP server)
 
@@ -167,7 +167,7 @@ See [docs/agent-skills.md](docs/agent-skills.md) for when to use the MCP tools v
 
 Search for **"Sensegrep"** in the VS Code marketplace, or install from [the extension page](https://marketplace.visualstudio.com/items?itemName=sensegrep.sensegrep).
 
-Features: semantic search sidebar, duplicate detection, code lens, semantic folding, auto-indexing with watch mode.
+Features: semantic search sidebar, duplicate detection, code lens, semantic folding, and multi-root auto-indexing/watch mode.
 
 ## Recipes
 
@@ -211,7 +211,7 @@ Source Code
 2. **Chunk**: Code is split into semantic chunks aligned to symbol boundaries
 3. **Embed**: Each chunk is embedded using Ollama, Gemini, an OpenAI-compatible embeddings API, or Amazon Bedrock.
 4. **Store**: Embeddings + metadata are stored in LanceDB for fast vector search
-5. **Search**: Your query is embedded and matched against the index with optional structural filters
+5. **Search**: Vector and lexical candidates are fused, structurally filtered, and optionally reranked
 6. **Tree-shake**: Results are collapsed to show only relevant code, hiding unrelated symbols
 
 ## Supported Languages
@@ -247,6 +247,46 @@ sensegrep survey "authentication login token" --language typescript --limit 4
 
 # Split a broad backend topic into subthemes
 sensegrep cluster "price list commission ncm uf packaging" --language java --include "backend-api/**/*.java"
+
+# Build an agent context pack with a hard estimated-token budget
+sensegrep context "authentication request flow" --max-tokens 8000
+
+# Review only code changed against a Git base
+sensegrep audit "security and regression risks" --base origin/main
+
+# Navigate the local symbol graph
+sensegrep references loadUser
+sensegrep impact loadUser --depth 3
+sensegrep trace handleRequest loadUser
+```
+
+## Index Operations
+
+```bash
+# Inspect local work before any embedding request
+sensegrep index --dry-run --no-watch
+
+# Interrupted full builds resume their fingerprint-matched staging table
+sensegrep index --full --no-watch
+
+# Compare safe concurrency candidates without changing saved config
+sensegrep benchmark --concurrency 1,2,4 --samples 16
+
+# Keep independent indexes for different models/settings
+sensegrep index --profile fast --no-watch
+sensegrep profiles
+```
+
+Changed files reuse vectors for content-identical chunks, even when neighboring chunks or metadata changed. Full indexes checkpoint staging tables and skip IDs already persisted after a restart. For large indexes, LanceDB ANN and scalar indexes are created automatically at 10,000 chunks; set `SENSEGREP_ANN_MIN_CHUNKS=0` to disable or choose another threshold.
+
+### Language plugins
+
+Language support can be extended without modifying core. A plugin exports a `LanguageSupport` object (default, `language`, or `languages[]`) with its extensions and optional `chunk(content, filePath)` implementation. Add project-relative ESM modules or package names to `languagePlugins` in `sensegrep.config.json`, or set `SENSEGREP_LANGUAGE_PLUGINS` to a comma-separated list.
+
+```json
+{
+  "languagePlugins": ["./tools/sensegrep-ruby.mjs"]
+}
 ```
 
 ## Embeddings Configuration
@@ -305,6 +345,11 @@ Common environment variables:
 - `SENSEGREP_OPENAI_API_KEY` / `FIREWORKS_API_KEY` / `OPENAI_API_KEY` (OpenAI-compatible)
 - `SENSEGREP_OPENAI_BASE_URL` (OpenAI-compatible, default `https://api.fireworks.ai/inference/v1`)
 - `SENSEGREP_OPENAI_BATCH_SIZE` (OpenAI-compatible request batch size)
+- `SENSEGREP_OPENAI_CONCURRENCY` / `SENSEGREP_EMBED_CONCURRENCY` (provider request concurrency)
+- `SENSEGREP_INDEX_EMBED_CONCURRENCY` (concurrent index embedding batches)
+- `SENSEGREP_ANN_MIN_CHUNKS` (automatic ANN threshold; `0` disables)
+- `SENSEGREP_PROFILE` (named side-by-side index profile)
+- `SENSEGREP_LANGUAGE_PLUGINS` (comma-separated ESM language plugins)
 - `SENSEGREP_OPENROUTER_REFERER` / `SENSEGREP_OPENROUTER_TITLE` (optional OpenRouter attribution headers)
 - `SENSEGREP_BEDROCK_API_KEY` (Amazon Bedrock bearer API key; omit when using the AWS SDK credential chain)
 - `SENSEGREP_BEDROCK_REGION` / `AWS_REGION` / `AWS_DEFAULT_REGION` (Amazon Bedrock)
@@ -315,7 +360,7 @@ For the complete and official runtime variable list, see `docs/mcp-setup.md`.
 
 ### Index compatibility
 
-Each index records the embedding provider, model, dimension, and distance metric used to create it. If you change provider, model, base URL, dimension, local server pooling behavior, or task-prefix strategy, rebuild the index with `sensegrep index --root . --full --no-watch`. Same dimension does **not** make embeddings interchangeable; two 768-dimensional models still produce different vector spaces.
+Each index records the embedding provider, model, dimension, distance metric, and a non-secret endpoint/configuration fingerprint. If you change provider, model, base URL, dimension, local server pooling behavior, or task-prefix strategy, rebuild the index with `sensegrep index --root . --full --no-watch`. Same dimension does **not** make embeddings interchangeable; two 768-dimensional models still produce different vector spaces.
 
 More embedding providers and API integrations may be added in the future.
 
