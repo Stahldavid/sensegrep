@@ -121,6 +121,9 @@ describe("SenseGrepContextTool audit budgets", () => {
 
     expect(result.batches).toHaveLength(3)
     expect(result.batches.every((batch: any) => batch.tokens <= 1_000)).toBe(true)
+    expect(result.batches.flatMap((batch: any) => batch.ranges)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ file: "a.ts", startLine: 1, startOffset: 0, estimatedTokens: expect.any(Number) }),
+    ]))
     expect(result.coverage).toMatchObject({ exhaustive: false, truncationReasons: ["max-batches"] })
   })
 })

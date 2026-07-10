@@ -6,8 +6,22 @@ export function writeStderrLine(message = "") {
   process.stderr.write(`${message}\n`)
 }
 
+let prettyJson = false
+
+export function configureJsonOutput(options: { pretty?: boolean }) {
+  prettyJson = options.pretty === true
+}
+
+export function isPrettyJson(): boolean {
+  return prettyJson
+}
+
+export function serializeJson(payload: unknown, pretty = prettyJson): string {
+  return `${JSON.stringify(payload, null, pretty ? 2 : undefined)}\n`
+}
+
 export function writeJson(payload: unknown) {
-  writeStdoutLine(JSON.stringify(payload, null, 2))
+  process.stdout.write(serializeJson(payload))
 }
 
 export function createHumanLogger(input: { json?: boolean }) {

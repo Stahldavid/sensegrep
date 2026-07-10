@@ -51,8 +51,8 @@ function splitAuditContent(file: string, content: string, maxTokens: number): Au
   return segments
 }
 
-function projectResultForBudget(entry: any, detail: "compact" | "content" | "full") {
-  if (detail !== "compact") return entry
+function projectResultForBudget(entry: any, detail: "minimal" | "compact" | "content" | "diagnostic" | "full") {
+  if (detail !== "compact" && detail !== "minimal") return entry
   return {
     resultId: entry.resultId,
     file: entry.file,
@@ -83,7 +83,7 @@ export const SenseGrepContextParametersSchema = SenseGrepParametersSchema.extend
   maxTotalTokens: z.number().int().positive().max(1_000_000).optional().describe("Global emitted-token budget including continuation batches"),
   maxOutputBytes: z.number().int().positive().max(100_000_000).optional().describe("Global serialized evidence budget"),
   maxBatches: z.number().int().positive().max(10_000).optional().describe("Maximum continuation batches"),
-  resultDetail: z.enum(["compact", "content", "full"]).default("content"),
+  resultDetail: z.enum(["minimal", "compact", "content", "diagnostic", "full"]).default("content"),
 })
 
 export const SenseGrepContextTool = Tool.define("sensegrep-context", {
@@ -116,7 +116,8 @@ export const SenseGrepContextTool = Tool.define("sensegrep-context", {
     const maxOutputBytes = params.maxOutputBytes ?? maxTotalTokens * 4
     const maxBatches = params.maxBatches ?? 50
     const maxEvidenceBytes = Math.min(maxOutputBytes, maxTotalTokens * 4)
-    const batches: Array<{ id: number; files: string[]; tokens: number; resultIds: string[] }> = []
+    type BatchRange = { resultId: string; file: string; startLine: number; endLine: number; startOffset: number; endOffset: number; estimatedTokens: number }
+    const batches: Array<{ id: number; files: string[]; tokens: number; resultIds: string[]; ranges: BatchRange[] }> = []
     const continuationResults: Array<Record<string, unknown>> = []
     const representedRanges = new Set<string>()
     const completedContinuationFiles = new Set<string>()
@@ -129,7 +130,7 @@ export const SenseGrepContextTool = Tool.define("sensegrep-context", {
     })) + 512
     if (evidenceBytes > maxEvidenceBytes) truncationReasons.add("base-result-exceeds-output-budget")
     if (params.gitChanged && params.continueUncovered && coverage?.uncoveredFiles.length) {
-      let batch = { id: 1, files: [] as string[], tokens: 0, resultIds: [] as string[] }
+      let batch = { id: 1, files: [] as string[], tokens: 0, resultIds: [] as string[], ranges: [] as BatchRange[] }
       let stopped = false
       for (const file of coverage.uncoveredFiles) {
         const absolute = path.resolve(Instance.directory, file)
@@ -157,10 +158,12 @@ export const SenseGrepContextTool = Tool.define("sensegrep-context", {
             file,
             startLine: segment.startLine,
             endLine: segment.endLine,
+            startOffset: segment.startOffset,
+            endOffset: segment.endOffset,
             estimatedTokens: segment.estimatedTokens,
             snippetIntegrity: segments.length === 1 ? "complete" : "partial",
             evidence: "changed-file-text",
-            ...(params.resultDetail === "compact" ? {} : { content: segment.content }),
+            ...(params.resultDetail === "compact" || params.resultDetail === "minimal" ? {} : { content: segment.content }),
           }
           const cardBytes = Buffer.byteLength(JSON.stringify(card)) + Buffer.byteLength(file) + Buffer.byteLength(resultId) + 32
           if (baseContextTokens + contextTokens + segment.estimatedTokens > maxTotalTokens) {
@@ -183,12 +186,21 @@ export const SenseGrepContextTool = Tool.define("sensegrep-context", {
               stopped = true
               break
             }
-            batch = { id: batch.id + 1, files: [], tokens: 0, resultIds: [] }
+            batch = { id: batch.id + 1, files: [], tokens: 0, resultIds: [], ranges: [] }
           }
           representedRanges.add(rangeKey)
           if (!batch.files.includes(file)) batch.files.push(file)
           batch.tokens += segment.estimatedTokens
           batch.resultIds.push(resultId)
+          batch.ranges.push({
+            resultId,
+            file,
+            startLine: segment.startLine,
+            endLine: segment.endLine,
+            startOffset: segment.startOffset,
+            endOffset: segment.endOffset,
+            estimatedTokens: segment.estimatedTokens,
+          })
           continuationResults.push(card)
           contextTokens += segment.estimatedTokens
           evidenceBytes += cardBytes
@@ -203,6 +215,7 @@ export const SenseGrepContextTool = Tool.define("sensegrep-context", {
     const remainingUncoveredFiles = coverage?.uncoveredFiles.filter((file) => !continuedFiles.has(file)) ?? []
     const finalCoverage = coverage ? {
       ...coverage,
+      semanticRepresentedFiles: coverage.representedFiles,
       uncoveredFiles: remainingUncoveredFiles,
       textual: { representedFiles: textualRepresented, coverage: coverage.changedFiles === 0 ? 1 : textualRepresented / coverage.changedFiles },
       semantic: { representedFiles: coverage.representedFiles, coverage: coverage.coverage },
@@ -217,7 +230,7 @@ export const SenseGrepContextTool = Tool.define("sensegrep-context", {
       ? `Changed-file coverage: ${finalCoverage.textual.representedFiles}/${finalCoverage.changedFiles}; ${finalCoverage.changedFiles - finalCoverage.textual.representedFiles} files were not represented.`
       : undefined
     const continuationOutput = batches.length > 0
-      ? params.resultDetail === "compact"
+      ? params.resultDetail === "compact" || params.resultDetail === "minimal"
         ? `\n\nAudit continuation: ${batches.length} batches, ${continuedFiles.size} files. Expand selected resultId cards with \`sensegrep show\`.`
         : batches.map((batch) => `\n\n# Audit batch ${batch.id}\n${batch.resultIds.map((resultId) => {
             const entry = continuationResults.find((candidate) => candidate.resultId === resultId)

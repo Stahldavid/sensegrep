@@ -26,7 +26,7 @@ export function parseArgs(argv: string[]): { flags: Flags; positional: string[] 
   return { flags, positional }
 }
 
-const GLOBAL_FLAGS = new Set(["help", "h", "root", "profile", "json", "log-format"])
+const GLOBAL_FLAGS = new Set(["help", "h", "root", "profile", "json", "log-format", "pretty", "diagnostic", "json-detail", "jsonDetail"])
 const EMBEDDING_FLAGS = new Set(["provider", "embed-model", "embedModel", "embed-dim", "embedDim"])
 const INDEX_RUN_FLAGS = new Set(["timeout", "max-files", "maxFiles", "verbose"])
 const SEARCH_FILTER_FLAGS = new Set([

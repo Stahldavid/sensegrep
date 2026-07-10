@@ -51,7 +51,7 @@ Start with these defaults and adjust based on what you find:
 
 > **Subdirectory roots:** If the repo root was indexed and you run `sensegrep` with `--root` pointing at a subdirectory, Sensegrep reuses the nearest indexed parent and scopes the query to that subdirectory. You no longer need to reindex every subfolder separately.
 
-> **JSON output:** Search defaults to compact result cards with `resultId` and canonical fields such as `symbolName`, `startLine`, `endLine`, `rawDistance`, and `distanceMetric`; use `sensegrep show <resultId>` or `--json-detail content|full` to expand selected evidence. Rendered Markdown is omitted unless `--include-rendered-output` or full detail is requested. Read `retrieval.actualMode`, `retrieval.universe`, `index`, `budget`, and `warnings` before treating evidence as sufficient.
+> **JSON output:** JSON is minified and `minimal` by default: envelope, sufficiency, `resultId`, location, `score`, and `rankScore`. Use `--json-detail content` for code, `--diagnostic` for distances/ranking/timings/freshness, `--json-detail full` for internals, and `--pretty` only for human reading. `compact` remains a compatibility alias for `minimal`.
 
 > **Profiles:** Use `--profile <name>` when comparing embedding models/settings. Profiles have independent indexes. Sensegrep validates a non-secret endpoint/model fingerprint before searching.
 
@@ -88,7 +88,10 @@ sensegrep search "error handling and retry logic" \
   --profile fast           # select a named side-by-side index
   --no-shake               # show full matched snippets when tree-shaking hides the target
   --limit 10               # max results (default: 10)
-  --json                   # structured results + text output
+  --json                   # minified minimal cards
+  --json-detail content    # add code without diagnostic metadata
+  --diagnostic             # ranking, distances, metrics, freshness
+  --pretty                 # human-readable JSON indentation
 ```
 
 `--parent` matches parent/class scope by containment, so partial class names are acceptable. `--imports` tries package-name variants (`@scope/pkg`, `scope/pkg`, `pkg`) to reduce false misses in scoped packages.
@@ -125,7 +128,7 @@ sensegrep search "affected retry logic" --changed --base HEAD~1 --json
 ```
 
 `--batch-tokens` is strict. Sensegrep splits large changed files into stable range cards so
-no batch exceeds the requested ceiling. For CLI JSON, compare `attemptedOutputBytes` with
+no batch exceeds the requested ceiling; read each batch's `ranges` directly. For CLI JSON, compare `attemptedOutputBytes` with
 `actualOutputBytes` and `attemptedTokens` with `actualEmittedTokens`.
 
 ### `sensegrep survey` — Reading map for a theme
@@ -179,7 +182,7 @@ sensegrep detect-duplicates \
   --cross-file-only    # only report duplicates in different files
   --language typescript # optional language filter
   --only-exported      # focus on public API surface
-  --show-code          # include actual code in output
+  --show-code          # explicitly include code (JSON omits it otherwise)
   --threshold 0.85     # 0.7 = loose similarity, 0.9 = near-identical only
   --min-complexity 3   # skip trivial helpers (getters, guards)
   --max-candidates 1500 # cap broad scans; raise for deeper audits

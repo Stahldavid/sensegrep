@@ -14,6 +14,11 @@ describe("CLI arguments", () => {
     expect(validateKnownFlags("selftest", { "log-format": "none" })).toBeUndefined()
   })
 
+  it("accepts global projection and formatting flags", () => {
+    expect(validateKnownFlags("references", { pretty: true, diagnostic: true, "json-detail": "minimal" })).toBeUndefined()
+    expect(validateKnownFlags("detect-duplicates", { pretty: true, "json-detail": "diagnostic" })).toBeUndefined()
+  })
+
   it("rejects flags outside the command contract", () => {
     expect(validateKnownFlags("status", { threshold: "0.8" })).toBe("threshold")
   })

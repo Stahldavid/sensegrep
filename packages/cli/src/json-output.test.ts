@@ -109,6 +109,13 @@ describe("CLI JSON stdout contract", () => {
     const parsed = JSON.parse(stdout)
     expect(Array.isArray(parsed.semanticKinds)).toBe(true)
     expect(stderr).toBe("")
+    expect(stdout.trim().split("\n")).toHaveLength(1)
+  })
+
+  itIfBuilt("pretty-prints JSON only when requested", async () => {
+    const { stdout } = await runCli(["semantic-kinds", "--json", "--pretty"])
+    expect(() => JSON.parse(stdout)).not.toThrow()
+    expect(stdout.trim().split("\n").length).toBeGreaterThan(1)
   })
 
   itIfBuilt("keeps languages --json parseable without human text", async () => {

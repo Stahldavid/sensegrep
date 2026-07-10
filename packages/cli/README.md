@@ -29,7 +29,7 @@ sensegrep detect-duplicates --cross-file-only --timeout 30s
 sensegrep semantic-kinds --json
 ```
 
-`status`, `verify`, search, graph, and literal open existing indexes read-only. If the table schema is old, they report `schemaCompatible: false` and recommend an atomic full rebuild; they never recreate the active table. Search JSON defaults to compact result cards with canonical field names and omits rendered Markdown. Expand selected cards with `sensegrep show` or request `--json-detail full`. Audit `--batch-tokens` is a strict per-batch ceiling, including split ranges from large files.
+`status`, `verify`, search, graph, and literal open existing indexes read-only. If the table schema is old, they report `schemaCompatible: false` and recommend an atomic full rebuild; they never recreate the active table. Search JSON defaults to minified `minimal` cards. Use `--json-detail content|diagnostic|full`, `--diagnostic`, or `--pretty` to opt into heavier output. Audit `--batch-tokens` is a strict per-batch ceiling, including explicit split ranges from large files. Duplicate JSON omits code unless `--show-code` is set.
 
 `--json` writes parseable JSON to stdout; progress and warnings are written to stderr.
 Use `--log-format none` when a JSON command must suppress all non-fatal logs entirely.

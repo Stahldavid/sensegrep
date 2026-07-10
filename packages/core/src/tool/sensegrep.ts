@@ -160,6 +160,9 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     const limitedResults = diversifiedResults.slice(0, limit)
     const budgeted = selectWithinTokenBudget(limitedResults, params.maxTokens)
     const finalResults = budgeted.results
+    finalResults.forEach((result, index) => {
+      result.rankScore = Number(((finalResults.length - index) / Math.max(1, finalResults.length)).toFixed(6))
+    })
     metrics.estimatedOutputTokens = budgeted.estimatedTokens
 
     if (finalResults.length === 0) {

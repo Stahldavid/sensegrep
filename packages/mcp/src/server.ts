@@ -94,10 +94,37 @@ async function loadShowTool() {
   return { core, tool: await showToolPromise };
 }
 
-function compactSearchResponse(res: any) {
-  const { output: _output, ...rest } = res;
+function compactSearchResponse(res: any, includeContent = false) {
+  const retrieval = res.retrieval ? {
+    mode: res.retrieval.actualMode ?? res.retrieval.requestedMode,
+    exhaustive: res.retrieval.exhaustive === true,
+    truncated: res.status === "incomplete" || res.coverage?.truncated === true,
+  } : undefined;
   return {
-    ...rest,
+    schemaVersion: res.schemaVersion ?? 1,
+    command: res.command,
+    status: res.status,
+    ...(Array.isArray(res.warnings) && res.warnings.length > 0 ? { warnings: res.warnings } : {}),
+    ...(retrieval ? { retrieval } : {}),
+    ...(res.coverage ? {
+      coverage: {
+        changedFiles: res.coverage.changedFiles,
+        semanticRepresentedFiles: res.coverage.semantic?.representedFiles ?? res.coverage.semanticRepresentedFiles ?? res.coverage.representedFiles,
+        textualRepresentedFiles: res.coverage.textual?.representedFiles,
+        exhaustive: res.coverage.exhaustive,
+        truncated: res.coverage.truncated,
+        truncationReasons: res.coverage.truncationReasons,
+      },
+      coverageSatisfied: res.coverageSatisfied,
+    } : {}),
+    ...(res.batches ? { batches: res.batches } : {}),
+    ...(res.budget ? { budget: {
+      contextTokens: res.budget.contextTokens ?? res.budget.tokensUsed,
+      maxTotalTokens: res.budget.maxTotalTokens ?? res.budget.tokensRequested,
+      maxOutputBytes: res.budget.maxOutputBytes,
+      attemptedOutputBytes: res.budget.attemptedOutputBytes,
+      attemptedTokens: res.budget.attemptedTokens,
+    } } : {}),
     results: Array.isArray(res.results) ? res.results.map((entry: any) => ({
       resultId: entry.resultId,
       file: entry.file,
@@ -105,23 +132,98 @@ function compactSearchResponse(res: any) {
       endLine: entry.endLine,
       symbolName: entry.symbolName,
       symbolType: entry.symbolType,
-      type: entry.type,
-      language: entry.language,
-      parentScope: entry.parentScope,
-      semanticKind: entry.semanticKind,
-      framework: entry.framework,
-      fileRole: entry.fileRole ?? entry.metadata?.fileRole,
       score: entry.score,
-      rawDistance: entry.rawDistance,
-      distanceMetric: entry.distanceMetric,
-      confidence: entry.confidence,
-      isWeakMatch: entry.isWeakMatch,
-      whyMatched: entry.whyMatched,
-      filterMatches: entry.filterMatches,
-      estimatedTokens: entry.estimatedTokens,
-      chunksMatched: entry.chunksMatched,
-      snippetIntegrity: entry.snippetIntegrity,
+      rankScore: entry.rankScore,
+      ...(includeContent ? { content: entry.content } : {}),
     })) : res.results,
+  };
+}
+
+function enforceStructuredBudget(payload: any) {
+  const maxOutputBytes = Number(payload?.budget?.maxOutputBytes ?? 0);
+  if (!payload?.budget) return payload;
+  let results = Array.isArray(payload.results) ? [...payload.results] : [];
+  let projected = payload;
+  for (;;) {
+    const actualOutputBytes = Buffer.byteLength(JSON.stringify(projected));
+    projected = {
+      ...projected,
+      budget: { ...projected.budget, actualOutputBytes, actualEmittedTokens: Math.ceil(actualOutputBytes / 4) },
+    };
+    if (!maxOutputBytes || Buffer.byteLength(JSON.stringify(projected)) <= maxOutputBytes || results.length === 0) return projected;
+    results.pop();
+    projected = {
+      ...projected,
+      status: "incomplete",
+      coverageSatisfied: projected.coverage ? false : projected.coverageSatisfied,
+      retrieval: projected.retrieval ? { ...projected.retrieval, truncated: true } : projected.retrieval,
+      results,
+    };
+  }
+}
+
+function projectStructuredSearchResponse(res: any, detail: string) {
+  if (detail === "full") return res;
+  if (detail === "diagnostic") {
+    const { output: _output, title: _title, metadata: _metadata, ...diagnostic } = res;
+    const distanceMetric = res.results?.find((entry: any) => entry.distanceMetric)?.distanceMetric;
+    return {
+      ...diagnostic,
+      distanceMetric,
+      results: Array.isArray(res.results) ? res.results.map(({ metadata: _resultMetadata, distanceMetric: _distanceMetric, ...entry }: any) => entry) : res.results,
+    };
+  }
+  return compactSearchResponse(res, detail === "content");
+}
+
+function projectLiteralStructuredResponse(res: any, detail: string) {
+  if (detail === "full") return res;
+  if (detail === "diagnostic") {
+    const { output: _output, title: _title, metadata: _metadata, ...diagnostic } = res;
+    return diagnostic;
+  }
+  return {
+    schemaVersion: res.schemaVersion ?? 1,
+    command: "literal",
+    status: res.status,
+    totalMatches: res.metadata?.totalMatches ?? 0,
+    returnedMatches: res.metadata?.returnedMatches ?? 0,
+    truncated: res.metadata?.truncated ?? false,
+    exhaustive: res.retrieval?.exhaustive ?? false,
+    scope: res.retrieval?.exhaustiveWithin,
+    matches: (res.matches ?? []).map((match: any) => ({ file: match.file, line: match.line, text: match.text })),
+  };
+}
+
+function projectDuplicateStructuredResponse(res: any, detail: string, includeCode: boolean) {
+  const diagnostic = detail === "diagnostic" || detail === "full";
+  return {
+    schemaVersion: res.schemaVersion ?? 1,
+    command: "detect-duplicates",
+    status: res.status,
+    summary: diagnostic ? res.summary : {
+      totalDuplicates: res.summary?.totalDuplicates,
+      returnedDuplicates: res.summary?.returnedDuplicates,
+      processedCandidates: res.summary?.processedCandidates,
+      truncated: res.summary?.truncated,
+      timedOut: res.summary?.timedOut,
+      resumeCursor: res.summary?.resumeCursor,
+      elapsedMs: res.summary?.elapsedMs,
+    },
+    duplicates: (res.duplicates ?? []).map((group: any) => ({
+      level: group.level,
+      similarity: group.similarity,
+      impact: diagnostic ? group.impact : { estimatedSavings: group.impact?.estimatedSavings, score: group.impact?.score },
+      instances: (group.instances ?? []).map((instance: any) => ({
+        resultId: `symbol:${Buffer.from(JSON.stringify({ file: instance.file, startLine: instance.startLine, endLine: instance.endLine, symbol: instance.symbol })).toString("base64url")}`,
+        file: instance.file,
+        startLine: instance.startLine,
+        endLine: instance.endLine,
+        symbolName: instance.symbol,
+        complexity: instance.complexity,
+        ...(includeCode ? { content: instance.content } : {}),
+      })),
+    })),
   };
 }
 
@@ -475,7 +577,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
           metadata(_input: unknown) {},
         }),
       });
-      const { output: _output, ...structuredContent } = res;
+      const structuredContent = projectLiteralStructuredResponse(res, toolArgs.resultDetail ?? "minimal");
       return { content: [{ type: "text", text: res.output }], structuredContent };
     }
 
@@ -494,7 +596,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
           metadata(_input: unknown) {},
         }),
       });
-      const { output: _output, ...structuredContent } = res;
+      const detail = toolArgs.resultDetail ?? "content";
+      const structuredContent = enforceStructuredBudget(projectStructuredSearchResponse(res, detail));
       return { content: [{ type: "text", text: res.output }], structuredContent };
     }
 
@@ -515,10 +618,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
             metadata(_input: { title?: string; metadata?: unknown }) {},
           }),
       });
-      const detail = toolArgs.resultDetail ?? "compact";
-      const structuredContent = detail === "full" ? res : detail === "content" ? (({ output: _output, ...rest }) => rest)(res) : compactSearchResponse(res);
-      const text = detail === "compact"
-        ? JSON.stringify({ status: res.status, retrieval: res.retrieval, results: structuredContent.results, warnings: res.warnings })
+      const detail = toolArgs.resultDetail ?? "minimal";
+      const structuredContent = enforceStructuredBudget(projectStructuredSearchResponse(res, detail));
+      const text = detail === "minimal" || detail === "compact"
+        ? JSON.stringify(structuredContent)
         : res.output;
       return { content: [{ type: "text", text }], structuredContent };
     }
@@ -729,11 +832,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
         profile,
         fn: () => DuplicateDetector.detect(options),
       });
+      const projectedResult = projectDuplicateStructuredResponse(result, duplicateArgs.resultDetail, showCode);
 
       if (duplicateArgs.json) {
         return {
-          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-          structuredContent: result,
+          content: [{ type: "text", text: JSON.stringify(projectedResult) }],
+          structuredContent: projectedResult,
         };
       }
 
@@ -797,7 +901,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
           content: [{ type: "text", text: lines.join("\n") }],
           structuredContent: {
             rootDir,
-            summary: result.summary,
+            summary: projectedResult.summary,
             duplicates: [],
           },
         };
@@ -808,8 +912,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
           content: [{ type: "text", text: lines.join("\n") }],
           structuredContent: {
             rootDir,
-            summary: result.summary,
-            duplicates: result.duplicates.slice(0, limit),
+            summary: projectedResult.summary,
+            duplicates: projectedResult.duplicates.slice(0, limit),
           },
         };
       }
@@ -886,8 +990,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
         content: [{ type: "text", text: lines.join("\n") }],
         structuredContent: {
           rootDir,
-          summary: result.summary,
-          duplicates: result.duplicates.slice(0, limit),
+          summary: projectedResult.summary,
+          duplicates: projectedResult.duplicates.slice(0, limit),
         },
       };
     }

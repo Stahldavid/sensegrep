@@ -42,7 +42,7 @@ export const CommonSearchShape = {
   preferRole: FileRoleSchema.optional().describe("Boost one file role"),
   includeRole: FileRoleSchema.optional().describe("Only include one file role"),
   excludeRole: FileRoleSchema.optional().describe("Exclude one file role"),
-  resultDetail: z.enum(["compact", "content", "full"]).optional().describe("Structured result detail (default: compact)"),
+  resultDetail: z.enum(["minimal", "compact", "content", "diagnostic", "full"]).optional().describe("Structured result projection (compact aliases minimal)"),
   commandName: z.enum(["search", "context", "audit"]).optional().describe("Internal result envelope command name"),
 } as const
 

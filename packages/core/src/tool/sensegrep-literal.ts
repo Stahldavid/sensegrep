@@ -23,6 +23,7 @@ export const SenseGrepLiteralParametersSchema = z.object({
   limit: z.number().int().positive().max(1_000_000).optional().describe("Maximum occurrences to return"),
   filesystem: z.boolean().default(false).describe("Search all ripgrep-visible filesystem files instead of the index universe"),
   maxOutputBytes: z.number().int().positive().max(100_000_000).optional().describe("Maximum bytes returned in matches"),
+  resultDetail: z.enum(["minimal", "compact", "diagnostic", "full"]).default("minimal"),
 })
 
 export const SenseGrepLiteralTool = Tool.define("sensegrep-literal", {

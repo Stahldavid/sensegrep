@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import type { DuplicateDetector as DuplicateDetectorType } from "@sensegrep/core"
 import { readFileSync } from "node:fs"
-import { createHumanLogger, writeJson, writeStderrLine, writeStdoutLine } from "./output.js"
+import { configureJsonOutput, createHumanLogger, writeJson, writeStderrLine, writeStdoutLine } from "./output.js"
 import { CLI_USAGE } from "./usage.js"
 import { parseArgs, validateKnownFlags } from "./args.js"
 import { runAnalysisCommand } from "./analysis-commands.js"
@@ -13,6 +13,8 @@ import {
   buildCommonSearchParams,
   executeSearchLikeTool,
   getSearchQuery,
+  projectDuplicateResponse,
+  resolveJsonProjection,
   toBool,
   type Flags,
   type SearchLikeParams,
@@ -282,6 +284,7 @@ async function run() {
   const argv = process.argv.slice(2)
   const command = argv[0]
   const { flags, positional } = parseArgs(argv.slice(1))
+  configureJsonOutput({ pretty: flags.pretty === true })
   if (typeof flags.profile === "string") process.env.SENSEGREP_PROFILE = flags.profile
 
   if (!command || command === "--help" || command === "-h" || flags.help || flags.h) {
@@ -619,7 +622,9 @@ async function run() {
       ? flags["json-detail"]
       : typeof flags.jsonDetail === "string"
         ? flags.jsonDetail
-        : command === "context" ? "content" : "compact"
+        : flags.diagnostic === true
+          ? "diagnostic"
+          : command === "context" ? "content" : "minimal"
     params.resultDetail = params.jsonDetail
     if (flags.exact !== undefined) params.exact = true
     assignNumberParam(params, flags, "maxPerFile", ["max-per-file", "maxPerFile"])
@@ -797,7 +802,8 @@ async function run() {
     const result = await DuplicateDetector.detect(options)
 
     if (flags.json) {
-      writeJson(result)
+      const detail = resolveJsonProjection(flags["json-detail"] ?? flags.jsonDetail, flags.diagnostic === true)
+      writeJson(projectDuplicateResponse(result, detail, showCode || fullCode))
       return
     }
 

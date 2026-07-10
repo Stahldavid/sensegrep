@@ -26,6 +26,7 @@ export type WorkingResult = {
   distanceMetric?: VectorStore.DistanceMetric
   metadata: ResultMetadata
   rerankScore?: number
+  rankScore?: number
   vector?: number[]
   confidence?: "high" | "medium" | "low"
   isWeakMatch?: boolean
@@ -39,6 +40,7 @@ export type StructuredSearchResult = {
   startLine: number
   endLine: number
   score: number
+  rankScore: number
   rawDistance?: number
   distanceMetric?: VectorStore.DistanceMetric
   symbolName?: string
@@ -1274,6 +1276,10 @@ export async function collectWorkingResults(
       maxPerSymbol: options.maxPerSymbol ?? 2,
     })
   }
+  processedResults = processedResults.map((result, index) => ({
+    ...result,
+    rankScore: Number(((processedResults.length - index) / Math.max(1, processedResults.length)).toFixed(6)),
+  }))
 
   const totalFiles = Object.keys(resources.meta.files ?? {}).length
   const searchedFiles = fileFiltering.candidateFiles?.length ?? (lexicalCandidateFiles.length || totalFiles)
@@ -2011,6 +2017,7 @@ export function toStructuredSearchResult(result: WorkingResult): StructuredSearc
     startLine: result.startLine,
     endLine: result.endLine,
     score: Number(Math.max(0, Math.min(1, result.rerankScore ?? result.semanticScore)).toFixed(6)),
+    rankScore: result.rankScore ?? 1,
     rawDistance: typeof result.rawDistance === "number" ? Number(result.rawDistance.toFixed(6)) : undefined,
     distanceMetric: result.distanceMetric,
     symbolName: typeof metadata.symbolName === "string" && metadata.symbolName ? metadata.symbolName : undefined,

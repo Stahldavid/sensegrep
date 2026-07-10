@@ -1,4 +1,4 @@
-import type { Flags } from "./search-commands.js"
+import { projectGraphResponse, resolveJsonProjection, type Flags } from "./search-commands.js"
 import { CliUsageError } from "./cli-errors.js"
 import { writeJson, writeStdoutLine } from "./output.js"
 
@@ -56,7 +56,7 @@ export async function runAnalysisCommand(input: {
       : command === "impact"
         ? await core.Instance.provide({ directory: rootDir, fn: () => core.CodeGraph.impact(first!, { id, depth, limit, maxDocuments }) })
         : await core.Instance.provide({ directory: rootDir, fn: () => core.CodeGraph.trace(first!, second!, { fromId, toId, depth, maxDocuments }) })
-    if (flags.json) writeJson(result)
+    if (flags.json) writeJson(projectGraphResponse(result, resolveJsonProjection(flags["json-detail"] ?? flags.jsonDetail, flags.diagnostic === true)))
     else writeStdoutLine(JSON.stringify(result, null, 2))
     return true
   }

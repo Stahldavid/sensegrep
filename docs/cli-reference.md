@@ -61,8 +61,18 @@ sensegrep search <query> [options]
 | `--embedding-timeout <ms>` | Query embedding deadline before lexical fallback; does not cap total process time |
 | `--latency-budget <ms>` | Deprecated alias for `--embedding-timeout` |
 
-JSON search results include `score`, `rawDistance`, and `distanceMetric`. New indexes use
-cosine distance explicitly for stable scoring across embedding providers.
+JSON is minified by default; use `--pretty` for human-readable indentation. Output projections:
+
+| Detail | Contents |
+|---|---|
+| `minimal` | Envelope, sufficiency, locations, `score`, `rankScore`, and `resultId` |
+| `content` | Minimal plus code content |
+| `diagnostic` | Ranking explanations, distances, timings, freshness, and index details |
+| `full` | Internal structures and rendered output when requested |
+
+`compact` remains an alias for `minimal`. Use `--diagnostic` as shorthand for
+`--json-detail diagnostic`. New indexes use cosine distance explicitly; distance diagnostics
+are emitted once requested rather than repeated in ordinary cards.
 
 **Symbol filters:**
 
@@ -130,6 +140,7 @@ sensegrep audit "security regressions" --base origin/main \
 ```
 
 `--batch-tokens` is a strict per-batch ceiling; large files are split into stable line/offset cards.
+Each batch exposes those ranges directly through `ranges`, in addition to `resultIds`.
 `budget` reports `retrievalTokens`, `contextTokens`, `attemptedTokens`, and
 `actualEmittedTokens` separately. `attemptedOutputBytes` describes the pre-serialization
 evidence while `actualOutputBytes` is measured from the final CLI JSON.
@@ -167,8 +178,8 @@ sensegrep detect-duplicates [options]
 | `--limit <n>` | Show top N results (default: 10) |
 
 JSON duplicate results always include `schemaVersion`, `command`, and `status`.
-Compact search cards use the same canonical names as content results (`symbolName`,
-`startLine`, `endLine`, `rawDistance`, and `distanceMetric`) while omitting `content`.
+Duplicate instances omit source code unless `--show-code` is explicitly supplied.
+Minimal search cards use canonical location fields while diagnostic-only metadata stays opt-in.
 | `--show-code` | Display duplicate code |
 | `--full-code` | Show full code (no truncation) |
 | `--verbose` | Show detailed output |

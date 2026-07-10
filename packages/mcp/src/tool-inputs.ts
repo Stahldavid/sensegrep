@@ -23,6 +23,7 @@ export const GraphToolArgsSchema = z.object({
   depth: z.number().int().positive().max(20).optional(),
   limit: z.number().int().positive().max(1000).optional(),
   maxDocuments: z.number().int().positive().max(1_000_000).optional(),
+  resultDetail: z.enum(["minimal", "compact", "diagnostic", "full"]).default("minimal"),
 }).strict().superRefine((value, context) => {
   if (value.action !== "trace" && !value.symbol && !value.id) {
     context.addIssue({ code: "custom", path: ["symbol"], message: "symbol is required" })
@@ -67,6 +68,7 @@ export const DuplicateToolArgsSchema = z.object({
   verbose: z.boolean().default(false),
   quiet: z.boolean().default(false),
   json: z.boolean().default(false),
+  resultDetail: z.enum(["minimal", "compact", "diagnostic", "full"]).default("minimal"),
 }).strict()
 
 export function toInputSchema(schema: z.ZodType): Record<string, unknown> {

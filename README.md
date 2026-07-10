@@ -95,6 +95,10 @@ sensegrep detect-duplicates --threshold 0.85
 sensegrep detect-duplicates --threshold 0.85 --timeout 30s --resume-cursor 0 --json
 ```
 
+Agent-facing JSON is minified and `minimal` by default. Opt into `--json-detail content`,
+`--diagnostic`, `--json-detail full`, or `--pretty` only when that additional payload is needed.
+Duplicate JSON excludes source code unless `--show-code` is supplied.
+
 ### Cursor Plugin
 
 Install from the Cursor marketplace or via CLI:

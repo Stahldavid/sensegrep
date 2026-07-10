@@ -56,7 +56,9 @@ Search options:
   --prefer-role <role>      Boost a file role (implementation, test, contract, etc.)
   --include-role <role>     Include only one file role
   --exclude-role <role>     Exclude one file role
-  --json-detail <mode>      compact|content|full for search JSON (default: compact)
+  --json-detail <mode>      minimal|content|diagnostic|full (compact aliases minimal)
+  --diagnostic              Alias for --json-detail diagnostic
+  --pretty                  Pretty-print JSON (default: minified)
   --include-rendered-output Include rendered Markdown in JSON
   --dry-run                 Plan indexing and estimate embedding work without API calls
   --no-resume               Discard interrupted full-index staging data
