@@ -15,6 +15,7 @@ let searchToolPromise: Promise<any> | null = null;
 let contextToolPromise: Promise<any> | null = null;
 let surveyToolPromise: Promise<any> | null = null;
 let clusterToolPromise: Promise<any> | null = null;
+let showToolPromise: Promise<any> | null = null;
 let cachedTools: Tool[] | null = null;
 const WATCH_INTERVAL_MS = 60_000;
 let watchHandle: { stop: () => Promise<void> } | null = null;
@@ -23,6 +24,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOOL_NAMES = {
   search: "sensegrep_search",
   literal: "sensegrep_literal",
+  show: "sensegrep_show",
   context: "sensegrep_context",
   survey: "sensegrep_survey",
   cluster: "sensegrep_cluster",
@@ -84,6 +86,32 @@ async function loadClusterTool() {
   if (!clusterToolPromise) clusterToolPromise = core.SenseGrepClusterTool.init();
   const tool = await clusterToolPromise;
   return { core, tool };
+}
+
+async function loadShowTool() {
+  const core = await loadCore();
+  if (!showToolPromise) showToolPromise = core.SenseGrepShowTool.init();
+  return { core, tool: await showToolPromise };
+}
+
+function compactSearchResponse(res: any) {
+  const { output: _output, ...rest } = res;
+  return {
+    ...rest,
+    results: Array.isArray(res.results) ? res.results.map((entry: any) => ({
+      resultId: entry.resultId,
+      file: entry.file,
+      symbol: entry.symbolName,
+      lines: [entry.startLine, entry.endLine],
+      kind: entry.semanticKind ?? entry.symbolType ?? entry.type,
+      score: entry.score,
+      why: entry.whyMatched,
+      estimatedTokens: entry.estimatedTokens,
+      chunksMatched: entry.chunksMatched,
+      snippetIntegrity: entry.snippetIntegrity,
+      fileRole: entry.metadata?.fileRole,
+    })) : res.results,
+  };
 }
 
 type IndexResult = {
@@ -365,6 +393,11 @@ async function generateTools(): Promise<Tool[]> {
     inputSchema: toRootedInputSchema(core.SenseGrepContextParametersSchema) as Tool["inputSchema"],
   });
   cachedTools.splice(1, 0, {
+    name: TOOL_NAMES.show,
+    description: "Expand a compact search result by resultId, optionally with graph evidence.",
+    inputSchema: toRootedInputSchema(core.SenseGrepShowParametersSchema) as Tool["inputSchema"],
+  });
+  cachedTools.splice(1, 0, {
     name: TOOL_NAMES.literal,
     description: "Exhaustive deterministic literal or regex search without embedding calls.",
     inputSchema: toRootedInputSchema(core.SenseGrepLiteralParametersSchema) as Tool["inputSchema"],
@@ -401,6 +434,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
   const profile = typeof args.profile === "string" ? args.profile : undefined;
 
   try {
+    if (matchesToolName(name, TOOL_NAMES.show, "sensegrep.show")) {
+      const { core, tool } = await loadShowTool();
+      const { rootDir: _root, profile: _profile, ...toolArgs } = args as any;
+      const res = await core.Instance.provide({
+        directory: rootDir,
+        profile,
+        fn: () => tool.execute(toolArgs, {
+          sessionID: "mcp", messageID: "mcp", agent: "sensegrep-mcp", abort: requestContext.signal,
+          metadata(_input: unknown) {},
+        }),
+      });
+      const { output: _output, ...structuredContent } = res;
+      return { content: [{ type: "text", text: res.output }], structuredContent };
+    }
+
     if (matchesToolName(name, TOOL_NAMES.literal, "sensegrep.literal")) {
       const core = await loadCore();
       const tool = await core.SenseGrepLiteralTool.init();
@@ -416,7 +464,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
           metadata(_input: unknown) {},
         }),
       });
-      return { content: [{ type: "text", text: res.output }], structuredContent: res };
+      const { output: _output, ...structuredContent } = res;
+      return { content: [{ type: "text", text: res.output }], structuredContent };
     }
 
     if (matchesToolName(name, TOOL_NAMES.context, "sensegrep.context")) {
@@ -434,7 +483,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
           metadata(_input: unknown) {},
         }),
       });
-      return { content: [{ type: "text", text: res.output }], structuredContent: res };
+      const { output: _output, ...structuredContent } = res;
+      return { content: [{ type: "text", text: res.output }], structuredContent };
     }
 
     if (matchesToolName(name, TOOL_NAMES.search, "sensegrep.search")) {
@@ -454,10 +504,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
             metadata(_input: { title?: string; metadata?: unknown }) {},
           }),
       });
-      return {
-        content: [{ type: "text", text: res.output }],
-        structuredContent: { ...res, output: res.output },
-      };
+      const detail = toolArgs.resultDetail ?? "compact";
+      const structuredContent = detail === "full" ? res : detail === "content" ? (({ output: _output, ...rest }) => rest)(res) : compactSearchResponse(res);
+      const text = detail === "compact"
+        ? JSON.stringify({ status: res.status, retrieval: res.retrieval, results: structuredContent.results, warnings: res.warnings })
+        : res.output;
+      return { content: [{ type: "text", text }], structuredContent };
     }
 
     if (matchesToolName(name, TOOL_NAMES.survey, "sensegrep.survey")) {
@@ -587,10 +639,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
         directory: rootDir,
         profile,
         fn: () => graphArgs.action === "references"
-          ? CodeGraph.findReferences(graphArgs.symbol!, graphArgs)
+          ? CodeGraph.findReferences(graphArgs.symbol ?? graphArgs.id!.split(":").at(-1)!, graphArgs)
           : graphArgs.action === "impact"
-            ? CodeGraph.impact(graphArgs.symbol!, graphArgs)
-            : CodeGraph.trace(graphArgs.from!, graphArgs.to!, graphArgs),
+            ? CodeGraph.impact(graphArgs.symbol ?? graphArgs.id!.split(":").at(-1)!, graphArgs)
+            : CodeGraph.trace(graphArgs.from ?? graphArgs.fromId!.split(":").at(-1)!, graphArgs.to ?? graphArgs.toId!.split(":").at(-1)!, graphArgs),
       });
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
@@ -646,6 +698,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
         minLines: duplicateArgs.minLines,
         minComplexity: duplicateArgs.minComplexity,
         maxCandidates: duplicateArgs.maxCandidates,
+        maxTokens: duplicateArgs.maxTokens,
         include: duplicateArgs.include,
         exclude: duplicateArgs.exclude,
         ignoreAcceptablePatterns: duplicateArgs.ignoreAcceptablePatterns,

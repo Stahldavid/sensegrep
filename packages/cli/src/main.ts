@@ -6,6 +6,8 @@ import { CLI_USAGE } from "./usage.js"
 import { parseArgs, validateKnownFlags } from "./args.js"
 import { runAnalysisCommand } from "./analysis-commands.js"
 import { CliUsageError } from "./cli-errors.js"
+import { runDaemonCommand } from "./daemon.js"
+import { runEval, runInvestigate } from "./agent-commands.js"
 import {
   assignNumberParam,
   buildCommonSearchParams,
@@ -149,6 +151,7 @@ function isIndexStale(
     verify.missing > maxMissing ||
     verify.removed > maxRemoved ||
     (verify as any).chunkMismatch === true
+    || (verify as any).schemaCompatible === false
   )
 }
 
@@ -237,6 +240,26 @@ async function ensureFreshIfRequested(
   writeStderrLine(`Refreshed stale index before query: ${formatIndexResult(result)}`)
 }
 
+function writeQueryDryRun(command: string, query: string, params: SearchLikeParams, Embeddings: CoreModule["Embeddings"]) {
+  const config = Embeddings.getConfig()
+  writeJson({
+    schemaVersion: 1,
+    command,
+    status: "planned",
+    plan: {
+      embeddingCalls: command === "literal" ? 0 : 1,
+      estimatedInputTokens: Math.max(1, Math.ceil(query.length / 4)),
+      outputTokensRequested: params.maxTokens,
+      maxOutputBytes: params.maxOutputBytes,
+      provider: config.provider,
+      model: config.embedModel,
+      dimension: config.embedDim,
+      estimatedCost: null,
+      note: "Provider pricing is not inferred; no remote request was made.",
+    },
+  })
+}
+
 async function run() {
   const argv = process.argv.slice(2)
   const command = argv[0]
@@ -264,6 +287,7 @@ async function run() {
     SenseGrepTool,
     SenseGrepContextTool,
     SenseGrepLiteralTool,
+    SenseGrepShowTool,
     SenseGrepSurveyTool,
     SenseGrepClusterTool,
     Indexer,
@@ -279,7 +303,22 @@ async function run() {
   await Log.init({ print: true, level: logLevel as any })
 
   const rootDir = (flags.root as string | undefined) || process.cwd()
+  if (command === "daemon") {
+    await runDaemonCommand(positional[0], flags, rootDir)
+    return
+  }
   applyEmbeddingOverrides(flags, Embeddings)
+  if (command === "investigate") {
+    const query = getSearchQuery(flags, positional)
+    if (!query) throw new CliUsageError("investigate requires <query>")
+    await runInvestigate({ query, flags, root: rootDir, core: await loadCore() })
+    return
+  }
+  if (command === "eval") {
+    if (!positional[0]) throw new CliUsageError("eval requires <cases.yaml|cases.json>")
+    await runEval({ file: positional[0], flags, root: rootDir, core: await loadCore() })
+    return
+  }
   if (await runAnalysisCommand({ command, flags, positional, rootDir, core: await loadCore() })) return
 
   if (command === "literal") {
@@ -293,12 +332,28 @@ async function run() {
     if (typeof flags.include === "string") params.include = flags.include
     if (typeof flags.exclude === "string") params.exclude = flags.exclude
     assignNumberParam(params, flags, "limit", ["limit"])
+    assignNumberParam(params, flags, "maxOutputBytes", ["max-output-bytes", "maxOutputBytes"])
+    if (flags.filesystem === true) params.filesystem = true
+    if (flags["dry-run"] === true) { writeQueryDryRun(command, query, params, Embeddings); return }
     await executeSearchLikeTool({ flags, rootDir, Instance, toolFactory: SenseGrepLiteralTool, params })
     return
   }
 
+  if (command === "show" || command === "expand") {
+    const resultId = positional[0]
+    if (!resultId) throw new CliUsageError(`${command} requires <result-id>`)
+    const params: SearchLikeParams = { query: resultId, resultId, expand: command === "expand" }
+    assignNumberParam(params, flags, "before", ["before"])
+    assignNumberParam(params, flags, "after", ["after"])
+    assignNumberParam(params, flags, "maxNodes", ["max-nodes"])
+    await executeSearchLikeTool({ flags, rootDir, Instance, toolFactory: SenseGrepShowTool, params })
+    return
+  }
+
   if (command === "index") {
-    const full = flags.full === true
+    const indexAction = positional[0]
+    if (indexAction && !["migrate", "rebuild"].includes(indexAction)) throw new CliUsageError(`Unknown index action "${indexAction}"`)
+    const full = flags.full === true || indexAction === "migrate" || indexAction === "rebuild"
     const checkOnly = flags.check === true
     const noWatch = flags["no-watch"] === true
     const watch = noWatch || flags.json ? false : (toBool(flags.watch) ?? true)
@@ -438,9 +493,12 @@ async function run() {
       fn: () => Indexer.getStats(),
     })
     const output: Record<string, unknown> = {
+      schemaVersion: 1,
+      command: "status",
+      status: stats.migrationRequired ? "migration-required" : "complete",
       ...stats,
       freshnessChecked: false,
-      isStale: stats.chunkMismatch === true ? true : null,
+      isStale: stats.chunkMismatch === true || stats.schemaCompatible === false ? true : null,
     }
     if (verifyFreshness) {
       const verify = await Instance.provide({
@@ -527,12 +585,21 @@ async function run() {
     }
 
     const params = buildCommonSearchParams(query, flags, {
+      commandName: command,
       rerank: command === "context" || command === "audit",
       shake: true,
       ...(command === "context" || command === "audit" ? { maxTokens: 12_000 } : {}),
       ...(command === "audit" ? { gitChanged: true } : {}),
     })
     if (flags["require-coverage"] !== undefined || flags.requireCoverage !== undefined) params.requireCoverage = true
+    if (flags["continue-uncovered"] !== undefined || flags.continueUncovered !== undefined) params.continueUncovered = true
+    assignNumberParam(params, flags, "batchTokens", ["batch-tokens", "batchTokens"])
+    params.jsonDetail = typeof flags["json-detail"] === "string"
+      ? flags["json-detail"]
+      : typeof flags.jsonDetail === "string"
+        ? flags.jsonDetail
+        : command === "search" ? "compact" : "content"
+    params.resultDetail = params.jsonDetail
     if (flags.exact !== undefined) params.exact = true
     assignNumberParam(params, flags, "maxPerFile", ["max-per-file", "maxPerFile"])
     assignNumberParam(params, flags, "maxPerSymbol", ["max-per-symbol", "maxPerSymbol"])
@@ -541,6 +608,8 @@ async function run() {
       if (rerankFlag !== undefined) params.rerank = rerankFlag
     }
     if (flags["no-rerank"] !== undefined) params.rerank = false
+
+    if (flags["dry-run"] === true) { writeQueryDryRun(command, query, params, Embeddings); return }
 
     await ensureFreshIfRequested(flags, rootDir, Instance, Indexer)
     await executeSearchLikeTool({
@@ -567,6 +636,7 @@ async function run() {
     assignNumberParam(params, flags, "perGroup", ["per-group", "perGroup"])
     const surveyJsonDetail = flags["json-detail"] ?? flags.jsonDetail
     if (typeof surveyJsonDetail === "string") params.jsonDetail = surveyJsonDetail
+    if (flags["dry-run"] === true) { writeQueryDryRun(command, query, params, Embeddings); return }
 
     await ensureFreshIfRequested(flags, rootDir, Instance, Indexer)
     await executeSearchLikeTool({ flags, rootDir, Instance, toolFactory: SenseGrepSurveyTool, params })
@@ -589,6 +659,7 @@ async function run() {
     assignNumberParam(params, flags, "minClusterSize", ["min-cluster-size", "minClusterSize"])
     const clusterJsonDetail = flags["json-detail"] ?? flags.jsonDetail
     if (typeof clusterJsonDetail === "string") params.jsonDetail = clusterJsonDetail
+    if (flags["dry-run"] === true) { writeQueryDryRun(command, query, params, Embeddings); return }
 
     await ensureFreshIfRequested(flags, rootDir, Instance, Indexer)
     await executeSearchLikeTool({ flags, rootDir, Instance, toolFactory: SenseGrepClusterTool, params })
@@ -596,6 +667,10 @@ async function run() {
   }
 
   if (command === "detect-duplicates") {
+    if (flags["dry-run"] === true) {
+      writeJson({ schemaVersion: 1, command, status: "planned", plan: { embeddingCalls: 0, maxCandidates: parsePositiveIntegerFlag(flags, "max-candidates") ?? 1500, maxTokens: parsePositiveIntegerFlag(flags, "max-tokens"), estimatedCost: 0 } })
+      return
+    }
     await ensureFreshIfRequested(flags, rootDir, Instance, Indexer)
 
     // Parse threshold
@@ -646,6 +721,7 @@ async function run() {
       minLines: parsePositiveIntegerFlag(flags, "min-lines") ?? 10,
       minComplexity: parseRequiredNumberFlag(flags, "min-complexity", { min: 0 }) ?? 0,
       maxCandidates: parsePositiveIntegerFlag(flags, "max-candidates"),
+      maxTokens: parsePositiveIntegerFlag(flags, "max-tokens") ?? parsePositiveIntegerFlag(flags, "maxTokens"),
       include: flags.include ? String(flags.include) : undefined,
       exclude: flags.exclude ? String(flags.exclude) : undefined,
       ignoreAcceptablePatterns: toBool(flags["ignore-acceptable-patterns"]) ?? false,
@@ -1008,7 +1084,7 @@ async function runSelftestCommand(
         directory: rootDir,
         fn: () =>
           tool.execute(
-            { query: "code search", limit: 1, hybrid: true, rerank: false, shake: true },
+            { query: "code search", limit: 1, hybrid: true, rerank: false, shake: true, purpose: "understand", resultDetail: "compact" },
             {
               sessionID: "cli-selftest",
               messageID: "cli-selftest",

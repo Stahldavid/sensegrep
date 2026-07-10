@@ -38,18 +38,24 @@ export async function runAnalysisCommand(input: {
   }
 
   if (command === "references" || command === "impact" || command === "trace") {
-    const [first, second] = positional
+    let [first, second] = positional
+    const id = typeof flags.id === "string" ? flags.id : undefined
+    const fromId = typeof flags["from-id"] === "string" ? flags["from-id"] : undefined
+    const toId = typeof flags["to-id"] === "string" ? flags["to-id"] : undefined
+    if (!first && id) first = id.split(":").at(-1) ?? ""
+    if (!first && fromId) first = fromId.split(":").at(-1) ?? ""
+    if (!second && toId) second = toId.split(":").at(-1) ?? ""
     if (!first || (command === "trace" && !second)) {
       throw new CliUsageError(command === "trace" ? "trace requires <from> <to>" : `${command} requires <symbol>`)
     }
     const depth = positiveInteger(flags, "depth")
-    const limit = positiveInteger(flags, "limit")
+    const limit = positiveInteger(flags, "max-nodes") ?? positiveInteger(flags, "limit")
     const maxDocuments = positiveInteger(flags, "max-documents")
     const result = command === "references"
-      ? await core.Instance.provide({ directory: rootDir, fn: () => core.CodeGraph.findReferences(first, { limit, maxDocuments }) })
+      ? await core.Instance.provide({ directory: rootDir, fn: () => core.CodeGraph.findReferences(first!, { id, limit, maxDocuments }) })
       : command === "impact"
-        ? await core.Instance.provide({ directory: rootDir, fn: () => core.CodeGraph.impact(first, { depth, limit, maxDocuments }) })
-        : await core.Instance.provide({ directory: rootDir, fn: () => core.CodeGraph.trace(first, second!, { depth, maxDocuments }) })
+        ? await core.Instance.provide({ directory: rootDir, fn: () => core.CodeGraph.impact(first!, { id, depth, limit, maxDocuments }) })
+        : await core.Instance.provide({ directory: rootDir, fn: () => core.CodeGraph.trace(first!, second!, { fromId, toId, depth, maxDocuments }) })
     if (flags.json) writeJson(result)
     else writeStdoutLine(JSON.stringify(result, null, 2))
     return true

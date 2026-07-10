@@ -2,6 +2,7 @@ import z from "zod"
 
 export const SymbolTypeSchema = z.enum(["function", "class", "method", "type", "variable", "enum", "module"])
 export const BuiltinLanguageSchema = z.enum(["typescript", "javascript", "python", "java", "vue"])
+export const FileRoleSchema = z.enum(["implementation", "test", "generated", "contract", "configuration", "documentation", "migration", "fixture", "build-artifact"])
 
 export const CommonSearchShape = {
   query: z.string().trim().min(1).describe("Natural-language query or code snippet"),
@@ -36,6 +37,12 @@ export const CommonSearchShape = {
   gitChanged: z.boolean().optional().describe("Restrict results to Git-changed files"),
   gitBase: z.string().optional().describe("Git base revision used by gitChanged"),
   latencyBudgetMs: z.number().int().positive().max(300_000).optional().describe("Embedding latency budget for an interactive query"),
+  purpose: z.enum(["understand", "implement", "review", "test"]).optional().describe("Ranking preset for the task (default: understand)"),
+  preferRole: FileRoleSchema.optional().describe("Boost one file role"),
+  includeRole: FileRoleSchema.optional().describe("Only include one file role"),
+  excludeRole: FileRoleSchema.optional().describe("Exclude one file role"),
+  resultDetail: z.enum(["compact", "content", "full"]).optional().describe("Structured result detail (default: compact)"),
+  commandName: z.enum(["search", "context", "audit"]).optional().describe("Internal result envelope command name"),
 } as const
 
 export const SenseGrepParametersSchema = z.object({

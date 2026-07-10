@@ -282,10 +282,9 @@ export namespace TreeSitterChunking {
       if (current.type === "call_expression" || current.type === "new_expression") {
         const callee = current.childForFieldName("function") ?? current.childForFieldName("constructor") ?? current.child(0)
         if (callee) {
-          const property = callee.childForFieldName("property")
-          const candidate = property?.text ?? callee.text
-          const match = candidate.match(/[A-Za-z_$][A-Za-z0-9_$]*$/)
-          if (match) targets.add(match[0])
+          const candidate = callee.text.replace(/\s+/g, "").replaceAll("?.", ".")
+          const memberChain = candidate.match(/[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*$/)
+          if (memberChain) targets.add(memberChain[0])
         }
       }
       for (let index = 0; index < current.childCount && targets.size < 200; index++) {

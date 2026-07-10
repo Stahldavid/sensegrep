@@ -71,6 +71,7 @@ export namespace DuplicateDetector {
     include?: string
     exclude?: string
     maxCandidates?: number
+    maxTokens?: number
   }
 
   export interface DetectResult {
@@ -83,6 +84,9 @@ export namespace DuplicateDetector {
       analyzedCandidates?: number
       truncated?: boolean
       deduplicatedCandidates?: number
+      returnedDuplicates?: number
+      estimatedTokens?: number
+      budgetTruncated?: boolean
     }
     duplicates: DuplicateGroup[]
     acceptableDuplicates?: DuplicateGroup[]
@@ -738,7 +742,12 @@ export namespace DuplicateDetector {
       }
     }
 
-    const collection = await VectorStore.getCollectionUnsafe(resolvedIndex.root, meta.embeddings.dimension)
+    const schema = typeof VectorStore.inspectCollectionSchema === "function"
+      ? await VectorStore.inspectCollectionSchema(resolvedIndex.root)
+      : { schemaCompatible: true }
+    const collection = schema.schemaCompatible
+      ? await VectorStore.getCollectionUnsafe(resolvedIndex.root, meta.embeddings.dimension)
+      : await VectorStore.openCollectionReadOnly(resolvedIndex.root)
 
     const filters: VectorStore.SearchFilters = { all: [] }
     if (scopeFilter === undefined) {
@@ -1054,6 +1063,19 @@ export namespace DuplicateDetector {
       duplicates.sort((a, b) => b.impact.score - a.impact.score)
     }
 
+    const allDuplicates = duplicates
+    let estimatedTokens = 0
+    if (options.maxTokens) {
+      duplicates = []
+      for (const duplicate of allDuplicates) {
+        const tokens = Math.max(1, Math.ceil(JSON.stringify(duplicate).length / 4))
+        if (duplicates.length > 0 && estimatedTokens + tokens > options.maxTokens) continue
+        duplicates.push(duplicate)
+        estimatedTokens += tokens
+      }
+    } else {
+      estimatedTokens = Math.ceil(JSON.stringify(allDuplicates).length / 4)
+    }
     const byLevel: Record<DuplicateLevel, number> = {
       [DuplicateLevel.EXACT]: 0,
       [DuplicateLevel.HIGH]: 0,
@@ -1077,7 +1099,7 @@ export namespace DuplicateDetector {
 
     return {
       summary: {
-        totalDuplicates: duplicates.length,
+        totalDuplicates: allDuplicates.length,
         byLevel,
         totalSavings,
         filesAffected,
@@ -1085,6 +1107,9 @@ export namespace DuplicateDetector {
         analyzedCandidates: candidates.length,
         truncated: truncatedByMaxCandidates,
         deduplicatedCandidates: deduplicatedCandidateCount,
+        returnedDuplicates: duplicates.length,
+        estimatedTokens,
+        budgetTruncated: duplicates.length < allDuplicates.length,
       },
       duplicates,
       acceptableDuplicates: acceptableDuplicates.length > 0 ? acceptableDuplicates : undefined,

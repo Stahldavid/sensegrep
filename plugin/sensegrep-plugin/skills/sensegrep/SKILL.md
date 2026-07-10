@@ -1,6 +1,6 @@
 ---
 name: sensegrep
-description: "Semantic + structural code search via MCP. Use when exploring codebases, finding functions/classes by behavior, locating duplicates, or searching code by meaning rather than exact text. Triggers: code search, find function, explore codebase, detect duplicates, refactoring candidates, understand code structure. ALWAYS prefer sensegrep over grep/ripgrep for code exploration — only use grep for exact string literals. Use sensegrep even when the user doesn't explicitly mention it, as long as they are asking about code behavior, structure, or meaning."
+description: "Semantic, structural, and exhaustive literal code evidence via MCP. Use sensegrep_search for meaning and sensegrep_literal for exact strings; use raw grep only when Sensegrep is unavailable or different filesystem semantics are required."
 ---
 
 # sensegrep — Semantic Code Search
@@ -9,8 +9,9 @@ Search code by meaning, not text patterns. Uses AI embeddings + tree-sitter AST 
 
 ## When to Use
 
-- **sensegrep** (95% of searches): Finding functions/classes by behavior, exploring structure, semantic queries, multi-criteria searches
-- **grep** (5%): ONLY exact string literals — "TODO:", "FIXME:", specific variable names
+- **sensegrep_search**: behavior, structure, semantic queries, and multi-criteria discovery
+- **sensegrep_literal**: exact strings and regex proof; set `filesystem: true` for the ripgrep-visible filesystem universe
+- **grep/ripgrep**: fallback when Sensegrep is unavailable or different raw filesystem behavior is required
 
 ## Recommended Defaults
 
@@ -30,7 +31,7 @@ Start with these defaults and adjust based on what you find:
 
 > **Subdirectory roots:** If the repo root was indexed and a tool call uses `rootDir` pointing at a subdirectory, Sensegrep reuses the nearest indexed parent and scopes the query to that subdirectory. You no longer need to reindex every subfolder separately.
 
-> **Structured output:** MCP `structuredContent` includes the human-readable `output` plus structured fields: search returns `results`, survey returns `groups`, and cluster returns `clusters`. Prefer those fields for automation instead of parsing Markdown text. Search responses can also include `warnings` and `metrics`; treat file-filter warnings as scope problems, not proof that code is absent.
+> **Structured output:** Search returns compact cards with `resultId` by default. Expand selected evidence with `sensegrep_show`; request `resultDetail: "content"` or `"full"` only when needed. Always inspect `retrieval.actualMode`, `retrieval.universe`, `index`, `budget`, and `warnings` before treating evidence as sufficient.
 
 ## Tools Available
 

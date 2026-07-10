@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const getCollectionUnsafe = vi.fn(async () => ({}))
+const openCollectionReadOnly = vi.fn(async () => ({}))
 const listDocuments = vi.fn(async () => [{
   id: "src/a.ts:0",
   content: "const header = 'X-Test'",
@@ -18,6 +19,8 @@ vi.mock("../semantic/lancedb.js", () => ({
       meta: { embeddings: { dimension: 3 }, files: { "src/a.ts": {}, "src/b.ts": {} } },
     }),
     getCollectionUnsafe,
+    inspectCollectionSchema: async () => ({ exists: true, schemaCompatible: true, tableName: "chunks", missingFields: [] }),
+    openCollectionReadOnly,
     listDocuments,
   },
 }))
@@ -48,6 +51,6 @@ describe("SenseGrepLiteralTool", () => {
     expect(result.metadata).toMatchObject({ totalMatches: 2, returnedMatches: 1, truncated: true, exhaustive: false })
     expect(result.matches).toHaveLength(1)
     expect(runRipgrepOnFiles).toHaveBeenCalledWith("X-Test", ["src/a.ts", "src/b.ts"], expect.objectContaining({ fixedStrings: true }))
-    expect(getCollectionUnsafe).toHaveBeenCalledTimes(1)
+    expect(openCollectionReadOnly).toHaveBeenCalledTimes(1)
   })
 })

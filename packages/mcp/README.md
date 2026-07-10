@@ -42,8 +42,16 @@ npm install -g @sensegrep/mcp
 Canonical tool names:
 
 - `sensegrep_search`
+- `sensegrep_show`
+- `sensegrep_literal`
+- `sensegrep_context`
+- `sensegrep_survey`
+- `sensegrep_cluster`
+- `sensegrep_graph`
 - `sensegrep_index`
 - `sensegrep_detect_duplicates`
+
+Search returns compact result cards by default. Call `sensegrep_show` with a selected `resultId`, or set `resultDetail` to `content`/`full`, to expand only the evidence an agent needs. Results report the requested and actual retrieval mode, evidence universe, index snapshot, budgets, and warnings.
 
 Legacy aliases are still accepted for compatibility:
 
@@ -57,7 +65,7 @@ Common MCP/runtime variables:
 
 - `SENSEGREP_ROOT` - root directory to index/search
 - `SENSEGREP_WATCH` - watcher toggle (`0`, `false`, `off`, `no` disables)
-- `SENSEGREP_PROVIDER` - `gemini` or `openai`
+- `SENSEGREP_PROVIDER` - `ollama`, `gemini`, `openai`, or `bedrock`
 - `SENSEGREP_EMBED_MODEL`, `SENSEGREP_EMBED_DIM`
 - `GEMINI_API_KEY` / `GOOGLE_API_KEY`
 - `SENSEGREP_OPENAI_API_KEY` / `FIREWORKS_API_KEY` / `OPENAI_API_KEY`

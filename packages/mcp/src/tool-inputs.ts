@@ -15,16 +15,19 @@ export const GraphToolArgsSchema = z.object({
   rootDir: RootDir,
   profile: Profile,
   symbol: z.string().min(1).optional(),
+  id: z.string().min(1).optional(),
   from: z.string().min(1).optional(),
   to: z.string().min(1).optional(),
+  fromId: z.string().min(1).optional(),
+  toId: z.string().min(1).optional(),
   depth: z.number().int().positive().max(20).optional(),
   limit: z.number().int().positive().max(1000).optional(),
   maxDocuments: z.number().int().positive().max(1_000_000).optional(),
 }).strict().superRefine((value, context) => {
-  if (value.action !== "trace" && !value.symbol) {
+  if (value.action !== "trace" && !value.symbol && !value.id) {
     context.addIssue({ code: "custom", path: ["symbol"], message: "symbol is required" })
   }
-  if (value.action === "trace" && (!value.from || !value.to)) {
+  if (value.action === "trace" && ((!value.from && !value.fromId) || (!value.to && !value.toId))) {
     context.addIssue({ code: "custom", path: ["from"], message: "from and to are required for trace" })
   }
 })
@@ -53,6 +56,7 @@ export const DuplicateToolArgsSchema = z.object({
   minLines: z.number().int().nonnegative().default(10),
   minComplexity: z.number().nonnegative().default(0),
   maxCandidates: z.number().int().positive().optional(),
+  maxTokens: z.number().int().positive().max(1_000_000).optional(),
   ignoreAcceptablePatterns: z.boolean().default(false),
   normalizeIdentifiers: z.boolean().default(true),
   rankByImpact: z.boolean().default(true),

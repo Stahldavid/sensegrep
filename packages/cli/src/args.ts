@@ -38,19 +38,22 @@ const SEARCH_FILTER_FLAGS = new Set([
   "explainFilters", "strict-parent", "strictParent", "strict-imports", "strictImports", "ensure-fresh",
   "ensureFresh", "no-shake", "hybrid", "no-hybrid", "max-tokens", "maxTokens", "changed", "base",
   "latency-budget", "latencyBudget",
+  "purpose", "prefer-role", "preferRole", "include-role", "includeRole", "exclude-role", "excludeRole",
+  "json-detail", "jsonDetail", "include-rendered-output", "includeRenderedOutput",
+  "dry-run",
 ])
 
 const ALLOWED_FLAGS_BY_COMMAND: Record<string, Set<string>> = {
   index: new Set([
     ...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, "full", "incremental", "verify", "check",
-    "watch", "no-watch", "include-docs", "include-config", "max-changed", "max-missing", "max-removed", "dry-run", "resume", "no-resume",
+    "watch", "no-watch", "include-docs", "include-config", "max-changed", "max-missing", "max-removed", "dry-run", "resume", "no-resume", "atomic",
   ]),
   verify: new Set([...GLOBAL_FLAGS, "strict"]),
   status: new Set([...GLOBAL_FLAGS, "verbose", "verify"]),
   search: new Set([...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, ...SEARCH_FILTER_FLAGS]),
-  literal: new Set([...GLOBAL_FLAGS, "query", "include", "exclude", "limit", "regex", "ignore-case", "ignoreCase"]),
+  literal: new Set([...GLOBAL_FLAGS, "query", "include", "exclude", "limit", "regex", "ignore-case", "ignoreCase", "filesystem", "max-output-bytes", "maxOutputBytes", "include-rendered-output", "dry-run"]),
   context: new Set([...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, ...SEARCH_FILTER_FLAGS, "require-coverage", "requireCoverage"]),
-  audit: new Set([...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, ...SEARCH_FILTER_FLAGS, "require-coverage", "requireCoverage"]),
+  audit: new Set([...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, ...SEARCH_FILTER_FLAGS, "require-coverage", "requireCoverage", "continue-uncovered", "continueUncovered", "batch-tokens", "batchTokens"]),
   survey: new Set([
     ...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, ...SEARCH_FILTER_FLAGS,
     "raw-limit", "rawLimit", "per-group", "perGroup", "json-detail", "jsonDetail",
@@ -66,15 +69,22 @@ const ALLOWED_FLAGS_BY_COMMAND: Record<string, Set<string>> = {
     "only-exported", "exclude-pattern", "min-lines", "min-complexity", "max-candidates",
     "ignore-acceptable-patterns", "normalize-identifiers", "no-normalize-identifiers", "rank-by-impact",
     "no-rank-by-impact", "limit", "full-code", "show-code", "verbose", "quiet",
+    "max-tokens", "maxTokens",
+    "dry-run",
   ]),
   languages: new Set([...GLOBAL_FLAGS, "detect", "variants"]),
   "semantic-kinds": new Set(GLOBAL_FLAGS),
   selftest: new Set([...GLOBAL_FLAGS, "strict", "deep"]),
   benchmark: new Set([...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, "concurrency", "samples", "repeats"]),
-  references: new Set([...GLOBAL_FLAGS, "limit", "max-documents"]),
-  impact: new Set([...GLOBAL_FLAGS, "limit", "depth", "max-documents"]),
-  trace: new Set([...GLOBAL_FLAGS, "depth", "max-documents"]),
+  references: new Set([...GLOBAL_FLAGS, "limit", "max-documents", "id", "max-nodes"]),
+  impact: new Set([...GLOBAL_FLAGS, "limit", "depth", "max-documents", "id", "max-nodes"]),
+  trace: new Set([...GLOBAL_FLAGS, "depth", "max-documents", "from-id", "to-id", "max-nodes"]),
+  show: new Set([...GLOBAL_FLAGS, "before", "after", "include-rendered-output"]),
+  expand: new Set([...GLOBAL_FLAGS, "before", "after", "max-nodes", "include-rendered-output"]),
   profiles: new Set(GLOBAL_FLAGS),
+  daemon: new Set([...GLOBAL_FLAGS, "tool", "arguments"]),
+  investigate: new Set([...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, "query", "max-tokens", "dry-run"]),
+  eval: new Set([...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, "limit"]),
 }
 
 export function validateKnownFlags(command: string, flags: Flags): string | undefined {

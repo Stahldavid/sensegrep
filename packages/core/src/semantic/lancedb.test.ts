@@ -54,4 +54,23 @@ describe("VectorStore distance scoring", () => {
       await fs.rm(root, { recursive: true, force: true })
     }
   })
+
+  it("inspects a missing collection without creating a table", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "sensegrep-readonly-"))
+    try {
+      expect(await VectorStore.hasCollection(root)).toBe(false)
+      const inspection = await VectorStore.inspectCollectionSchema(root)
+      expect(inspection).toMatchObject({ exists: false, schemaCompatible: false, migrationRequired: false })
+      expect(await VectorStore.hasCollection(root)).toBe(false)
+    } finally {
+      await VectorStore.deleteCollection(root).catch(() => {})
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("uses a typed non-destructive schema mismatch error", () => {
+    const error = new VectorStore.IndexSchemaMismatchError("/repo", "chunks_old", ["calls", "fileRole"])
+    expect(error).toMatchObject({ code: "INDEX_SCHEMA_MISMATCH", tableName: "chunks_old", missingFields: ["calls", "fileRole"] })
+    expect(error.message).toContain("index --full --no-watch")
+  })
 })

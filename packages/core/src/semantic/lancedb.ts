@@ -203,6 +203,8 @@ export namespace VectorStore {
     language: string
     imports: string
     calls: string
+    fileKind: string
+    fileRole: string
     variant: string
     isAsync: boolean
     isStatic: boolean
@@ -244,6 +246,30 @@ export namespace VectorStore {
     }
 
     return projects
+  }
+
+  export const REQUIRED_TABLE_FIELDS = [
+    "id", "content", "content_raw", "vector", "file", "startLine", "endLine", "chunkIndex", "type",
+    "symbolName", "symbolType", "complexity", "isExported", "parentScope", "semanticKind", "framework",
+    "scopeDepth", "hasDocumentation", "language", "imports", "calls", "fileKind", "fileRole", "variant",
+    "isAsync", "isStatic", "isAbstract", "decorators",
+  ] as const
+  const READ_ONLY_TABLE_FIELDS = ["id", "content", "vector", "file", "startLine", "endLine"] as const
+
+  export class IndexSchemaMismatchError extends Error {
+    readonly code = "INDEX_SCHEMA_MISMATCH"
+
+    constructor(
+      readonly projectPath: string,
+      readonly tableName: string,
+      readonly missingFields: string[],
+    ) {
+      super(
+        `Index schema is incompatible for "${projectPath}" (${tableName}); missing fields: ${missingFields.join(", ")}. ` +
+          "Run `sensegrep index --full --no-watch` to rebuild it atomically.",
+      )
+      this.name = "IndexSchemaMismatchError"
+    }
   }
 
   export async function listProfiles(projectPath: string): Promise<Array<{
@@ -443,72 +469,48 @@ export namespace VectorStore {
     }
   }
 
+  async function inspectTableSchema(table: LanceTable): Promise<{ fields: string[]; missingFields: string[] }> {
+    const schema = await table.schema()
+    const fields = Array.isArray((schema as any)?.fields) ? (schema as any).fields : []
+    const fieldNames = fields.map((field: any) => String(field?.name ?? "")).filter(Boolean)
+    return {
+      fields: fieldNames,
+      missingFields: REQUIRED_TABLE_FIELDS.filter((name) => !fieldNames.includes(name)),
+    }
+  }
+
+  async function openExistingTable(
+    db: LanceDBConnection,
+    projectPath: string,
+    tableName: string,
+  ): Promise<LanceTable> {
+    const table = await db.openTable(tableName)
+    const inspection = await inspectTableSchema(table)
+    if (inspection.fields.length > 0 && inspection.missingFields.length > 0) {
+      throw new IndexSchemaMismatchError(projectPath, tableName, inspection.missingFields)
+    }
+    return table
+  }
+
+  async function openReadableTable(db: LanceDBConnection, projectPath: string, tableName: string): Promise<LanceTable> {
+    const table = await db.openTable(tableName)
+    const inspection = await inspectTableSchema(table)
+    const missingFields = READ_ONLY_TABLE_FIELDS.filter((name) => !inspection.fields.includes(name))
+    if (inspection.fields.length > 0 && missingFields.length > 0) {
+      throw new IndexSchemaMismatchError(projectPath, tableName, missingFields)
+    }
+    return table
+  }
+
   async function ensureTable(
     db: LanceDBConnection,
+    projectPath: string,
     expectedDim?: number,
     tableName = TABLE_NAME,
   ): Promise<LanceTable> {
-    let table: LanceTable | null = null
-    let needsCreate = false
-
-    try {
-      table = await db.openTable(tableName)
-    } catch (error) {
-      needsCreate = true
-    }
-
-    if (table && !needsCreate) {
-      try {
-        const schema = await table.schema()
-        const fields = Array.isArray((schema as any)?.fields) ? (schema as any).fields : []
-        const fieldNames = fields.map((field: any) => field?.name).filter(Boolean)
-        const required = [
-          "id",
-          "content",
-          "content_raw",
-          "vector",
-          "file",
-          "startLine",
-          "endLine",
-          "chunkIndex",
-          "type",
-          "symbolName",
-          "symbolType",
-          "complexity",
-          "isExported",
-          "parentScope",
-          "semanticKind",
-          "framework",
-          "scopeDepth",
-          "hasDocumentation",
-          "language",
-          "imports",
-          "calls",
-          // Multilingual support fields
-          "variant",
-          "isAsync",
-          "isStatic",
-          "isAbstract",
-          "decorators",
-        ]
-        if (fieldNames.length > 0 && required.some((name) => !fieldNames.includes(name))) {
-          log.warn("Existing table schema missing fields; recreating", {
-            tableName,
-            missing: required.filter((name) => !fieldNames.includes(name)),
-          })
-          try {
-            await db.dropTable(tableName)
-          } catch {
-            // ignore drop failures and fall back to create
-          }
-          needsCreate = true
-        }
-      } catch {
-        // If schema fetch fails, keep existing table
-      }
-    }
-
-    if (table && !needsCreate) {
+    const tableNames = await db.tableNames()
+    if (tableNames.includes(tableName)) {
+      const table = await openExistingTable(db, projectPath, tableName)
       log.debug("Opened existing table", { tableName })
       return table
     }
@@ -540,6 +542,8 @@ export namespace VectorStore {
       language: "",
       imports: "",
       calls: "",
+      fileKind: "",
+      fileRole: "implementation",
       // Multilingual support fields
       variant: "",
       isAsync: false,
@@ -752,7 +756,7 @@ export namespace VectorStore {
 
     const p = (async () => {
       const db = await connect(projectPath)
-      const table = await ensureTable(db, undefined, tableName)
+      const table = await openExistingTable(db, projectPath, tableName)
       await assertCompatibleDimension(projectPath, table)
       return table
     })()
@@ -769,7 +773,48 @@ export namespace VectorStore {
   export async function getCollectionUnsafe(projectPath: string, expectedDim?: number): Promise<LanceTable> {
     const db = await connect(projectPath)
     const tableName = (await readIndexMeta(projectPath))?.tableName ?? TABLE_NAME
-    return await ensureTable(db, expectedDim, tableName)
+    return await openExistingTable(db, projectPath, tableName)
+  }
+
+  export async function openCollectionReadOnly(projectPath: string): Promise<LanceTable> {
+    const db = await connect(projectPath)
+    const tableName = (await readIndexMeta(projectPath))?.tableName ?? TABLE_NAME
+    return openReadableTable(db, projectPath, tableName)
+  }
+
+  export async function getOrCreateCollection(projectPath: string, expectedDim?: number): Promise<LanceTable> {
+    const db = await connect(projectPath)
+    const tableName = (await readIndexMeta(projectPath))?.tableName ?? TABLE_NAME
+    return ensureTable(db, projectPath, expectedDim, tableName)
+  }
+
+  export async function inspectCollectionSchema(projectPath: string): Promise<{
+    exists: boolean
+    tableName: string
+    schemaCompatible: boolean
+    migrationRequired: boolean
+    fields: string[]
+    missingFields: string[]
+    vectorDimension?: number
+  }> {
+    const tableName = (await readIndexMeta(projectPath))?.tableName ?? TABLE_NAME
+    const db = await connect(projectPath)
+    let table: LanceTable
+    try {
+      table = await db.openTable(tableName)
+    } catch {
+      return { exists: false, tableName, schemaCompatible: false, migrationRequired: false, fields: [], missingFields: [] }
+    }
+    const schema = await inspectTableSchema(table).catch(() => ({ fields: [], missingFields: [...REQUIRED_TABLE_FIELDS] as string[] }))
+    return {
+      exists: true,
+      tableName,
+      schemaCompatible: schema.missingFields.length === 0,
+      migrationRequired: schema.missingFields.length > 0,
+      fields: schema.fields,
+      missingFields: schema.missingFields,
+      vectorDimension: await readVectorDimension(table),
+    }
   }
 
   export async function createStagingCollection(
@@ -778,7 +823,7 @@ export namespace VectorStore {
   ): Promise<{ collection: LanceTable; tableName: string }> {
     const db = await connect(projectPath)
     const tableName = `chunks_${Date.now()}_${crypto.randomUUID().replaceAll("-", "")}`
-    const collection = await ensureTable(db, expectedDim, tableName)
+    const collection = await ensureTable(db, projectPath, expectedDim, tableName)
     return { collection, tableName }
   }
 
@@ -788,7 +833,7 @@ export namespace VectorStore {
     expectedDim: number,
   ): Promise<LanceTable> {
     const db = await connect(projectPath)
-    return ensureTable(db, expectedDim, tableName)
+    return ensureTable(db, projectPath, expectedDim, tableName)
   }
 
   export async function dropCollectionTable(projectPath: string, tableName: string): Promise<void> {
@@ -802,14 +847,17 @@ export namespace VectorStore {
   export async function cleanupInactiveTables(projectPath: string, activeTableName: string): Promise<void> {
     const db = await connect(projectPath)
     const tableNames = await db.tableNames()
-    const cutoff = Date.now() - 60 * 60_000
-    const inactive = tableNames.filter(
-      (name) => {
-        if (name === activeTableName || !name.startsWith("chunks_")) return false
-        const timestamp = Number(name.split("_", 3)[1])
-        return Number.isFinite(timestamp) && timestamp < cutoff
-      },
-    )
+    const retentionMs = Math.max(60_000, Number(process.env.SENSEGREP_INDEX_RETENTION_MS ?? 24 * 60 * 60_000))
+    const retainGenerations = Math.max(1, Number(process.env.SENSEGREP_INDEX_RETAIN_GENERATIONS ?? 2))
+    const cutoff = Date.now() - retentionMs
+    const generations = tableNames
+      .filter((name) => name !== activeTableName && name.startsWith("chunks_"))
+      .map((name) => ({ name, timestamp: Number(name.split("_", 3)[1]) }))
+      .filter((entry) => Number.isFinite(entry.timestamp))
+      .sort((left, right) => right.timestamp - left.timestamp)
+    const inactive = generations
+      .filter((entry, index) => index >= retainGenerations && entry.timestamp < cutoff)
+      .map((entry) => entry.name)
     for (const tableName of inactive) {
       await dropCollectionTable(projectPath, tableName).catch((error) => {
         log.warn("Failed to remove inactive index table", {
@@ -866,6 +914,8 @@ export namespace VectorStore {
       language: md.language ? String(md.language) : "",
       imports: md.imports ? String(md.imports) : "",
       calls: md.calls ? String(md.calls) : "",
+      fileKind: md.fileKind ? String(md.fileKind) : "code",
+      fileRole: md.fileRole ? String(md.fileRole) : "implementation",
       // Multilingual support fields
       variant: md.variant ? String(md.variant) : "",
       isAsync: md.isAsync !== undefined ? Boolean(md.isAsync) : false,
@@ -1080,6 +1130,8 @@ export namespace VectorStore {
         language: row?.language ? String(row.language) : undefined,
         imports: row?.imports ? String(row.imports) : undefined,
         calls: row?.calls ? String(row.calls) : undefined,
+        fileKind: row?.fileKind ? String(row.fileKind) : undefined,
+        fileRole: row?.fileRole ? String(row.fileRole) : undefined,
         // Multilingual support fields
         variant: row?.variant ? String(row.variant) : undefined,
         isAsync: row?.isAsync !== undefined ? Boolean(row.isAsync) : undefined,
@@ -1209,6 +1261,8 @@ export namespace VectorStore {
         language: r.language ? String(r.language) : undefined,
         imports: r.imports ? String(r.imports) : undefined,
         calls: r.calls ? String(r.calls) : undefined,
+        fileKind: r.fileKind ? String(r.fileKind) : undefined,
+        fileRole: r.fileRole ? String(r.fileRole) : undefined,
         // Multilingual support fields
         variant: r.variant ? String(r.variant) : undefined,
         isAsync: r.isAsync !== undefined ? Boolean(r.isAsync) : undefined,
@@ -1254,7 +1308,8 @@ export namespace VectorStore {
 
     try {
       const db = await connect(projectPath)
-      await db.openTable(TABLE_NAME)
+      const tableName = (await readIndexMeta(projectPath))?.tableName ?? TABLE_NAME
+      await db.openTable(tableName)
       return true
     } catch {
       return false

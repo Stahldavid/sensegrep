@@ -11,6 +11,7 @@ import {
   formatFreshnessWarning,
   getFreshnessSummary,
   prependFreshnessWarning,
+  reconstructSymbolResults,
   rerankWorkingResults,
   selectWithinTokenBudget,
   toStructuredSearchResult,
@@ -29,6 +30,9 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     const resolved = await VectorStore.resolveIndexedProject(Instance.directory)
     if (!resolved?.meta.embeddings) {
       return {
+        schemaVersion: 1,
+        command: params.commandName ?? "search",
+        status: "index-required",
         title: params.query,
         metadata: { matches: 0, indexed: false },
         results: [],
@@ -38,6 +42,25 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     }
 
     const meta = resolved.meta
+    const schema = typeof VectorStore.inspectCollectionSchema === "function"
+      ? await VectorStore.inspectCollectionSchema(resolved.root)
+      : { exists: true, tableName: meta.tableName ?? "chunks", schemaCompatible: true, migrationRequired: false, fields: [] as string[], missingFields: [] as string[] }
+    const backwardCompatibleMissingFields = new Set(["calls", "fileKind", "fileRole"])
+    const readableLegacySchema = schema.exists && schema.missingFields.every((field) => backwardCompatibleMissingFields.has(field))
+    const roleFilterNeedsMigration = schema.missingFields.includes("fileRole") && Boolean(params.includeRole || params.excludeRole)
+    if (!schema.schemaCompatible && (!readableLegacySchema || roleFilterNeedsMigration)) {
+      return {
+        schemaVersion: 1,
+        command: params.commandName ?? "search",
+        status: "migration-required",
+        title: params.query,
+        metadata: { matches: 0, indexed: true, schemaCompatible: false, missingFields: schema.missingFields },
+        index: { fresh: null, schemaCompatible: false, snapshotId: `${schema.tableName}:${meta.updatedAt}` },
+        results: [],
+        warnings: ["Index schema is incompatible and was left unchanged."],
+        output: `Index migration required; missing fields: ${schema.missingFields.join(", ")}. Run \`sensegrep index --full --no-watch\`.`,
+      }
+    }
 
     // Configure embeddings to match the index
     const indexConfig = {
@@ -52,6 +75,9 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       meta.embeddings.configFingerprint !== embeddingConfigFingerprint(Embeddings.getConfig())
     ) {
       return {
+        schemaVersion: 1,
+        command: params.commandName ?? "search",
+        status: "incompatible-embedding-config",
         title: params.query,
         metadata: { matches: 0, indexed: true, incompatibleEmbeddingConfig: true },
         results: [],
@@ -72,7 +98,9 @@ export const SenseGrepTool = Tool.define("sensegrep", {
 
     // Get collection, passing the expected dimension from index metadata
     const collectionStartedAt = Date.now()
-    const collection = await VectorStore.getCollectionUnsafe(resolved.root, meta.embeddings.dimension)
+    const collection = schema.schemaCompatible
+      ? await VectorStore.getCollectionUnsafe(resolved.root, meta.embeddings.dimension)
+      : await VectorStore.openCollectionReadOnly(resolved.root)
     metrics.collectionMs = Date.now() - collectionStartedAt
 
     const collected = await collectWorkingResults({
@@ -82,6 +110,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       requestedDirectory: Instance.directory,
       subdirPrefix: resolved.subdirPrefix,
       freshness,
+      schema,
     }, params, {
       rawLimit: params.pattern ? limit * 3 : limit * 2,
       diversify: false,
@@ -89,6 +118,8 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     })
     if ("output" in collected) return collected
     Object.assign(metrics, collected.metrics)
+    metrics.embeddingRequests = collected.retrieval.vectorUsed ? 1 : 0
+    metrics.estimatedInputTokens = Math.max(1, Math.ceil(params.query.length / 4))
     warnings.push(...collected.warnings)
     const useLexicalOnly = collected.lexicalOnly
     let workingResults = collected.results
@@ -103,6 +134,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       rankedResults = rerankWorkingResults(params.query, workingResults)
       metrics.rerankMs = Date.now() - rerankStartedAt
     }
+    rankedResults = await reconstructSymbolResults(resolved.root, rankedResults)
 
     const minScore = typeof params.minScore === "number" ? params.minScore : undefined
     if (minScore !== undefined) {
@@ -131,6 +163,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
         freshness,
         warnings,
         metrics,
+        retrieval: collected.retrieval,
         results: [],
         output: prependFreshnessWarning("No matching results found for your query.", freshness),
       }
@@ -217,12 +250,12 @@ export const SenseGrepTool = Tool.define("sensegrep", {
           freshness,
           warnings,
           metrics,
-          retrieval: { mode: params.pattern ? "semantic-pattern-filter" : "semantic", exhaustive: false },
+          retrieval: collected.retrieval,
         },
         freshness,
         warnings,
         metrics,
-        retrieval: { mode: params.pattern ? "semantic-pattern-filter" : "semantic", exhaustive: false },
+        retrieval: collected.retrieval,
         results: finalResults.map(toStructuredSearchResult),
         output: prependFreshnessWarning(outputLines.join("\n"), freshness),
       }
@@ -250,7 +283,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       const metaParts = []
 
       // Always show relevance score
-      metaParts.push(`Relevance: ${(result.semanticScore * 100).toFixed(1)}%`)
+      metaParts.push(`Relevance: ${(Math.max(0, Math.min(1, result.semanticScore)) * 100).toFixed(1)}%`)
       if (result.confidence) {
         metaParts.push(`Confidence: ${result.confidence}`)
       }
@@ -302,23 +335,44 @@ export const SenseGrepTool = Tool.define("sensegrep", {
           freshness,
           warnings,
           metrics,
-          retrieval: { mode: params.pattern ? "semantic-pattern-filter" : "semantic", exhaustive: false },
+          retrieval: collected.retrieval,
         },
         freshness,
         warnings,
       metrics,
-      retrieval: { mode: params.pattern ? "semantic-pattern-filter" : "semantic", exhaustive: false },
+      retrieval: collected.retrieval,
         results: finalResults.map(toStructuredSearchResult),
         output: prependFreshnessWarning(outputLines.join("\n"), freshness),
       }
     }
 
     // Use withConfig to match index embeddings and ensure proper cleanup
-    return Embeddings.withConfig(indexConfig as any, () =>
+    const result = await Embeddings.withConfig(indexConfig as any, () =>
       Instance.provide({
         directory: resolved.root,
         fn: run,
       }),
     )
+    const freshness = (result as any).freshness
+    const metrics = (result as any).metrics ?? {}
+    return {
+      schemaVersion: 1,
+      command: params.commandName ?? "search",
+      status: "complete",
+      index: {
+        fresh: freshness ? !freshness.isStale : null,
+        schemaCompatible: schema.schemaCompatible,
+        snapshotId: `${meta.tableName ?? "chunks"}:${meta.updatedAt}`,
+      },
+      ...result,
+      budget: {
+        tokensRequested: params.maxTokens,
+        tokensUsed: metrics.estimatedOutputTokens ?? 0,
+        inputTokens: metrics.estimatedInputTokens ?? 0,
+        embeddingRequests: metrics.embeddingRequests ?? 0,
+        latencyBudgetMs: params.latencyBudgetMs,
+        elapsedMs: metrics.totalMs ?? 0,
+      },
+    }
   },
 })

@@ -29,7 +29,7 @@ const chunkAsync = vi.fn()
 const analyzeAsync = vi.fn()
 const addOverlap = vi.fn((chunks) => chunks)
 const testChunkingSignature = {
-  version: 3,
+  version: 4,
   provider: "openai",
   model: "test-model",
   dimension: 3,

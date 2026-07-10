@@ -91,6 +91,10 @@ export function buildCommonSearchParams(query: string, flags: Flags, defaults: O
   if (flags.changed !== undefined) params.gitChanged = true
   assignStringParam(params, flags, "gitBase", ["base"])
   assignNumberParam(params, flags, "latencyBudgetMs", ["latency-budget", "latencyBudget"])
+  assignStringParam(params, flags, "purpose", ["purpose"])
+  assignStringParam(params, flags, "preferRole", ["prefer-role", "preferRole"])
+  assignStringParam(params, flags, "includeRole", ["include-role", "includeRole"])
+  assignStringParam(params, flags, "excludeRole", ["exclude-role", "excludeRole"])
 
   return params
 }
@@ -118,11 +122,34 @@ export async function executeSearchLikeTool(input: {
 
   if (input.flags.json) {
     const jsonDetail = input.params.jsonDetail
-    if (jsonDetail === "summary" || jsonDetail === "representatives") {
+    const includeRendered = input.flags["include-rendered-output"] === true || input.flags.includeRenderedOutput === true
+    if (jsonDetail === "compact") {
+      const compactResults = Array.isArray(res.results)
+        ? res.results.map((entry: any) => ({
+            resultId: entry.resultId,
+            file: entry.file,
+            symbol: entry.symbolName,
+            lines: [entry.startLine, entry.endLine],
+            kind: entry.semanticKind ?? entry.symbolType ?? entry.type,
+            score: entry.score,
+            why: entry.whyMatched,
+            estimatedTokens: entry.estimatedTokens,
+            chunksMatched: entry.chunksMatched,
+            snippetIntegrity: entry.snippetIntegrity,
+            fileRole: entry.metadata?.fileRole,
+          }))
+        : res.results
+      const { output: _output, results: _results, ...compact } = res
+      writeJson({ ...compact, results: compactResults, ...(includeRendered ? { output: res.output } : {}) })
+    } else if (jsonDetail === "summary" || jsonDetail === "representatives") {
       const { output: _output, ...compact } = res
-      writeJson(compact)
+      writeJson(includeRendered ? { ...compact, output: res.output } : compact)
     } else {
-      writeJson(res)
+      if (includeRendered || jsonDetail === "full") writeJson(res)
+      else {
+        const { output: _output, ...withoutRendered } = res
+        writeJson(withoutRendered)
+      }
     }
     return
   }

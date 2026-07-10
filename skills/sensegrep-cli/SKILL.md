@@ -1,6 +1,6 @@
 ---
 name: sensegrep-cli
-description: "Semantic + structural code search via the sensegrep CLI (no MCP server required). Use when exploring codebases, building token-bounded context, auditing Git changes, tracing symbol impact, finding functions/classes by behavior, locating duplicates, or searching code by meaning rather than exact text. Triggers: code search, context gathering, changed-code audit, references, impact analysis, find function, explore codebase, detect duplicates, refactoring candidates, understand code structure. ALWAYS prefer sensegrep over grep/ripgrep for code exploration; use grep only for exact string literals."
+description: "Semantic, structural, and exhaustive literal code evidence via the sensegrep CLI. Use for code exploration, exact text proof, token-bounded context, audits, graphs, duplicates, and agent investigations. Prefer sensegrep search for meaning and sensegrep literal for exact strings; use raw grep only when Sensegrep is unavailable or the filesystem semantics must differ."
 ---
 
 # sensegrep (CLI) — Semantic Code Search
@@ -29,8 +29,9 @@ Use `sensegrep --version` to confirm the installed CLI version.
 
 ## When to Use
 
-- **sensegrep** (95% of searches): Finding functions/classes by behavior, exploring structure, semantic queries, multi-criteria searches
-- **grep** (5%): ONLY exact string literals — "TODO:", "FIXME:", specific variable names
+- **sensegrep search**: Finding functions/classes by behavior, exploring structure, semantic queries, multi-criteria searches
+- **sensegrep literal**: Exact strings and regex proof; add `--filesystem` when the evidence universe must not depend on the index
+- **grep/ripgrep**: Fallback only when Sensegrep is unavailable or custom raw filesystem behavior is required
 
 ## Recommended Defaults
 
@@ -50,7 +51,7 @@ Start with these defaults and adjust based on what you find:
 
 > **Subdirectory roots:** If the repo root was indexed and you run `sensegrep` with `--root` pointing at a subdirectory, Sensegrep reuses the nearest indexed parent and scopes the query to that subdirectory. You no longer need to reindex every subfolder separately.
 
-> **JSON output:** `--json` returns structured data: `search`, `context`, and `audit` return `results`; `literal` returns `matches`; `survey` returns `groups`; `cluster` returns `clusters`. Survey and cluster default to representative-only JSON; use `--json-detail summary|representatives|full`. Prefer these fields over parsing Markdown. stdout is reserved for JSON; progress and warnings go to stderr.
+> **JSON output:** Search defaults to compact result cards with `resultId`; use `sensegrep show <resultId>` or `--json-detail content|full` to expand selected evidence. Rendered Markdown is omitted unless `--include-rendered-output` or full detail is requested. Read `retrieval.actualMode`, `retrieval.universe`, `index`, `budget`, and `warnings` before treating evidence as sufficient.
 
 > **Profiles:** Use `--profile <name>` when comparing embedding models/settings. Profiles have independent indexes. Sensegrep validates a non-secret endpoint/model fingerprint before searching.
 
@@ -101,6 +102,7 @@ Use this instead of `search --pattern` when every occurrence matters. It skips e
 ```bash
 sensegrep literal "X-Goog-Message-Number" --include "convex/**" --json
 sensegrep literal "retry|backoff" --regex --ignore-case
+sensegrep literal "TODO:" --filesystem --max-output-bytes 50000 --json
 ```
 
 ### `sensegrep context` — Build an agent context pack
@@ -118,6 +120,7 @@ sensegrep context "billing retry behavior" --include "packages/core/**/*.ts" --m
 
 ```bash
 sensegrep audit "security regressions and missing error handling" --base origin/main --max-tokens 12000
+sensegrep audit "security regressions" --base origin/main --require-coverage --continue-uncovered --batch-tokens 4000
 sensegrep search "affected retry logic" --changed --base HEAD~1 --json
 ```
 
@@ -158,6 +161,7 @@ These commands analyze the existing local index without embedding calls:
 sensegrep references loadUser --json
 sensegrep impact loadUser --depth 3 --limit 100 --json
 sensegrep trace handleRequest loadUser --depth 6 --json
+sensegrep references --id "src/auth.ts:20:45:loadUser" --json
 ```
 
 - `references` lists definitions and indexed reference sites.
@@ -222,6 +226,7 @@ sensegrep index --full --no-resume --no-watch # discard interrupted staging
 sensegrep status                 # fast metadata-only stats; does not scan freshness
 sensegrep status --verify        # compute changed/missing/removed freshness
 sensegrep status --verbose       # freshness plus changedFiles/missingFiles/removedFiles
+sensegrep index migrate --no-watch # atomic rebuild when schemaCompatible=false
 sensegrep verify --strict        # non-zero exit unless index is fresh and internally consistent
 sensegrep selftest --strict      # CLI/core health check without remote embedding calls
 ```
@@ -296,7 +301,7 @@ Applied at the vector store level, before embedding search:
 - `--include` — file glob include filter (e.g. `packages/core/**/*.ts`). Prefer forward slashes in patterns, especially on Windows.
 - `--exclude` — file glob exclude filter (e.g. `*.md`, `docs/**`)
 
-`--parent` and `--imports` are useful narrowing filters, not proof-grade AST audits. If a query must exhaustively prove every import or parent relationship, combine Sensegrep with `rg`, TypeScript tooling, or AST tooling.
+`--parent` and `--imports` are useful narrowing filters, not proof-grade AST audits. Use `sensegrep literal` for exhaustive textual evidence and compiler/AST tooling when semantic relationships require language-level proof.
 
 If file filters match no indexed files, Sensegrep returns zero results with a structured
 `warnings[]` entry such as `No indexed files matched the file filters (...)`. Treat that

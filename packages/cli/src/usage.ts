@@ -7,6 +7,8 @@ Usage:
   sensegrep status [--root <dir>] [--verify|--verbose]
   sensegrep search <query...> [options]
   sensegrep literal <text-or-regex> [--regex] [--ignore-case] [options]
+  sensegrep show <result-id> [--before <n>] [--after <n>]
+  sensegrep expand <result-id> [--max-nodes <n>]
   sensegrep context <query...> [--max-tokens <n>] [options]
   sensegrep survey <query...> [options]
   sensegrep cluster <query...> [options]
@@ -14,11 +16,15 @@ Usage:
   sensegrep languages [--detect] [--variants] [--json]
   sensegrep semantic-kinds [--json]
   sensegrep selftest [--root <dir>] [--strict] [--deep] [--json]
+  sensegrep investigate <query...> [--dry-run] [--max-tokens <n>]
+  sensegrep eval <cases.yaml|cases.json> [--limit <n>]
+  sensegrep daemon start|status|stop|endpoint
+  sensegrep daemon call --tool search --arguments '{"query":"auth flow"}'
 
 Search options:
   --query <text>            Query text (if not provided as positional)
   --pattern <regex>         Regex filter (post-filter)
-  --limit <n>               Max results (default: 20)
+  --limit <n>               Max results (default: 10)
   --include <glob>          File glob include filter (e.g. "src/**/*.ts")
   --exclude <glob>          File glob exclude filter (e.g. "*.md" or "docs/**")
   --type <symbolType>       function|class|method|type|variable|enum|module
@@ -46,6 +52,12 @@ Search options:
   --no-hybrid               Disable lexical/vector fusion
   --max-tokens <n>          Limit estimated output tokens (context default: 12000)
   --latency-budget <ms>     Query embedding deadline (default: 15000ms)
+  --purpose <mode>          understand|implement|review|test ranking preset
+  --prefer-role <role>      Boost a file role (implementation, test, contract, etc.)
+  --include-role <role>     Include only one file role
+  --exclude-role <role>     Exclude one file role
+  --json-detail <mode>      compact|content|full for search JSON (default: compact)
+  --include-rendered-output Include rendered Markdown in JSON
   --dry-run                 Plan indexing and estimate embedding work without API calls
   --no-resume               Discard interrupted full-index staging data
   benchmark                 Measure embedding throughput and recommend concurrency
@@ -59,6 +71,8 @@ Search options:
   --changed                 Restrict retrieval to Git-changed files
   --base <revision>         Base revision for --changed (default: HEAD)
   --require-coverage        Mark audit incomplete when any changed file is unrepresented
+  --continue-uncovered      Add token-bounded batches until changed-file textual coverage is complete
+  --batch-tokens <n>        Per-batch audit budget (default: 4000)
   --profile <name>          Select a side-by-side named index profile
   --embed-model <name>      Override remote embedding model
   --embed-dim <n>           Override embedding dimension
@@ -69,6 +83,8 @@ Search options:
   --strict-imports          Require an exact normalized import module specifier
   --regex                   Interpret a literal query as a regular expression
   --ignore-case             Make literal matching case-insensitive
+  --filesystem              Search all ripgrep-visible files, independent of the index
+  --max-output-bytes <n>    Bound literal output size
   --ensure-fresh <mode>     check|incremental|full before search/survey/cluster/duplicates
   --root <dir>              Root directory (default: cwd)
   --no-shake                Disable semantic tree-shaking in output
@@ -133,4 +149,6 @@ Index health:
   sensegrep verify --strict           Exit non-zero unless the index is healthy and fresh
   sensegrep index --check             Exit non-zero if index is stale
   sensegrep index --check --max-changed 5 --max-missing 0
+  sensegrep index migrate --no-watch     Atomic full rebuild for an incompatible schema
+  sensegrep index rebuild --atomic --no-watch
 `

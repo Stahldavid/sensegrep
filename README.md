@@ -74,6 +74,16 @@ sensegrep search "error handling and retry logic" --type function --exported --e
 # Deterministic and exhaustive: no embedding call
 sensegrep literal "X-Goog-Message-Number" --include "src/**"
 
+# Compact evidence cards, followed by deterministic expansion
+sensegrep search "authentication flow" --purpose understand --json
+sensegrep show <result-id> --before 10 --after 20
+
+# Exhaustive within the ripgrep-visible filesystem, independent of the index
+sensegrep literal "TODO:" --filesystem --max-output-bytes 50000 --json
+
+# Complete changed-file review coverage in bounded batches
+sensegrep audit "security regressions" --base origin/main --require-coverage --continue-uncovered --batch-tokens 4000
+
 # Build a reading map for a broad theme
 sensegrep survey "authentication login token" --language typescript --limit 4
 
@@ -151,7 +161,7 @@ npm install -g @sensegrep/mcp
 }
 ```
 
-The MCP server provides canonical `sensegrep_search`, `sensegrep_literal`, `sensegrep_context`, `sensegrep_survey`, `sensegrep_cluster`, `sensegrep_graph`, `sensegrep_index`, and `sensegrep_detect_duplicates` tools. Legacy dotted names such as `sensegrep.search` remain available as compatibility aliases where supported.
+The MCP server provides canonical `sensegrep_search`, `sensegrep_show`, `sensegrep_literal`, `sensegrep_context`, `sensegrep_survey`, `sensegrep_cluster`, `sensegrep_graph`, `sensegrep_index`, and `sensegrep_detect_duplicates` tools. Legacy dotted names such as `sensegrep.search` remain available as compatibility aliases where supported.
 
 ### Agent Skill — CLI (no MCP server)
 
@@ -280,7 +290,18 @@ sensegrep benchmark --concurrency 1,2,4 --samples 16
 # Keep independent indexes for different models/settings
 sensegrep index --profile fast --no-watch
 sensegrep profiles
+
+# Keep LanceDB, graph, tools, and watcher warm behind a local HTTP endpoint
+sensegrep daemon start
+sensegrep daemon endpoint
+sensegrep daemon call --tool search --arguments '{"query":"request routing","limit":5}'
+
+# Agent-native planning and task-level quality evaluation
+sensegrep investigate "where does payment gate room access?" --dry-run
+sensegrep eval sensegrep-eval.yaml
 ```
+
+Diagnostic commands are strictly read-only. An incompatible index reports `migrationRequired: true`; rebuild it with `sensegrep index migrate --no-watch`. Full builds stage and validate a new Lance table before switching metadata, while prior generations are retained for concurrent readers and rollback diagnostics.
 
 Changed files reuse vectors for content-identical chunks, even when neighboring chunks or metadata changed. Full indexes checkpoint staging tables and skip IDs already persisted after a restart. For large indexes, LanceDB ANN and scalar indexes are created automatically at 10,000 chunks; set `SENSEGREP_ANN_MIN_CHUNKS=0` to disable or choose another threshold.
 

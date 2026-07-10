@@ -9,7 +9,7 @@ export namespace CodeGraph {
     to: string
     fromId: string
     toId: string
-    kind: "call"
+    kind: "call" | "import" | "inheritance" | "component-usage" | "hook-usage" | "convex-api" | "route-invocation" | "scheduled-function" | "schema-table"
     confidence: "high" | "medium"
     location: Location
     targetLocation: Location
@@ -21,6 +21,7 @@ export namespace CodeGraph {
     references: Reference[]
     documents: number
     truncated: boolean
+    metrics: { resolvedEdges: number; unresolvedEdges: number; ambiguousEdges: number; graphCoverage: number }
   }
 
   const NON_CALL_IDENTIFIERS = new Set([
@@ -55,11 +56,20 @@ export namespace CodeGraph {
     return [...calls]
   }
 
-  function resolveTarget(source: Node, candidates: Node[]): { target: Node; confidence: "high" | "medium" } | undefined {
-    if (candidates.length === 1) return { target: candidates[0], confidence: "high" }
+  function resolveTarget(source: Node, candidates: Node[]): { target?: Node; confidence?: "high" | "medium"; ambiguous: boolean } {
+    if (candidates.length === 1) return { target: candidates[0], confidence: "high", ambiguous: false }
     const sameFile = candidates.filter((candidate) => candidate.location.file === source.location.file)
-    if (sameFile.length === 1) return { target: sameFile[0], confidence: "medium" }
-    return undefined
+    if (sameFile.length === 1) return { target: sameFile[0], confidence: "medium", ambiguous: false }
+    return { ambiguous: candidates.length > 1 }
+  }
+
+  function classifyEdge(targetName: string, content: string): Reference["kind"] {
+    if (/^(api|internal)\./.test(targetName)) return "convex-api"
+    if (/\b(scheduler|runAfter|runAt|cron)\b/.test(content)) return "scheduled-function"
+    if (/^(fetch|navigate|redirect|router|push|replace)$/i.test(targetName)) return "route-invocation"
+    if (/^use[A-Z0-9_]/.test(targetName)) return "hook-usage"
+    if (/^[A-Z][A-Za-z0-9_$]*$/.test(targetName) && /<\s*[A-Z]/.test(content)) return "component-usage"
+    return "call"
   }
 
   export async function build(options: { maxDocuments?: number } = {}): Promise<Snapshot> {
@@ -69,10 +79,16 @@ export namespace CodeGraph {
     const cacheKey = `${resolved.root}\0${resolved.meta.updatedAt}\0${maxDocuments}`
     if (process.env.NODE_ENV !== "test" && cached?.key === cacheKey) return cached.snapshot
 
-    const collection = await VectorStore.getCollectionUnsafe(resolved.root, resolved.meta.embeddings.dimension)
+    const schema = await VectorStore.inspectCollectionSchema(resolved.root)
+    const collection = schema.schemaCompatible
+      ? await VectorStore.getCollectionUnsafe(resolved.root, resolved.meta.embeddings.dimension)
+      : await VectorStore.openCollectionReadOnly(resolved.root)
+    const columns = ["id", "content", "file", "startLine", "endLine", "symbolName", "symbolType"]
+    if (schema.fields.includes("calls")) columns.push("calls")
+    if (schema.fields.includes("imports")) columns.push("imports")
     const rows = await VectorStore.listDocuments(collection, {
       limit: maxDocuments + 1,
-      columns: ["id", "content", "file", "startLine", "endLine", "symbolName", "symbolType", "calls"],
+      columns,
     })
     const truncated = rows.length > maxDocuments
     const documents = rows.slice(0, maxDocuments)
@@ -98,6 +114,27 @@ export namespace CodeGraph {
     const outgoing = new Map<string, Set<string>>()
     const references: Reference[] = []
     const seenReferences = new Set<string>()
+    let unresolvedEdges = 0
+    let ambiguousEdges = 0
+    const addReference = (source: Node, target: Node, kind: Reference["kind"], confidence: "high" | "medium") => {
+      if (target.id === source.id) return
+      const key = `${source.id}\0${target.id}\0${kind}`
+      if (seenReferences.has(key)) return
+      seenReferences.add(key)
+      const targets = outgoing.get(source.id) ?? new Set<string>()
+      targets.add(target.id)
+      outgoing.set(source.id, targets)
+      references.push({
+        from: source.name,
+        to: target.name,
+        fromId: source.id,
+        toId: target.id,
+        kind,
+        confidence,
+        location: source.location,
+        targetLocation: target.location,
+      })
+    }
     for (const row of documents) {
       const sourceName = typeof row.metadata.symbolName === "string" ? row.metadata.symbolName : ""
       const sourceLocation = createLocation(row.metadata, sourceName || undefined)
@@ -107,51 +144,90 @@ export namespace CodeGraph {
       if (!source) continue
 
       for (const targetName of extractPersistedCalls(row.content, row.metadata.calls, sourceName)) {
-        const resolvedTarget = resolveTarget(source, nodesByName.get(targetName) ?? [])
-        if (!resolvedTarget || resolvedTarget.target.id === source.id) continue
-        const key = `${source.id}\0${resolvedTarget.target.id}`
-        if (seenReferences.has(key)) continue
-        seenReferences.add(key)
-        const targets = outgoing.get(source.id) ?? new Set<string>()
-        targets.add(resolvedTarget.target.id)
-        outgoing.set(source.id, targets)
-        references.push({
-          from: source.name,
-          to: resolvedTarget.target.name,
-          fromId: source.id,
-          toId: resolvedTarget.target.id,
-          kind: "call",
-          confidence: resolvedTarget.confidence,
-          location: source.location,
-          targetLocation: resolvedTarget.target.location,
-        })
+        const targetCandidates = nodesByName.get(targetName) ?? nodesByName.get(targetName.split(".").at(-1) ?? "") ?? []
+        const resolvedTarget = resolveTarget(source, targetCandidates)
+        if (!resolvedTarget.target) {
+          if (resolvedTarget.ambiguous) ambiguousEdges++
+          else unresolvedEdges++
+          continue
+        }
+        addReference(source, resolvedTarget.target, classifyEdge(targetName, row.content), resolvedTarget.confidence!)
+      }
+
+      for (const match of row.content.matchAll(/\bextends\s+([A-Za-z_$][A-Za-z0-9_$]*)/g)) {
+        const target = resolveTarget(source, nodesByName.get(match[1]) ?? [])
+        if (target.target) addReference(source, target.target, "inheritance", target.confidence!)
+        else if (target.ambiguous) ambiguousEdges++
+        else unresolvedEdges++
+      }
+
+      const syntheticTargets: Array<{ name: string; kind: "import" | "schema-table" }> = []
+      const imports = typeof row.metadata.imports === "string" ? row.metadata.imports.split(",").map((value) => value.trim()).filter(Boolean) : []
+      syntheticTargets.push(...imports.map((name) => ({ name: `module:${name}`, kind: "import" as const })))
+      for (const match of row.content.matchAll(/\bdb\.(?:query|insert|patch|replace|delete|get)\s*\(\s*["']([^"']+)["']/g)) {
+        syntheticTargets.push({ name: `table:${match[1]}`, kind: "schema-table" })
+      }
+      for (const synthetic of syntheticTargets) {
+        const id = synthetic.name
+        let target = nodes.get(id)
+        if (!target) {
+          const location = { id, file: synthetic.name, startLine: 0, endLine: 0, symbol: synthetic.name }
+          target = { id, name: synthetic.name, location }
+          nodes.set(id, target)
+        }
+        addReference(source, target, synthetic.kind, "high")
       }
     }
 
-    const snapshot = { symbols, nodes, outgoing, references, documents: documents.length, truncated }
+    const totalEdges = references.length + unresolvedEdges + ambiguousEdges
+    const metrics = {
+      resolvedEdges: references.length,
+      unresolvedEdges,
+      ambiguousEdges,
+      graphCoverage: totalEdges === 0 ? 1 : references.length / totalEdges,
+    }
+    const snapshot = { symbols, nodes, outgoing, references, documents: documents.length, truncated, metrics }
     if (process.env.NODE_ENV !== "test") cached = { key: cacheKey, snapshot }
     return snapshot
   }
 
-  export async function findReferences(symbol: string, options: { limit?: number; maxDocuments?: number } = {}) {
+  function selectDefinitions(graph: Snapshot, symbol: string, id?: string): Location[] {
+    if (!id) return graph.symbols.get(symbol) ?? []
+    const node = graph.nodes.get(id)
+    if (node) return [node.location]
+    const suffix = `:${symbol}`
+    const withoutSymbol = id.endsWith(suffix) ? id.slice(0, -suffix.length) : id
+    const rangeMatch = withoutSymbol.match(/^(.*):(\d+):(\d+)$/)
+    if (!rangeMatch) return []
+    const [, file, start, end] = rangeMatch
+    return (graph.symbols.get(symbol) ?? []).filter((location) =>
+      location.file === file && location.startLine <= Number(end) && location.endLine >= Number(start),
+    )
+  }
+
+  export async function findReferences(symbol: string, options: { id?: string; limit?: number; maxDocuments?: number } = {}) {
     const graph = await build(options)
     const limit = Math.max(1, Math.floor(options.limit ?? 100))
-    const definitions = graph.symbols.get(symbol) ?? []
+    const definitions = selectDefinitions(graph, symbol, options.id)
     const definitionIds = new Set(definitions.map((definition) => definition.id))
     return {
+      schemaVersion: 1,
+      command: "references",
+      status: "complete",
       symbol,
       definitions,
       references: graph.references.filter((reference) => definitionIds.has(reference.toId)).slice(0, limit),
       documents: graph.documents,
       truncated: graph.truncated,
+      metrics: graph.metrics,
     }
   }
 
-  export async function impact(symbol: string, options: { depth?: number; limit?: number; maxDocuments?: number } = {}) {
+  export async function impact(symbol: string, options: { id?: string; depth?: number; limit?: number; maxDocuments?: number } = {}) {
     const graph = await build(options)
     const maxDepth = Math.max(1, Math.floor(options.depth ?? 3))
     const limit = Math.max(1, Math.floor(options.limit ?? 200))
-    const definitions = graph.symbols.get(symbol) ?? []
+    const definitions = selectDefinitions(graph, symbol, options.id)
     const reverse = new Map<string, Set<string>>()
     for (const [sourceId, targetIds] of graph.outgoing) {
       for (const targetId of targetIds) {
@@ -179,14 +255,14 @@ export namespace CodeGraph {
       }
       frontier = next
     }
-    return { symbol, impacted, definitions, truncated: graph.truncated, ambiguous: definitions.length > 1 }
+    return { schemaVersion: 1, command: "impact", status: "complete", symbol, impacted, definitions, truncated: graph.truncated, ambiguous: definitions.length > 1, metrics: graph.metrics }
   }
 
-  export async function trace(from: string, to: string, options: { depth?: number; maxDocuments?: number } = {}) {
+  export async function trace(from: string, to: string, options: { fromId?: string; toId?: string; depth?: number; maxDocuments?: number } = {}) {
     const graph = await build(options)
     const maxDepth = Math.max(1, Math.floor(options.depth ?? 6))
-    const starts = graph.symbols.get(from) ?? []
-    const targets = new Set((graph.symbols.get(to) ?? []).map((location) => location.id))
+    const starts = selectDefinitions(graph, from, options.fromId)
+    const targets = new Set(selectDefinitions(graph, to, options.toId).map((location) => location.id))
     const queue = starts.map((location) => [location.id])
     const seen = new Set(starts.map((location) => location.id))
     while (queue.length > 0) {
@@ -194,7 +270,7 @@ export namespace CodeGraph {
       const current = ids[ids.length - 1]
       if (targets.has(current)) {
         const pathNodes = ids.map((id) => graph.nodes.get(id)).filter((node): node is Node => Boolean(node))
-        return { from, to, found: true, path: pathNodes.map((node) => node.name), pathNodes, truncated: graph.truncated }
+        return { schemaVersion: 1, command: "trace", status: "complete", from, to, found: true, path: pathNodes.map((node) => node.name), pathNodes, truncated: graph.truncated, metrics: graph.metrics }
       }
       if (ids.length - 1 >= maxDepth) continue
       for (const targetId of graph.outgoing.get(current) ?? []) {
@@ -203,6 +279,6 @@ export namespace CodeGraph {
         queue.push([...ids, targetId])
       }
     }
-    return { from, to, found: false, path: [] as string[], pathNodes: [] as Node[], truncated: graph.truncated }
+    return { schemaVersion: 1, command: "trace", status: "complete", from, to, found: false, path: [] as string[], pathNodes: [] as Node[], truncated: graph.truncated, metrics: graph.metrics }
   }
 }

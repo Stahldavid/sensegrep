@@ -1,4 +1,5 @@
 import path from "path"
+import fs from "node:fs/promises"
 import { spawn } from "node:child_process"
 import { once } from "node:events"
 import picomatch from "picomatch"
@@ -10,6 +11,7 @@ import { Indexer } from "../semantic/indexer.js"
 import { Ripgrep } from "../file/ripgrep.js"
 import { TreeShaker } from "../semantic/tree-shaker.js"
 import { expandSemanticKindFilter } from "../semantic/language/index.js"
+import { fileRoleBoost, type FileRole, type SearchPurpose } from "../semantic/file-role.js"
 
 export type ResultMetadata = Record<string, string | number | boolean | string[] | undefined>
 
@@ -32,6 +34,7 @@ export type WorkingResult = {
 }
 
 export type StructuredSearchResult = {
+  resultId: string
   file: string
   startLine: number
   endLine: number
@@ -52,6 +55,9 @@ export type StructuredSearchResult = {
   filterMatches?: Record<string, unknown>
   content: string
   metadata: ResultMetadata
+  estimatedTokens: number
+  chunksMatched: number
+  snippetIntegrity: "complete" | "partial" | "parse-fallback"
 }
 
 export type CommonSensegrepParams = {
@@ -88,6 +94,18 @@ export type CommonSensegrepParams = {
   gitChanged?: boolean
   gitBase?: string
   latencyBudgetMs?: number
+  purpose?: SearchPurpose
+  preferRole?: FileRole
+  includeRole?: FileRole
+  excludeRole?: FileRole
+}
+
+export type RetrievalSummary = {
+  requestedMode: "exact" | "semantic" | "hybrid" | "semantic-pattern-filter"
+  actualMode: "exact" | "semantic" | "hybrid" | "lexical-fallback" | "pattern-fallback"
+  vectorUsed: boolean
+  exhaustive: false
+  universe: { files: number; chunks: number; excludedFiles: number }
 }
 
 type IndexMeta = NonNullable<Awaited<ReturnType<typeof VectorStore.readIndexMeta>>>
@@ -111,6 +129,7 @@ export type SearchResources = {
   requestedDirectory: string
   subdirPrefix?: string
   freshness: FreshnessSummary
+  schema: Awaited<ReturnType<typeof VectorStore.inspectCollectionSchema>>
 }
 
 type ToolLikeResult = {
@@ -274,6 +293,22 @@ export async function withIndexedSearchResources<T extends ToolLikeResult>(
   }
 
   const meta = resolved.meta
+  const schema = typeof VectorStore.inspectCollectionSchema === "function"
+    ? await VectorStore.inspectCollectionSchema(resolved.root)
+    : { exists: true, tableName: meta.tableName ?? "chunks", schemaCompatible: true, migrationRequired: false, fields: [] as string[], missingFields: [] as string[] }
+  const readableLegacySchema = schema.exists && schema.missingFields.every((field) => ["calls", "fileKind", "fileRole"].includes(field))
+  if (!schema.schemaCompatible && !readableLegacySchema) {
+    return {
+      schemaVersion: 1,
+      command: "search",
+      status: "migration-required",
+      title: query,
+      metadata: { matches: 0, indexed: true, schemaCompatible: false, missingFields: schema.missingFields },
+      index: { fresh: null, schemaCompatible: false, snapshotId: `${schema.tableName}:${meta.updatedAt}` },
+      warnings: ["Index schema is incompatible and was left unchanged."],
+      output: `Index migration required; missing fields: ${schema.missingFields.join(", ")}. Run \`sensegrep index --full --no-watch\`.`,
+    } as unknown as T
+  }
   const indexConfig = {
     provider: meta.embeddings.provider,
     embedModel: meta.embeddings.model,
@@ -285,7 +320,9 @@ export async function withIndexedSearchResources<T extends ToolLikeResult>(
       directory: resolved.root,
       fn: async () => {
         const freshness = await getFreshnessSummary()
-        const collection = await VectorStore.getCollectionUnsafe(resolved.root, meta.embeddings.dimension)
+        const collection = schema.schemaCompatible
+          ? await VectorStore.getCollectionUnsafe(resolved.root, meta.embeddings.dimension)
+          : await VectorStore.openCollectionReadOnly(resolved.root)
         return fn({
           meta,
           collection,
@@ -293,6 +330,7 @@ export async function withIndexedSearchResources<T extends ToolLikeResult>(
           requestedDirectory: resolved.requestedPath,
           subdirPrefix: resolved.subdirPrefix,
           freshness,
+          schema,
         })
       },
     })
@@ -679,6 +717,8 @@ export function buildSearchFilters(params: CommonSensegrepParams): VectorStore.S
       ]
     }
   }
+  if (params.includeRole) filters.all!.push({ key: "fileRole", operator: "equals", value: params.includeRole })
+  if (params.excludeRole) filters.none = [...(filters.none ?? []), { key: "fileRole", operator: "equals", value: params.excludeRole }]
 
   const symbolQuery = params.symbol ?? params.name
   if (symbolQuery) {
@@ -1033,20 +1073,31 @@ export async function collectWorkingResults(
   resources: SearchResources,
   params: CommonSensegrepParams,
   options: CollectWorkingResultsOptions,
-): Promise<{ results: WorkingResult[]; filters: VectorStore.SearchFilters; candidateFiles?: string[]; lexicalOnly: boolean; warnings: string[]; metrics: Record<string, number> } | ToolLikeResult> {
+): Promise<{ results: WorkingResult[]; filters: VectorStore.SearchFilters; candidateFiles?: string[]; lexicalOnly: boolean; warnings: string[]; metrics: Record<string, number>; retrieval: RetrievalSummary } | ToolLikeResult> {
   const metrics: Record<string, number> = { semanticSearchMs: 0 }
   const warnings: string[] = []
+  if (!resources.schema.schemaCompatible) warnings.push(`Index schema migration recommended; missing fields: ${resources.schema.missingFields.join(", ")}.`)
+  if (resources.schema.missingFields.includes("fileRole") && (params.includeRole || params.excludeRole)) {
+    return {
+      title: params.query,
+      metadata: { matches: 0, indexed: true, schemaCompatible: false },
+      output: "File-role filters require a migrated index. Run `sensegrep index --full --no-watch`.",
+    }
+  }
   const filters = buildSearchFilters(params)
   const gitFiles = params.gitChanged
     ? new Set(await GitScope.changedFiles(Instance.directory, { base: params.gitBase, signal: options.signal }))
     : undefined
+  const reviewFiles = params.purpose === "review" && !gitFiles
+    ? new Set(await GitScope.changedFiles(Instance.directory, { base: params.gitBase, signal: options.signal }))
+    : gitFiles
   const fileFiltering = resolveFileFiltering(resources.meta, params, filters, resources.subdirPrefix, gitFiles)
   if ("output" in fileFiltering) return fileFiltering
 
   const searchOptions: { limit: number; filters?: VectorStore.SearchFilters } = {
     limit: options.rawLimit,
   }
-  if ((filters.all && filters.all.length > 0) || (filters.any && filters.any.length > 0)) {
+  if ((filters.all && filters.all.length > 0) || (filters.any && filters.any.length > 0) || (filters.none && filters.none.length > 0)) {
     searchOptions.filters = filters
   }
 
@@ -1104,6 +1155,7 @@ export async function collectWorkingResults(
     (params.exact === true || Boolean(params.symbol ?? params.name) || (simpleIdentifierQuery && exactSymbolResults.length > 0))
 
   let semanticResults: Awaited<ReturnType<typeof VectorStore.search>> = []
+  let semanticFailed = false
   if (!lexicalOnly) {
     const semanticStartedAt = Date.now()
     semanticResults = await VectorStore.search(resources.collection, params.query, {
@@ -1112,6 +1164,7 @@ export async function collectWorkingResults(
       retryDeadlineMs: params.latencyBudgetMs,
     }).catch((error) => {
       if (options.signal?.aborted) throw error
+      semanticFailed = true
       warnings.push(`Semantic provider unavailable within the latency budget; returning exact/lexical results only: ${error instanceof Error ? error.message : String(error)}`)
       return []
     })
@@ -1170,6 +1223,18 @@ export async function collectWorkingResults(
   workingResults = fuseHybridResults(workingResults, [...hybridLexicalResults, ...fallbackResults])
 
   workingResults = annotateWorkingResults(workingResults, params)
+  workingResults = workingResults.map((result) => {
+    const role = String(result.metadata.fileRole ?? "implementation") as FileRole
+    const changedBoost = reviewFiles?.has(canonicalizeProjectFilePath(result.file)) ? 0.08 : 0
+    const boost = fileRoleBoost(role, params.purpose, params.preferRole) + changedBoost
+    return boost === 0
+      ? result
+      : {
+          ...result,
+          semanticScore: Math.max(0, Math.min(1.1, result.semanticScore + boost)),
+          whyMatched: [...new Set([...(result.whyMatched ?? []), `file role: ${role}`])],
+        }
+  })
   workingResults = workingResults.filter((result) => matchesStrictStructuralFilters(result, params))
   workingResults = params.rerank ? rerankWorkingResults(params.query, workingResults) : workingResults
   workingResults.sort((a, b) => (b.rerankScore ?? b.semanticScore) - (a.rerankScore ?? a.semanticScore))
@@ -1187,6 +1252,20 @@ export async function collectWorkingResults(
     })
   }
 
+  const totalFiles = Object.keys(resources.meta.files ?? {}).length
+  const searchedFiles = fileFiltering.candidateFiles?.length ?? (lexicalCandidateFiles.length || totalFiles)
+  const expectedChunks = Object.values(resources.meta.files ?? {}).reduce((sum, stat) => sum + (stat.chunks?.length ?? 0), 0)
+  const requestedMode = params.pattern ? "semantic-pattern-filter" : params.exact ? "exact" : params.hybrid === false ? "semantic" : "hybrid"
+  const actualMode = lexicalOnly
+    ? "exact"
+    : semanticFailed
+      ? (params.pattern ? "pattern-fallback" : "lexical-fallback")
+      : params.pattern && filteredResults.length === 0 && patternFallbackResults.length > 0
+        ? "pattern-fallback"
+      : params.hybrid !== false && (hybridLexicalResults.length > 0 || fallbackResults.length > 0)
+        ? "hybrid"
+        : "semantic"
+
   return {
     results: processedResults,
     filters,
@@ -1194,6 +1273,13 @@ export async function collectWorkingResults(
     lexicalOnly,
     warnings,
     metrics,
+    retrieval: {
+      requestedMode,
+      actualMode,
+      vectorUsed: !lexicalOnly && !semanticFailed,
+      exhaustive: false,
+      universe: { files: searchedFiles, chunks: expectedChunks, excludedFiles: Math.max(0, totalFiles - searchedFiles) },
+    },
   }
 }
 
@@ -1223,6 +1309,8 @@ export async function hydrateResultsWithVectors(
         "symbolName",
         "symbolType",
         "variant",
+        "fileKind",
+        "fileRole",
         "file",
         "startLine",
         "endLine",
@@ -1740,9 +1828,14 @@ export async function runGroupedSearch<TGroup>(input: {
     const rawResults = collected.results.slice(0, rawLimit)
     if (rawResults.length === 0) {
       return {
+        schemaVersion: 1,
+        command: input.resultKey === "groups" ? "survey" : "cluster",
+        status: "complete",
         title: input.params.query,
         metadata: { matches: 0, indexed: true, [input.resultKey]: 0, freshness: resources.freshness },
         freshness: resources.freshness,
+        index: { fresh: !resources.freshness.isStale, schemaCompatible: resources.schema.schemaCompatible, snapshotId: `${resources.schema.tableName}:${resources.meta.updatedAt}` },
+        retrieval: collected.retrieval,
         output: prependFreshnessWarning("No matching results found for your query.", resources.freshness),
       }
     }
@@ -1750,20 +1843,30 @@ export async function runGroupedSearch<TGroup>(input: {
     const preparedResults = input.prepareResults
       ? await input.prepareResults(resources, rawResults)
       : rawResults
-    const groups = input.buildGroups(preparedResults).slice(0, limit)
+    const candidateGroups = input.buildGroups(preparedResults).slice(0, limit)
     const fileCount = new Set(preparedResults.map((result) => result.file)).size
     const outputLines = [
       `${input.heading} for: ${input.params.query}`,
       "",
-      `Found ${groups.length} ${input.groupLabel} from ${preparedResults.length} matches across ${fileCount} files`,
+      `Found ${candidateGroups.length} ${input.groupLabel} from ${preparedResults.length} matches across ${fileCount} files`,
       "",
     ]
 
-    for (const group of groups) {
-      outputLines.push(...(await input.formatGroup(resources, group)))
+    const groups: TGroup[] = []
+    let estimatedTokens = Math.ceil(outputLines.join("\n").length / 4)
+    for (const group of candidateGroups) {
+      const groupLines = await input.formatGroup(resources, group)
+      const groupTokens = Math.ceil(groupLines.join("\n").length / 4)
+      if (input.params.maxTokens && groups.length > 0 && estimatedTokens + groupTokens > input.params.maxTokens) continue
+      groups.push(group)
+      outputLines.push(...groupLines)
+      estimatedTokens += groupTokens
     }
 
     return {
+      schemaVersion: 1,
+      command: input.resultKey === "groups" ? "survey" : "cluster",
+      status: "complete",
       title: input.params.query,
       metadata: {
         indexed: true,
@@ -1773,22 +1876,97 @@ export async function runGroupedSearch<TGroup>(input: {
         shaked: input.params.shake !== false,
         jsonDetail: input.params.jsonDetail ?? "representatives",
         freshness: resources.freshness,
+        budget: { tokensRequested: input.params.maxTokens, tokensUsed: estimatedTokens },
         ...(input.metadata?.(groups) ?? {}),
       },
       freshness: resources.freshness,
+      index: { fresh: !resources.freshness.isStale, schemaCompatible: resources.schema.schemaCompatible, snapshotId: `${resources.schema.tableName}:${resources.meta.updatedAt}` },
+      retrieval: collected.retrieval,
+      budget: { tokensRequested: input.params.maxTokens, tokensUsed: estimatedTokens },
       [input.resultKey]: groups.map(input.mapGroup),
       output: prependFreshnessWarning(outputLines.join("\n"), resources.freshness),
     }
   })
 }
 
+function resultIdentity(file: string, startLine: number, endLine: number, symbol?: string): string {
+  const payload = JSON.stringify({ file: canonicalizeProjectFilePath(file), startLine, endLine, symbol: symbol || undefined })
+  return `symbol:${Buffer.from(payload).toString("base64url")}`
+}
+
+export function decodeResultId(resultId: string): { file: string; startLine: number; endLine: number; symbol?: string } {
+  if (!resultId.startsWith("symbol:")) throw new Error(`Invalid result ID "${resultId}".`)
+  const parsed = JSON.parse(Buffer.from(resultId.slice("symbol:".length), "base64url").toString("utf8")) as Record<string, unknown>
+  if (typeof parsed.file !== "string" || !Number.isInteger(parsed.startLine) || !Number.isInteger(parsed.endLine)) {
+    throw new Error(`Invalid result ID "${resultId}".`)
+  }
+  return {
+    file: parsed.file,
+    startLine: Number(parsed.startLine),
+    endLine: Number(parsed.endLine),
+    ...(typeof parsed.symbol === "string" ? { symbol: parsed.symbol } : {}),
+  }
+}
+
+export async function reconstructSymbolResults(projectDirectory: string, results: WorkingResult[]): Promise<WorkingResult[]> {
+  const passthrough: WorkingResult[] = []
+  const grouped = new Map<string, WorkingResult[]>()
+  for (const result of results) {
+    const symbol = typeof result.metadata.symbolName === "string" ? result.metadata.symbolName : ""
+    if (!symbol) {
+      passthrough.push({ ...result, metadata: { ...result.metadata, chunksMatched: 1, snippetIntegrity: "partial" } })
+      continue
+    }
+    const key = `${canonicalizeProjectFilePath(result.file)}\0${String(result.metadata.parentScope ?? "")}\0${symbol}`
+    grouped.set(key, [...(grouped.get(key) ?? []), result])
+  }
+
+  const reconstructed: WorkingResult[] = []
+  for (const values of grouped.values()) {
+    values.sort((a, b) => a.startLine - b.startLine || a.endLine - b.endLine)
+    const clusters: WorkingResult[][] = []
+    for (const value of values) {
+      const current = clusters.at(-1)
+      const currentEnd = current ? Math.max(...current.map((item) => item.endLine)) : -1
+      if (!current || value.startLine > currentEnd + 5) clusters.push([value])
+      else current.push(value)
+    }
+    for (const cluster of clusters) {
+      const best = [...cluster].sort((a, b) => (b.rerankScore ?? b.semanticScore) - (a.rerankScore ?? a.semanticScore))[0]
+      const startLine = Math.min(...cluster.map((item) => item.startLine))
+      const endLine = Math.max(...cluster.map((item) => item.endLine))
+      let content = best.content
+      let snippetIntegrity: StructuredSearchResult["snippetIntegrity"] = cluster.length > 1 ? "complete" : "partial"
+      try {
+        const source = await fs.readFile(path.join(projectDirectory, canonicalizeProjectFilePath(best.file)), "utf8")
+        const reconstructedContent = source.split(/\r?\n/).slice(startLine - 1, endLine).join("\n")
+        if (reconstructedContent.trim()) content = reconstructedContent
+        else snippetIntegrity = "parse-fallback"
+      } catch {
+        snippetIntegrity = "parse-fallback"
+      }
+      reconstructed.push({
+        ...best,
+        file: canonicalizeProjectFilePath(best.file),
+        content,
+        startLine,
+        endLine,
+        whyMatched: [...new Set(cluster.flatMap((item) => item.whyMatched ?? []))],
+        metadata: { ...best.metadata, chunksMatched: cluster.length, snippetIntegrity },
+      })
+    }
+  }
+  return [...reconstructed, ...passthrough]
+}
+
 export function toStructuredSearchResult(result: WorkingResult): StructuredSearchResult {
   const metadata = result.metadata
   return {
+    resultId: resultIdentity(result.file, result.startLine, result.endLine, typeof metadata.symbolName === "string" ? metadata.symbolName : undefined),
     file: result.file,
     startLine: result.startLine,
     endLine: result.endLine,
-    score: Number((result.rerankScore ?? result.semanticScore).toFixed(6)),
+    score: Number(Math.max(0, Math.min(1, result.rerankScore ?? result.semanticScore)).toFixed(6)),
     rawDistance: typeof result.rawDistance === "number" ? Number(result.rawDistance.toFixed(6)) : undefined,
     distanceMetric: result.distanceMetric,
     symbolName: typeof metadata.symbolName === "string" && metadata.symbolName ? metadata.symbolName : undefined,
@@ -1805,6 +1983,9 @@ export function toStructuredSearchResult(result: WorkingResult): StructuredSearc
     filterMatches: result.filterMatches,
     content: result.content,
     metadata,
+    estimatedTokens: estimateResultTokens(result),
+    chunksMatched: Number(metadata.chunksMatched ?? 1),
+    snippetIntegrity: (metadata.snippetIntegrity as StructuredSearchResult["snippetIntegrity"] | undefined) ?? "partial",
   }
 }
 

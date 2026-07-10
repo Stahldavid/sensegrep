@@ -9,6 +9,8 @@ vi.mock("./lancedb.js", () => ({
       meta: { embeddings: { provider: "openai", dimension: 3 } },
     }),
     getCollectionUnsafe: async () => ({}),
+    openCollectionReadOnly: async () => ({}),
+    inspectCollectionSchema: async () => ({ schemaCompatible: true, fields: ["calls", "imports"] }),
     listDocuments,
   },
 }))
@@ -59,5 +61,16 @@ describe("CodeGraph", () => {
     expect(impact.definitions).toHaveLength(2)
     expect(impact.impacted).toEqual([])
     expect(impact.ambiguous).toBe(true)
+  })
+
+  it("emits inheritance, import, and schema-table edges with coverage metrics", async () => {
+    listDocuments.mockResolvedValue([
+      { content: "class Child extends Parent { run() { return db.query('users') } }", metadata: { file: "src/app.ts", startLine: 1, endLine: 3, symbolName: "Child", imports: "convex/server" } },
+      { content: "class Parent {}", metadata: { file: "src/base.ts", startLine: 1, endLine: 1, symbolName: "Parent" } },
+    ])
+    const { CodeGraph } = await import("./code-graph.js")
+    const graph = await CodeGraph.build()
+    expect(graph.references.map((reference) => reference.kind)).toEqual(expect.arrayContaining(["inheritance", "import", "schema-table"]))
+    expect(graph.metrics.resolvedEdges).toBeGreaterThanOrEqual(3)
   })
 })

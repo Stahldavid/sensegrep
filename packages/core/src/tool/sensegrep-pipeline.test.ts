@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest"
+import fs from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
 import {
   annotateWorkingResults,
   fuseHybridResults,
@@ -6,7 +9,10 @@ import {
   matchesStrictStructuralFilters,
   parseRequestedImportModules,
   rerankWorkingResults,
+  reconstructSymbolResults,
   selectWithinTokenBudget,
+  decodeResultId,
+  toStructuredSearchResult,
 } from "./sensegrep-pipeline.js"
 
 describe("sensegrep pipeline result metadata", () => {
@@ -128,5 +134,30 @@ describe("hybrid retrieval ranking", () => {
     ], 150)
     expect(selected.results).toHaveLength(1)
     expect(selected.estimatedTokens).toBeLessThanOrEqual(150)
+  })
+})
+
+describe("progressive result evidence", () => {
+  it("reconstructs adjacent chunks and emits a decodable deterministic ID", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "sensegrep-symbol-"))
+    await fs.writeFile(path.join(root, "a.ts"), [
+      "export function calculate() {",
+      "  const value = 1",
+      "  return value",
+      "}",
+    ].join("\n"))
+    try {
+      const reconstructed = await reconstructSymbolResults(root, [
+        { file: "a.ts", content: "synthetic imports", startLine: 1, endLine: 2, semanticScore: 0.8, metadata: { symbolName: "calculate" } },
+        { file: "a.ts", content: "return value", startLine: 3, endLine: 4, semanticScore: 0.9, metadata: { symbolName: "calculate" } },
+      ])
+      expect(reconstructed).toHaveLength(1)
+      expect(reconstructed[0].content).not.toContain("synthetic imports")
+      expect(reconstructed[0].metadata).toMatchObject({ chunksMatched: 2, snippetIntegrity: "complete" })
+      const structured = toStructuredSearchResult(reconstructed[0])
+      expect(decodeResultId(structured.resultId)).toEqual({ file: "a.ts", startLine: 1, endLine: 4, symbol: "calculate" })
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
   })
 })

@@ -23,6 +23,7 @@ import { Ripgrep } from "../file/ripgrep.js"
 import fs from "fs/promises"
 import crypto from "crypto"
 import { AsyncLocalStorage } from "node:async_hooks"
+import { classifyFileRole } from "./file-role.js"
 
 const log = Log.create({ service: "semantic.indexer" })
 
@@ -577,6 +578,7 @@ export namespace Indexer {
     const chunksWithOverlap = Chunking.addOverlap(chunks)
     const lines = input.content.split("\n")
     const fileKind = getFileKind(normalizedFilePath)
+    const fileRole = classifyFileRole(normalizedFilePath, fileKind)
 
     return chunksWithOverlap.map((chunk, i) => ({
       id: `${normalizedFilePath}:${i}`,
@@ -586,6 +588,7 @@ export namespace Indexer {
       metadata: {
         file: normalizedFilePath,
         fileKind,
+        fileRole,
         startLine: chunk.startLine,
         endLine: chunk.endLine,
         chunkIndex: i,
@@ -1500,13 +1503,17 @@ export namespace Indexer {
     chunkMismatch?: boolean
     embeddings?: { provider: string; model?: string; dimension: number; device?: string; distanceMetric?: VectorStore.DistanceMetric }
     updatedAt?: number
+    schemaCompatible?: boolean
+    migrationRequired?: boolean
+    missingFields?: string[]
+    tableName?: string
+    snapshotId?: string
+    recommendedCommand?: string
   }> {
     const resolved = await VectorStore.resolveIndexedProject(Instance.directory)
     if (!resolved?.meta) return { indexed: false, chunks: 0, files: 0 }
 
-    // Get chunk count without validating dimension (to allow reading stats before configuring embeddings)
-    const collection = await VectorStore.getCollectionUnsafe(resolved.root, resolved.meta.embeddings.dimension)
-    const actualChunks = await countActualChunks(collection, resolved.subdirPrefix)
+    const schema = await VectorStore.inspectCollectionSchema(resolved.root)
     const entries = scopedMetaEntries(resolved.meta, resolved.subdirPrefix)
 
     // Calculate expected chunks from meta
@@ -1517,17 +1524,28 @@ export namespace Indexer {
       }
     }
 
-    const chunkMismatch = expectedChunks > 0 && actualChunks !== expectedChunks
+    let actualChunks: number | undefined
+    if (schema.exists) {
+      const collection = await VectorStore.openCollectionReadOnly(resolved.root)
+      actualChunks = await countActualChunks(collection, resolved.subdirPrefix)
+    }
+    const chunkMismatch = actualChunks !== undefined && expectedChunks > 0 && actualChunks !== expectedChunks
 
     return {
       indexed: true,
-      chunks: actualChunks,
+      chunks: actualChunks ?? 0,
       files: entries.length,
       expectedChunks,
       actualChunks,
       chunkMismatch,
       embeddings: resolved.meta.embeddings,
       updatedAt: resolved.meta.updatedAt,
+      schemaCompatible: schema.schemaCompatible,
+      migrationRequired: schema.migrationRequired,
+      missingFields: schema.missingFields,
+      tableName: schema.tableName,
+      snapshotId: `${schema.tableName}:${resolved.meta.updatedAt}`,
+      ...(schema.migrationRequired ? { recommendedCommand: "sensegrep index --full --no-watch" } : {}),
     }
   }
 
@@ -1549,6 +1567,12 @@ export namespace Indexer {
     chunkMismatch?: boolean
     embeddings?: { provider: string; model?: string; dimension: number; device?: string; distanceMetric?: VectorStore.DistanceMetric }
     updatedAt?: number
+    schemaCompatible?: boolean
+    migrationRequired?: boolean
+    missingFields?: string[]
+    tableName?: string
+    snapshotId?: string
+    recommendedCommand?: string
   }> {
     const resolved = await VectorStore.resolveIndexedProject(Instance.directory)
     if (!resolved?.meta) {
@@ -1610,9 +1634,13 @@ export namespace Indexer {
       }
     }
 
-    const collection = await VectorStore.getCollectionUnsafe(resolved.root, meta.embeddings.dimension)
-    const actualChunks = await countActualChunks(collection, resolved.subdirPrefix)
-    const chunkMismatch = expectedChunks > 0 && actualChunks !== expectedChunks
+    const schema = await VectorStore.inspectCollectionSchema(resolved.root)
+    let actualChunks: number | undefined
+    if (schema.exists) {
+      const collection = await VectorStore.openCollectionReadOnly(resolved.root)
+      actualChunks = await countActualChunks(collection, resolved.subdirPrefix)
+    }
+    const chunkMismatch = actualChunks !== undefined && expectedChunks > 0 && actualChunks !== expectedChunks
 
     return {
       indexed: true,
@@ -1628,6 +1656,12 @@ export namespace Indexer {
       chunkMismatch,
       embeddings: meta.embeddings,
       updatedAt: meta.updatedAt,
+      schemaCompatible: schema.schemaCompatible,
+      migrationRequired: schema.migrationRequired,
+      missingFields: schema.missingFields,
+      tableName: schema.tableName,
+      snapshotId: `${schema.tableName}:${meta.updatedAt}`,
+      ...(schema.migrationRequired ? { recommendedCommand: "sensegrep index --full --no-watch" } : {}),
     }
   }
 }
