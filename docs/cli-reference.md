@@ -129,7 +129,10 @@ sensegrep audit "security regressions" --base origin/main \
   --max-total-tokens 8000 --max-output-bytes 32000 --max-batches 8 --json
 ```
 
-`budget` reports `retrievalTokens`, `contextTokens`, and `emittedTokens` separately.
+`--batch-tokens` is a strict per-batch ceiling; large files are split into stable line/offset cards.
+`budget` reports `retrievalTokens`, `contextTokens`, `attemptedTokens`, and
+`actualEmittedTokens` separately. `attemptedOutputBytes` describes the pre-serialization
+evidence while `actualOutputBytes` is measured from the final CLI JSON.
 When a limit prevents complete changed-file coverage, `status` is `incomplete` and
 `coverage.truncationReasons` identifies the global limit that was reached.
 
@@ -162,6 +165,10 @@ sensegrep detect-duplicates [options]
 | `--normalize-identifiers` / `--no-normalize-identifiers` | Normalize identifiers (default: on) |
 | `--rank-by-impact` / `--no-rank-by-impact` | Rank by impact score (default: on) |
 | `--limit <n>` | Show top N results (default: 10) |
+
+JSON duplicate results always include `schemaVersion`, `command`, and `status`.
+Compact search cards use the same canonical names as content results (`symbolName`,
+`startLine`, `endLine`, `rawDistance`, and `distanceMetric`) while omitting `content`.
 | `--show-code` | Display duplicate code |
 | `--full-code` | Show full code (no truncation) |
 | `--verbose` | Show detailed output |

@@ -51,7 +51,7 @@ Start with these defaults and adjust based on what you find:
 
 > **Subdirectory roots:** If the repo root was indexed and you run `sensegrep` with `--root` pointing at a subdirectory, Sensegrep reuses the nearest indexed parent and scopes the query to that subdirectory. You no longer need to reindex every subfolder separately.
 
-> **JSON output:** Search defaults to compact result cards with `resultId`; use `sensegrep show <resultId>` or `--json-detail content|full` to expand selected evidence. Rendered Markdown is omitted unless `--include-rendered-output` or full detail is requested. Read `retrieval.actualMode`, `retrieval.universe`, `index`, `budget`, and `warnings` before treating evidence as sufficient.
+> **JSON output:** Search defaults to compact result cards with `resultId` and canonical fields such as `symbolName`, `startLine`, `endLine`, `rawDistance`, and `distanceMetric`; use `sensegrep show <resultId>` or `--json-detail content|full` to expand selected evidence. Rendered Markdown is omitted unless `--include-rendered-output` or full detail is requested. Read `retrieval.actualMode`, `retrieval.universe`, `index`, `budget`, and `warnings` before treating evidence as sufficient.
 
 > **Profiles:** Use `--profile <name>` when comparing embedding models/settings. Profiles have independent indexes. Sensegrep validates a non-secret endpoint/model fingerprint before searching.
 
@@ -124,6 +124,10 @@ sensegrep audit "security regressions" --base origin/main --require-coverage --c
 sensegrep search "affected retry logic" --changed --base HEAD~1 --json
 ```
 
+`--batch-tokens` is strict. Sensegrep splits large changed files into stable range cards so
+no batch exceeds the requested ceiling. For CLI JSON, compare `attemptedOutputBytes` with
+`actualOutputBytes` and `attemptedTokens` with `actualEmittedTokens`.
+
 ### `sensegrep survey` — Reading map for a theme
 
 Use this when a linear result list is still too noisy and you want a domain-oriented map of the query.
@@ -188,7 +192,7 @@ sensegrep detect-duplicates \
 
 `--threshold` guide: use `0.85` (default) for meaningful duplicates; lower to `0.7` for suspicious similarities; raise to `0.92+` for near-identical copies only.
 
-For broad monorepos, start with `--include`, `--language`, `--min-lines`, or `--min-complexity` before raising `--max-candidates`. If the candidate set is larger than the cap or reaches `--timeout`, Sensegrep returns partial findings and reports `summary.truncated`, `summary.candidates`, `summary.analyzedCandidates`, and `summary.resumeCursor` in JSON. Pass that cursor to the next invocation.
+For broad monorepos, start with `--include`, `--language`, `--min-lines`, or `--min-complexity` before raising `--max-candidates`. If the candidate set is larger than the cap or reaches `--timeout`, Sensegrep returns partial findings and reports `summary.truncated`, `summary.candidates`, `summary.analyzedCandidates`, and `summary.resumeCursor` in JSON. Pass that cursor to the next invocation. The envelope always includes `schemaVersion`, `command`, and `status`.
 
 With `--json`, parse stdout directly. Use `--json --log-format none` when stdout and stderr may be merged; it suppresses every non-fatal log. Use `--embedding-timeout` to bound only query embedding acquisition; it is not a wall-clock limit for the entire search process. `--latency-budget` remains a deprecated alias.
 

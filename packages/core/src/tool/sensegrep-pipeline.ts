@@ -49,6 +49,7 @@ export type StructuredSearchResult = {
   imports?: string[]
   semanticKind?: string
   framework?: string
+  fileRole?: string
   confidence: "high" | "medium" | "low"
   isWeakMatch: boolean
   whyMatched: string[]
@@ -1930,9 +1931,14 @@ export function decodeResultId(resultId: string): { file: string; startLine: num
   }
 }
 
-export async function reconstructSymbolResults(projectDirectory: string, results: WorkingResult[]): Promise<WorkingResult[]> {
+export async function reconstructSymbolResults(
+  projectDirectory: string,
+  results: WorkingResult[],
+  indexedRegions: Record<string, TreeShaker.CollapsibleRegion[]> = {},
+): Promise<WorkingResult[]> {
   const passthrough: WorkingResult[] = []
   const grouped = new Map<string, WorkingResult[]>()
+  const regionsByFile = new Map<string, Promise<Awaited<ReturnType<typeof TreeShaker.extractRegions>>>>()
   for (const result of results) {
     const symbol = typeof result.metadata.symbolName === "string" ? result.metadata.symbolName : ""
     if (!symbol) {
@@ -1960,9 +1966,25 @@ export async function reconstructSymbolResults(projectDirectory: string, results
       let content = best.content
       let snippetIntegrity: StructuredSearchResult["snippetIntegrity"] = cluster.length > 1 ? "complete" : "partial"
       try {
-        const source = await fs.readFile(path.join(projectDirectory, canonicalizeProjectFilePath(best.file)), "utf8")
+        const canonicalFile = canonicalizeProjectFilePath(best.file)
+        const source = await fs.readFile(path.join(projectDirectory, canonicalFile), "utf8")
         const reconstructedContent = source.split(/\r?\n/).slice(startLine - 1, endLine).join("\n")
-        if (reconstructedContent.trim()) content = reconstructedContent
+        if (reconstructedContent.trim()) {
+          content = reconstructedContent
+          let regionsPromise = regionsByFile.get(canonicalFile)
+          if (!regionsPromise) {
+            const persistedRegions = indexedRegions[canonicalFile]
+            regionsPromise = persistedRegions
+              ? Promise.resolve(persistedRegions)
+              : TreeShaker.extractRegions(canonicalFile, source).catch(() => [])
+            regionsByFile.set(canonicalFile, regionsPromise)
+          }
+          const symbol = String(best.metadata.symbolName ?? "")
+          const matchingRegion = (await regionsPromise)
+            .filter((region) => region.name === symbol && region.startLine >= startLine && region.endLine <= endLine)
+            .sort((left, right) => (left.endLine - left.startLine) - (right.endLine - right.startLine))[0]
+          if (matchingRegion) snippetIntegrity = "complete"
+        }
         else snippetIntegrity = "parse-fallback"
       } catch {
         snippetIntegrity = "parse-fallback"
@@ -1999,6 +2021,7 @@ export function toStructuredSearchResult(result: WorkingResult): StructuredSearc
     imports: splitListField(metadata.imports),
     semanticKind: typeof metadata.semanticKind === "string" && metadata.semanticKind ? metadata.semanticKind : undefined,
     framework: typeof metadata.framework === "string" && metadata.framework ? metadata.framework : undefined,
+    fileRole: typeof metadata.fileRole === "string" && metadata.fileRole ? metadata.fileRole : undefined,
     confidence: result.confidence ?? scoreToConfidence(result.rerankScore ?? result.semanticScore),
     isWeakMatch: result.isWeakMatch ?? (result.rerankScore ?? result.semanticScore) < 0.25,
     whyMatched: result.whyMatched ?? [],

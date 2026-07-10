@@ -99,6 +99,7 @@ describe("DuplicateDetector", () => {
     })
 
     expect(result.summary.candidates).toBe(1)
+    expect(result).toMatchObject({ schemaVersion: 1, command: "detect-duplicates", status: "complete" })
     expect(result.summary.analyzedCandidates).toBe(1)
     expect(result.duplicates).toEqual([])
   })

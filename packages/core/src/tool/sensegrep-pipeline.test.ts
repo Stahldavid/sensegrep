@@ -180,4 +180,27 @@ describe("progressive result evidence", () => {
       await fs.rm(root, { recursive: true, force: true })
     }
   })
+
+  it("marks one complete AST symbol chunk as complete", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "sensegrep-integrity-"))
+    await fs.writeFile(path.join(root, "complete.ts"), [
+      "export function complete(value: number) {",
+      "  const next = value + 1",
+      "  return next",
+      "}",
+    ].join("\n"))
+    try {
+      const [reconstructed] = await reconstructSymbolResults(root, [{
+        file: "complete.ts",
+        content: "export function complete(value: number) {\n  const next = value + 1\n  return next\n}",
+        startLine: 1,
+        endLine: 4,
+        semanticScore: 0.9,
+        metadata: { symbolName: "complete", symbolType: "function" },
+      }])
+      expect(reconstructed.metadata).toMatchObject({ chunksMatched: 1, snippetIntegrity: "complete" })
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
 })

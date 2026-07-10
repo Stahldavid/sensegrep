@@ -84,6 +84,9 @@ export namespace DuplicateDetector {
   }
 
   export interface DetectResult {
+    schemaVersion: 1
+    command: "detect-duplicates"
+    status: "complete" | "incomplete"
     summary: {
       totalDuplicates: number
       byLevel: Record<DuplicateLevel, number>
@@ -741,6 +744,9 @@ export namespace DuplicateDetector {
     if (!resolvedIndex || !meta?.embeddings) {
       log.warn("index metadata not found; run sensegrep index first", { path: resolvedPath })
       return {
+        schemaVersion: 1,
+        command: "detect-duplicates",
+        status: "incomplete",
         summary: {
           totalDuplicates: 0,
           byLevel: {
@@ -895,6 +901,9 @@ export namespace DuplicateDetector {
 
     if (candidates.length === 0) {
       return {
+        schemaVersion: 1,
+        command: "detect-duplicates",
+        status: truncatedByMaxCandidates ? "incomplete" : "complete",
         summary: {
           totalDuplicates: 0,
           byLevel: {
@@ -1009,6 +1018,9 @@ export namespace DuplicateDetector {
 
     if (pairs.size === 0) {
       return {
+        schemaVersion: 1,
+        command: "detect-duplicates",
+        status: truncatedByMaxCandidates || wasPartial ? "incomplete" : "complete",
         summary: {
           totalDuplicates: 0,
           byLevel: {
@@ -1163,6 +1175,9 @@ export namespace DuplicateDetector {
     })
 
     return {
+      schemaVersion: 1,
+      command: "detect-duplicates",
+      status: truncatedByMaxCandidates || wasPartial || duplicates.length < allDuplicates.length ? "incomplete" : "complete",
       summary: {
         totalDuplicates: allDuplicates.length,
         byLevel,

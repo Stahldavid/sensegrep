@@ -63,4 +63,64 @@ describe("SenseGrepContextTool audit budgets", () => {
     expect(result.coverage.exhaustive).toBe(false)
     expect(result.coverage.truncated).toBe(true)
   })
+
+  it("splits large files so every continuation batch respects batchTokens", async () => {
+    await Promise.all(["a.ts", "b.ts", "c.ts"].map((file) => fs.writeFile(
+      path.join(directory, file),
+      Array.from({ length: 250 }, (_, index) => `export const value${index} = "${"x".repeat(24)}"`).join("\n"),
+    )))
+    const { SenseGrepContextTool } = await import("./sensegrep-context.js")
+    const tool = await SenseGrepContextTool.init()
+    const result = await tool.execute({
+      query: "review",
+      gitChanged: true,
+      continueUncovered: true,
+      batchTokens: 1_000,
+      maxTotalTokens: 20_000,
+      maxOutputBytes: 100_000,
+      maxBatches: 20,
+      resultDetail: "compact",
+    } as any, {
+      sessionID: "test",
+      messageID: "test",
+      agent: "vitest",
+      abort: new AbortController().signal,
+      metadata() {},
+    }) as any
+
+    expect(result.results.length).toBeGreaterThan(3)
+    expect(result.batches.every((batch: any) => batch.tokens <= 1_000)).toBe(true)
+    expect(result.results.every((entry: any) => entry.estimatedTokens <= 1_000)).toBe(true)
+    expect(result.coverage.exhaustive).toBe(true)
+  })
+
+  it("stops at exactly maxBatches while preserving strict batch sizes", async () => {
+    await Promise.all(["a.ts", "b.ts", "c.ts"].map((file) => fs.writeFile(
+      path.join(directory, file),
+      Array.from({ length: 250 }, (_, index) => `export const value${index} = "${"x".repeat(24)}"`).join("\n"),
+    )))
+    const { SenseGrepContextTool } = await import("./sensegrep-context.js")
+    const tool = await SenseGrepContextTool.init()
+    const result = await tool.execute({
+      query: "review",
+      gitChanged: true,
+      continueUncovered: true,
+      requireCoverage: true,
+      batchTokens: 1_000,
+      maxTotalTokens: 20_000,
+      maxOutputBytes: 100_000,
+      maxBatches: 3,
+      resultDetail: "compact",
+    } as any, {
+      sessionID: "test",
+      messageID: "test",
+      agent: "vitest",
+      abort: new AbortController().signal,
+      metadata() {},
+    }) as any
+
+    expect(result.batches).toHaveLength(3)
+    expect(result.batches.every((batch: any) => batch.tokens <= 1_000)).toBe(true)
+    expect(result.coverage).toMatchObject({ exhaustive: false, truncationReasons: ["max-batches"] })
+  })
 })

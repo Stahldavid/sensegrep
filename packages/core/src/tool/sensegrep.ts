@@ -134,7 +134,14 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       rankedResults = rerankWorkingResults(params.query, workingResults)
       metrics.rerankMs = Date.now() - rerankStartedAt
     }
-    rankedResults = await reconstructSymbolResults(resolved.root, rankedResults)
+    rankedResults = await reconstructSymbolResults(
+      resolved.root,
+      rankedResults,
+      Object.fromEntries(Object.entries(meta.files ?? {}).map(([file, stat]) => [
+        file.replace(/\\/g, "/").replace(/^\.\//, ""),
+        stat.collapsibleRegions ?? [],
+      ])),
+    )
 
     const minScore = typeof params.minScore === "number" ? params.minScore : undefined
     if (minScore !== undefined) {

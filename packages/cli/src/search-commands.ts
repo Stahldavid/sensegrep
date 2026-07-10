@@ -8,6 +8,71 @@ export type SearchLikeParams = Record<string, unknown> & {
   shake?: boolean
 }
 
+export function compactSearchResult(entry: any) {
+  return {
+    resultId: entry.resultId,
+    file: entry.file,
+    startLine: entry.startLine,
+    endLine: entry.endLine,
+    symbolName: entry.symbolName,
+    symbolType: entry.symbolType,
+    type: entry.type,
+    language: entry.language,
+    parentScope: entry.parentScope,
+    semanticKind: entry.semanticKind,
+    framework: entry.framework,
+    score: entry.score,
+    rawDistance: entry.rawDistance,
+    distanceMetric: entry.distanceMetric,
+    confidence: entry.confidence,
+    isWeakMatch: entry.isWeakMatch,
+    whyMatched: entry.whyMatched,
+    filterMatches: entry.filterMatches,
+    estimatedTokens: entry.estimatedTokens,
+    chunksMatched: entry.chunksMatched,
+    snippetIntegrity: entry.snippetIntegrity,
+    fileRole: entry.fileRole ?? entry.metadata?.fileRole,
+  }
+}
+
+export function withActualOutputMetrics(payload: any): any {
+  if (!payload?.budget || typeof payload.budget !== "object") return payload
+  const attemptedOutputBytes = Number(payload.budget.attemptedOutputBytes ?? payload.budget.outputBytes ?? 0)
+  const attemptedTokens = Number(payload.budget.attemptedTokens ?? payload.budget.emittedTokens ?? 0)
+  let actualOutputBytes = 0
+  let actualEmittedTokens = 0
+  let measured = payload
+  for (let iteration = 0; iteration < 10; iteration++) {
+    measured = {
+      ...payload,
+      budget: {
+        ...payload.budget,
+        attemptedOutputBytes,
+        attemptedTokens,
+        actualOutputBytes,
+        actualEmittedTokens,
+        outputBytes: actualOutputBytes,
+        emittedTokens: actualEmittedTokens,
+      },
+    }
+    const nextBytes = Buffer.byteLength(`${JSON.stringify(measured, null, 2)}\n`)
+    const nextTokens = Math.ceil(nextBytes / 4)
+    if (nextBytes === actualOutputBytes && nextTokens === actualEmittedTokens) return measured
+    actualOutputBytes = nextBytes
+    actualEmittedTokens = nextTokens
+  }
+  return {
+    ...measured,
+    budget: {
+      ...measured.budget,
+      actualOutputBytes,
+      actualEmittedTokens,
+      outputBytes: actualOutputBytes,
+      emittedTokens: actualEmittedTokens,
+    },
+  }
+}
+
 export type SearchLikeToolFactory = {
   init(): Promise<{
     execute(
@@ -126,34 +191,24 @@ export async function executeSearchLikeTool(input: {
   if (input.flags.json) {
     const jsonDetail = input.params.jsonDetail
     const includeRendered = input.flags["include-rendered-output"] === true || input.flags.includeRenderedOutput === true
+    let payload: any
     if (jsonDetail === "compact") {
       const compactResults = Array.isArray(res.results)
-        ? res.results.map((entry: any) => ({
-            resultId: entry.resultId,
-            file: entry.file,
-            symbol: entry.symbolName,
-            lines: [entry.startLine, entry.endLine],
-            kind: entry.semanticKind ?? entry.symbolType ?? entry.type,
-            score: entry.score,
-            why: entry.whyMatched,
-            estimatedTokens: entry.estimatedTokens,
-            chunksMatched: entry.chunksMatched,
-            snippetIntegrity: entry.snippetIntegrity,
-            fileRole: entry.metadata?.fileRole,
-          }))
+        ? res.results.map(compactSearchResult)
         : res.results
       const { output: _output, results: _results, ...compact } = res
-      writeJson({ ...compact, results: compactResults, ...(includeRendered ? { output: res.output } : {}) })
+      payload = { ...compact, results: compactResults, ...(includeRendered ? { output: res.output } : {}) }
     } else if (jsonDetail === "summary" || jsonDetail === "representatives") {
       const { output: _output, ...compact } = res
-      writeJson(includeRendered ? { ...compact, output: res.output } : compact)
+      payload = includeRendered ? { ...compact, output: res.output } : compact
     } else {
-      if (includeRendered || jsonDetail === "full") writeJson(res)
+      if (includeRendered || jsonDetail === "full") payload = res
       else {
         const { output: _output, ...withoutRendered } = res
-        writeJson(withoutRendered)
+        payload = withoutRendered
       }
     }
+    writeJson(withActualOutputMetrics(payload))
     return
   }
   writeStdoutLine(res.output)

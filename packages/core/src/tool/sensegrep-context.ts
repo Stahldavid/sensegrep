@@ -7,6 +7,72 @@ import { Instance } from "../project/instance.js"
 import fs from "node:fs/promises"
 import path from "node:path"
 
+type AuditSegment = {
+  content: string
+  startLine: number
+  endLine: number
+  startOffset: number
+  endOffset: number
+  estimatedTokens: number
+}
+
+function splitAuditContent(file: string, content: string, maxTokens: number): AuditSegment[] {
+  const metadataChars = file.length + 80
+  const maxContentChars = maxTokens * 4 - metadataChars
+  if (maxContentChars <= 0) return []
+  if (content.length === 0) {
+    return [{ content: "", startLine: 1, endLine: 1, startOffset: 0, endOffset: 0, estimatedTokens: Math.ceil(metadataChars / 4) }]
+  }
+
+  const segments: AuditSegment[] = []
+  let startOffset = 0
+  let startLine = 1
+  while (startOffset < content.length) {
+    let endOffset = Math.min(content.length, startOffset + maxContentChars)
+    if (endOffset < content.length) {
+      const newline = content.lastIndexOf("\n", endOffset - 1)
+      if (newline >= startOffset) endOffset = newline + 1
+    }
+    if (endOffset <= startOffset) endOffset = Math.min(content.length, startOffset + maxContentChars)
+    const segmentContent = content.slice(startOffset, endOffset)
+    const lineBreaks = segmentContent.match(/\n/g)?.length ?? 0
+    const endLine = Math.max(startLine, startLine + lineBreaks - (segmentContent.endsWith("\n") ? 1 : 0))
+    segments.push({
+      content: segmentContent,
+      startLine,
+      endLine,
+      startOffset,
+      endOffset,
+      estimatedTokens: Math.max(1, Math.ceil((segmentContent.length + metadataChars) / 4)),
+    })
+    startLine += lineBreaks
+    startOffset = endOffset
+  }
+  return segments
+}
+
+function projectResultForBudget(entry: any, detail: "compact" | "content" | "full") {
+  if (detail !== "compact") return entry
+  return {
+    resultId: entry.resultId,
+    file: entry.file,
+    startLine: entry.startLine,
+    endLine: entry.endLine,
+    symbolName: entry.symbolName,
+    symbolType: entry.symbolType,
+    type: entry.type,
+    language: entry.language,
+    semanticKind: entry.semanticKind,
+    score: entry.score,
+    rawDistance: entry.rawDistance,
+    distanceMetric: entry.distanceMetric,
+    estimatedTokens: entry.estimatedTokens,
+    chunksMatched: entry.chunksMatched,
+    snippetIntegrity: entry.snippetIntegrity,
+    fileRole: entry.fileRole ?? entry.metadata?.fileRole,
+  }
+}
+
 export const SenseGrepContextParametersSchema = SenseGrepParametersSchema.extend({
   maxTokens: z.number().int().positive().max(1_000_000).default(12_000),
   limit: z.number().int().positive().max(500).default(50),
@@ -53,69 +119,86 @@ export const SenseGrepContextTool = Tool.define("sensegrep-context", {
     const batches: Array<{ id: number; files: string[]; tokens: number; resultIds: string[] }> = []
     const continuationResults: Array<Record<string, unknown>> = []
     const representedRanges = new Set<string>()
+    const completedContinuationFiles = new Set<string>()
     const truncationReasons = new Set<string>()
     let contextTokens = 0
     const baseContextTokens = Number((result as any).budget?.contextTokens ?? (result as any).budget?.tokensUsed ?? 0)
     let evidenceBytes = Buffer.byteLength(JSON.stringify({
-      results: (result as any).results ?? [],
-      output: (result as any).output ?? "",
+      results: ((result as any).results ?? []).map((entry: any) => projectResultForBudget(entry, params.resultDetail)),
+      ...(params.resultDetail === "full" ? { output: (result as any).output ?? "" } : {}),
     })) + 512
     if (evidenceBytes > maxEvidenceBytes) truncationReasons.add("base-result-exceeds-output-budget")
     if (params.gitChanged && params.continueUncovered && coverage?.uncoveredFiles.length) {
       let batch = { id: 1, files: [] as string[], tokens: 0, resultIds: [] as string[] }
+      let stopped = false
       for (const file of coverage.uncoveredFiles) {
         const absolute = path.resolve(Instance.directory, file)
         const relative = path.relative(Instance.directory, absolute)
         if (relative.startsWith("..") || path.isAbsolute(relative)) continue
         const content = await fs.readFile(absolute, "utf8").catch(() => "")
-        const startLine = 1
-        const endLine = Math.max(1, content.split(/\r?\n/).length)
-        const rangeKey = `${file}:${startLine}:${endLine}`
-        if (representedRanges.has(rangeKey)) continue
-        const estimatedTokens = Math.max(1, Math.ceil((content.length + file.length + 80) / 4))
-        const resultId = `symbol:${Buffer.from(JSON.stringify({ file, startLine, endLine })).toString("base64url")}`
-        const card: Record<string, unknown> = {
-          resultId,
-          file,
-          startLine,
-          endLine,
-          estimatedTokens,
-          snippetIntegrity: "complete",
-          evidence: "changed-file-text",
-          ...(params.resultDetail === "compact" ? {} : { content }),
-        }
-        const cardBytes = Buffer.byteLength(JSON.stringify(card)) + Buffer.byteLength(file) + Buffer.byteLength(resultId) + 32
-        if (baseContextTokens + contextTokens + estimatedTokens > maxTotalTokens) {
-          truncationReasons.add("max-total-tokens")
+        const segments = splitAuditContent(file, content, params.batchTokens)
+        if (segments.length === 0) {
+          truncationReasons.add("batch-token-budget-too-small")
           break
         }
-        if (evidenceBytes + cardBytes > maxEvidenceBytes) {
-          truncationReasons.add("global-output-budget")
-          break
-        }
-        if (batch.resultIds.length > 0 && batch.tokens + estimatedTokens > params.batchTokens) {
-          if (batches.length >= maxBatches) {
-            truncationReasons.add("max-batches")
+        let fileComplete = true
+        for (const segment of segments) {
+          const rangeKey = `${file}:${segment.startOffset}:${segment.endOffset}`
+          if (representedRanges.has(rangeKey)) continue
+          const resultId = `symbol:${Buffer.from(JSON.stringify({
+            file,
+            startLine: segment.startLine,
+            endLine: segment.endLine,
+            startOffset: segment.startOffset,
+            endOffset: segment.endOffset,
+          })).toString("base64url")}`
+          const card: Record<string, unknown> = {
+            resultId,
+            file,
+            startLine: segment.startLine,
+            endLine: segment.endLine,
+            estimatedTokens: segment.estimatedTokens,
+            snippetIntegrity: segments.length === 1 ? "complete" : "partial",
+            evidence: "changed-file-text",
+            ...(params.resultDetail === "compact" ? {} : { content: segment.content }),
+          }
+          const cardBytes = Buffer.byteLength(JSON.stringify(card)) + Buffer.byteLength(file) + Buffer.byteLength(resultId) + 32
+          if (baseContextTokens + contextTokens + segment.estimatedTokens > maxTotalTokens) {
+            truncationReasons.add("max-total-tokens")
+            fileComplete = false
+            stopped = true
             break
           }
-          batches.push(batch)
-          batch = { id: batch.id + 1, files: [], tokens: 0, resultIds: [] }
+          if (evidenceBytes + cardBytes > maxEvidenceBytes) {
+            truncationReasons.add("global-output-budget")
+            fileComplete = false
+            stopped = true
+            break
+          }
+          if (batch.resultIds.length > 0 && batch.tokens + segment.estimatedTokens > params.batchTokens) {
+            batches.push(batch)
+            if (batches.length >= maxBatches) {
+              truncationReasons.add("max-batches")
+              fileComplete = false
+              stopped = true
+              break
+            }
+            batch = { id: batch.id + 1, files: [], tokens: 0, resultIds: [] }
+          }
+          representedRanges.add(rangeKey)
+          if (!batch.files.includes(file)) batch.files.push(file)
+          batch.tokens += segment.estimatedTokens
+          batch.resultIds.push(resultId)
+          continuationResults.push(card)
+          contextTokens += segment.estimatedTokens
+          evidenceBytes += cardBytes
         }
-        if (batches.length >= maxBatches) {
-          truncationReasons.add("max-batches")
-          break
-        }
-        representedRanges.add(rangeKey)
-        batch.files.push(file)
-        batch.tokens += estimatedTokens
-        batch.resultIds.push(resultId)
-        continuationResults.push(card)
-        contextTokens += estimatedTokens
-        evidenceBytes += cardBytes
+        if (fileComplete) completedContinuationFiles.add(file)
+        if (stopped) break
       }
       if (batch.files.length > 0 && batches.length < maxBatches) batches.push(batch)
     }
-    const continuedFiles = new Set(batches.flatMap((batch) => batch.files))
+    const continuedFiles = completedContinuationFiles
     const textualRepresented = (coverage?.representedFiles ?? 0) + continuedFiles.size
     const remainingUncoveredFiles = coverage?.uncoveredFiles.filter((file) => !continuedFiles.has(file)) ?? []
     const finalCoverage = coverage ? {
@@ -136,9 +219,9 @@ export const SenseGrepContextTool = Tool.define("sensegrep-context", {
     const continuationOutput = batches.length > 0
       ? params.resultDetail === "compact"
         ? `\n\nAudit continuation: ${batches.length} batches, ${continuedFiles.size} files. Expand selected resultId cards with \`sensegrep show\`.`
-        : batches.map((batch) => `\n\n# Audit batch ${batch.id}\n${batch.files.map((file) => {
-            const entry = continuationResults.find((candidate) => candidate.file === file)
-            return `\n## ${file}\n\`\`\`\n${entry?.content ?? ""}\n\`\`\``
+        : batches.map((batch) => `\n\n# Audit batch ${batch.id}\n${batch.resultIds.map((resultId) => {
+            const entry = continuationResults.find((candidate) => candidate.resultId === resultId)
+            return `\n## ${entry?.file}:${entry?.startLine}-${entry?.endLine}\n\`\`\`\n${entry?.content ?? ""}\n\`\`\``
           }).join("\n")}`).join("")
       : ""
     const output = `${coverageWarning ? `${result.output}\n\n${coverageWarning}` : result.output}${continuationOutput}`
@@ -166,6 +249,8 @@ export const SenseGrepContextTool = Tool.define("sensegrep-context", {
         ...((result as any).budget ?? {}),
         retrievalTokens: Number((result as any).budget?.inputTokens ?? 0),
         contextTokens: baseContextTokens + contextTokens,
+        attemptedTokens: emittedTokens,
+        attemptedOutputBytes: outputBytes,
         emittedTokens,
         outputBytes,
         maxTotalTokens,
