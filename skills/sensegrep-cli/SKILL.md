@@ -1,6 +1,6 @@
 ---
 name: sensegrep-cli
-description: "Semantic + structural code search via the sensegrep CLI (no MCP server required). Use when exploring codebases, finding functions/classes by behavior, locating duplicates, or searching code by meaning rather than exact text — by running `sensegrep` shell commands. Triggers: code search, find function, explore codebase, detect duplicates, refactoring candidates, understand code structure. ALWAYS prefer sensegrep over grep/ripgrep for code exploration — only use grep for exact string literals. Use sensegrep even when the user doesn't explicitly mention it, as long as they are asking about code behavior, structure, or meaning."
+description: "Semantic + structural code search via the sensegrep CLI (no MCP server required). Use when exploring codebases, building token-bounded context, auditing Git changes, tracing symbol impact, finding functions/classes by behavior, locating duplicates, or searching code by meaning rather than exact text. Triggers: code search, context gathering, changed-code audit, references, impact analysis, find function, explore codebase, detect duplicates, refactoring candidates, understand code structure. ALWAYS prefer sensegrep over grep/ripgrep for code exploration; use grep only for exact string literals."
 ---
 
 # sensegrep (CLI) — Semantic Code Search
@@ -20,7 +20,8 @@ npm install -g @sensegrep/cli
 sensegrep index            # builds the semantic index for the current directory
 ```
 
-Add `--json` to any `search`, `survey`, `cluster`, or `detect-duplicates` command to get
+Add `--json` to search, context, audit, survey, cluster, graph, index-health, or
+detect-duplicates commands to get
 machine-readable output that is easy to parse programmatically. When `--json` is active,
 stdout is reserved for JSON; human progress and warnings go to stderr.
 
@@ -49,7 +50,9 @@ Start with these defaults and adjust based on what you find:
 
 > **Subdirectory roots:** If the repo root was indexed and you run `sensegrep` with `--root` pointing at a subdirectory, Sensegrep reuses the nearest indexed parent and scopes the query to that subdirectory. You no longer need to reindex every subfolder separately.
 
-> **JSON output:** `--json` returns structured data plus the human-readable `output`: `search` returns `results`, `survey` returns `groups`, and `cluster` returns `clusters`. Prefer these fields for automation instead of parsing Markdown text. stdout is reserved for JSON; progress and warnings go to stderr. Use `--log-format none` when stderr must not contain human progress logs.
+> **JSON output:** `--json` returns structured data plus human-readable `output`: `search`, `context`, and `audit` return `results`; `survey` returns `groups`; `cluster` returns `clusters`. Graph commands return direct structured objects. Prefer these fields over parsing Markdown. stdout is reserved for JSON; progress and warnings go to stderr. Use `--log-format none` when stderr must not contain progress logs.
+
+> **Profiles:** Use `--profile <name>` when comparing embedding models/settings. Profiles have independent indexes. Sensegrep validates a non-secret endpoint/model fingerprint before searching.
 
 ## Commands
 
@@ -77,12 +80,37 @@ sensegrep search "error handling and retry logic" \
   --min-score 0.5          # relevance threshold
   --max-per-file 2         # dedup per file (default: 2)
   --max-per-symbol 2       # dedup per symbol (default: 2)
+  --hybrid true            # fuse lexical + vector retrieval (default: true)
+  --rerank true            # deterministic second-stage reranking
+  --max-tokens 8000        # cap estimated output tokens
+  --changed --base origin/main # restrict to Git-changed files
+  --profile fast           # select a named side-by-side index
   --no-shake               # show full matched snippets when tree-shaking hides the target
   --limit 10               # max results (default: 10)
   --json                   # structured results + text output
 ```
 
 `--parent` matches parent/class scope by containment, so partial class names are acceptable. `--imports` tries package-name variants (`@scope/pkg`, `scope/pkg`, `pkg`) to reduce false misses in scoped packages.
+
+Hybrid retrieval is the default: lexical and vector ranks are fused before structural filtering. If optional ripgrep execution is unavailable, natural-language search safely falls back to vector results. Use `--no-hybrid` only for controlled comparisons.
+
+### `sensegrep context` — Build an agent context pack
+
+Use this when the next model/agent call has a context budget. It enables hybrid retrieval, reranking, diversification, and tree-shaking, then stops before the estimated token cap.
+
+```bash
+sensegrep context "authentication request lifecycle" --max-tokens 8000 --json
+sensegrep context "billing retry behavior" --include "packages/core/**/*.ts" --max-tokens 12000
+```
+
+### `sensegrep audit` — Review Git changes
+
+`audit` is a token-bounded context search restricted to changed files. Supply a merge base for PR-style review; without `--base`, it uses working-tree and untracked changes.
+
+```bash
+sensegrep audit "security regressions and missing error handling" --base origin/main --max-tokens 12000
+sensegrep search "affected retry logic" --changed --base HEAD~1 --json
+```
 
 ### `sensegrep survey` — Reading map for a theme
 
@@ -112,6 +140,20 @@ sensegrep cluster "price list commission ncm uf packaging" \
 ```
 
 Returns cluster headings plus representative tree-shaken snippets, using embeddings + AST metadata + path/import signals.
+
+### Symbol graph — References, impact, and trace
+
+These commands analyze the existing local index without embedding calls:
+
+```bash
+sensegrep references loadUser --json
+sensegrep impact loadUser --depth 3 --limit 100 --json
+sensegrep trace handleRequest loadUser --depth 6 --json
+```
+
+- `references` lists definitions and indexed reference sites.
+- `impact` walks reverse references to estimate transitive blast radius.
+- `trace` finds a reference path between two symbols.
 
 ### `sensegrep detect-duplicates` — Find logical duplicates
 
@@ -165,6 +207,9 @@ sensegrep index                  # fast, only changed files — use by default (
 sensegrep index --full           # rebuild from scratch — only if index is corrupted or stale
 sensegrep index --no-watch       # index once and exit — use in automation
 sensegrep index --full --no-watch --timeout 5m --log-format jsonl
+sensegrep index --dry-run --no-watch --json # local plan; no embedding calls
+sensegrep index --full --no-watch            # resumes matching interrupted staging
+sensegrep index --full --no-resume --no-watch # discard interrupted staging
 sensegrep status                 # fast metadata-only stats; does not scan freshness
 sensegrep status --verify        # compute changed/missing/removed freshness
 sensegrep status --verbose       # freshness plus changedFiles/missingFiles/removedFiles
@@ -180,6 +225,19 @@ metadata changes, prefer `sensegrep index --full --no-watch`.
 Use `--timeout <duration>` to budget the whole command, including lock wait. Bare numeric
 timeouts are seconds; suffixes `ms`, `s`, and `m` are supported. `--max-files <n>` is useful
 for smoke tests.
+
+Changed files reuse vectors for content-identical chunks. Full indexing checkpoints its staging table and skips IDs already persisted after an interruption. Progress exposes embedded/reused/persisted chunks, estimated tokens/requests, elapsed time, and ETA.
+
+### Benchmark and named profiles
+
+Benchmarking calls the configured provider and may incur cost. It recommends concurrency but does not rewrite saved config:
+
+```bash
+sensegrep benchmark --concurrency 1,2,4 --samples 16 --json
+sensegrep index --profile fast --no-watch
+sensegrep profiles --root . --json
+sensegrep search "request routing" --profile fast
+```
 
 `sensegrep verify --strict` enforces:
 
@@ -203,15 +261,15 @@ query + structural filters
         ↓
   exact symbol lookup for identifier queries
         ↓
-  vector similarity search (AI embeddings, skipped when --exact has a strong symbol hit)
+  vector similarity + lexical retrieval (hybrid rank fusion)
         ↓
-  pattern (ripgrep post-filter — fetches limit×3 candidates internally to compensate)
+  optional deterministic rerank + pattern post-filter
         ↓
   dedup + diversify (--max-per-file, --max-per-symbol)
         ↓
   tree-shaking (collapse irrelevant regions, show matched symbol + context)
         ↓
-  final output
+  optional token-budget selection → final output
 ```
 
 ### 1. Structural filters — narrow the candidate pool (before ranking)
@@ -298,11 +356,14 @@ sensegrep detect-duplicates --cross-file-only --only-exported --show-code --thre
 **Automated consumption:**
 ```bash
 sensegrep search "bad signature rate limiting" --type function --json
+sensegrep context "authentication request flow" --max-tokens 8000 --json
+sensegrep audit "regression risks" --base origin/main --json
 sensegrep survey "notifications resend email delivery" --json
 sensegrep cluster "calendar sync webhook retry idempotency" --json
+sensegrep impact updateUser --depth 3 --json
 ```
 
-Use `results`, `groups`, or `clusters` from JSON output. `output` remains for humans and backward compatibility.
+Use `results`, `groups`, `clusters`, or graph fields from JSON output. `output` remains for humans and backward compatibility.
 
 **Audit async error paths:**
 ```bash
