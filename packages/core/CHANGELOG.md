@@ -1,5 +1,18 @@
 # @sensegrep/core
 
+## 1.11.0
+
+### Minor Changes
+
+- [`ab5bf2b`](https://github.com/Stahldavid/sensegrep/commit/ab5bf2b877f802df9cbc50ca8e4e17e20c64049c) Thanks [@Stahldavid](https://github.com/Stahldavid)! - Add agent-focused JSON projections and enforce physical output budgets.
+
+  - add minimal, content, diagnostic, and full projections, with compact as a compatibility alias
+  - minify JSON by default and add `--pretty` and `--diagnostic` opt-ins
+  - remove duplicate metadata and source code from ordinary agent output
+  - expose final rank scores, audit ranges, and explicit semantic and textual coverage
+  - enforce `maxOutputBytes` against final serialized CLI and MCP payloads
+  - reduce literal, references, and duplicate-detection schemas
+
 ## 1.10.2
 
 ### Patch Changes
