@@ -90,6 +90,7 @@ export function buildCommonSearchParams(query: string, flags: Flags, defaults: O
   if (flags["no-hybrid"] !== undefined) params.hybrid = false
   if (flags.changed !== undefined) params.gitChanged = true
   assignStringParam(params, flags, "gitBase", ["base"])
+  assignNumberParam(params, flags, "latencyBudgetMs", ["latency-budget", "latencyBudget"])
 
   return params
 }
@@ -113,9 +114,16 @@ export async function executeSearchLikeTool(input: {
         metadata(_input: { title?: string; metadata?: unknown }) {},
       }),
   })
+  if (input.params.requireCoverage === true && res.coverageSatisfied === false) process.exitCode = 2
 
   if (input.flags.json) {
-    writeJson(res)
+    const jsonDetail = input.params.jsonDetail
+    if (jsonDetail === "summary" || jsonDetail === "representatives") {
+      const { output: _output, ...compact } = res
+      writeJson(compact)
+    } else {
+      writeJson(res)
+    }
     return
   }
   writeStdoutLine(res.output)

@@ -17,4 +17,8 @@ describe("CLI arguments", () => {
   it("rejects flags outside the command contract", () => {
     expect(validateKnownFlags("status", { threshold: "0.8" })).toBe("threshold")
   })
+
+  it("accepts deterministic literal search flags", () => {
+    expect(validateKnownFlags("literal", { regex: true, "ignore-case": true, include: "src/**", limit: "20" })).toBeUndefined()
+  })
 })

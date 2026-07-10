@@ -5,74 +5,21 @@ import { Instance } from "../project/instance.js"
 import { Embeddings } from "../semantic/embeddings.js"
 import { TreeShaker } from "../semantic/tree-shaker.js"
 import {
-  annotateWorkingResults,
-  canonicalizeProjectFilePath,
-  collectLexicalQueryResults,
-  collectLiteralFallbackResults,
-  collectRipgrepFallbackResults,
-  createGlobMatcher,
+  collectWorkingResults,
   dedupeOverlapping,
   diversifyResults,
-  expandFilePathVariants,
-  expandImportFilterValues,
   formatFreshnessWarning,
-  fuseHybridResults,
   getFreshnessSummary,
-  getScopedFilePath,
-  matchesScopedGlob,
   prependFreshnessWarning,
-  queryLooksLikeIdentifier,
   rerankWorkingResults,
-  runRipgrepOnFiles,
   selectWithinTokenBudget,
   toStructuredSearchResult,
 } from "./sensegrep-pipeline.js"
-import { expandSemanticKindFilter } from "../semantic/language/index.js"
 import { SenseGrepParametersSchema } from "./search-schema.js"
-import { GitScope } from "../project/git.js"
 import { embeddingConfigFingerprint } from "../semantic/embedding-config.js"
 
 const DESCRIPTION = readFileSync(new URL("./sensegrep.txt", import.meta.url), "utf8")
 const MAX_LINE_LENGTH = 2000
-
-function queryLooksLikeSimpleIdentifier(query: string): boolean {
-  const trimmed = query.trim()
-  if (trimmed.length < 2 || trimmed.length > 120) return false
-  if (/\s/.test(trimmed)) return false
-  if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(trimmed)) return false
-  return /[A-Za-z]/.test(trimmed)
-}
-
-async function collectExactSymbolResults(
-  symbolName: string,
-  collection: Awaited<ReturnType<typeof VectorStore.getCollectionUnsafe>>,
-  filters: VectorStore.SearchFilters,
-): Promise<
-  {
-    id: string
-    file: string
-    content: string
-    startLine: number
-    endLine: number
-    semanticScore: number
-    metadata: Record<string, string | number | boolean | string[] | undefined>
-  }[]
-> {
-  const exactFilters: VectorStore.SearchFilters = {
-    ...filters,
-    all: [...(filters.all ?? []), { key: "symbolName", operator: "equals", value: symbolName }],
-  }
-  const rows = await VectorStore.listDocuments(collection, { filters: exactFilters })
-  return rows.map((row) => ({
-    id: row.id,
-    file: row.metadata.file as string,
-    content: row.content,
-    startLine: row.metadata.startLine as number,
-    endLine: row.metadata.endLine as number,
-    semanticScore: 1.08,
-    metadata: row.metadata,
-  }))
-}
 
 export const SenseGrepTool = Tool.define("sensegrep", {
   description: DESCRIPTION,
@@ -128,305 +75,23 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     const collection = await VectorStore.getCollectionUnsafe(resolved.root, meta.embeddings.dimension)
     metrics.collectionMs = Date.now() - collectionStartedAt
 
-    // Build semantic filters from parameters
-    const filters: VectorStore.SearchFilters = { all: [] }
-
-    if (params.symbolType) {
-      filters.all!.push({ key: "symbolType", operator: "equals", value: params.symbolType })
-    }
-
-    if (params.isExported !== undefined) {
-      filters.all!.push({ key: "isExported", operator: "equals", value: params.isExported })
-    }
-
-    if (params.minComplexity !== undefined) {
-      filters.all!.push({ key: "complexity", operator: "greater_or_equal", value: params.minComplexity })
-    }
-
-    if (params.maxComplexity !== undefined) {
-      filters.all!.push({ key: "complexity", operator: "less_or_equal", value: params.maxComplexity })
-    }
-
-    if (params.hasDocumentation !== undefined) {
-      filters.all!.push({ key: "hasDocumentation", operator: "equals", value: params.hasDocumentation })
-    }
-
-    if (params.language) {
-      filters.all!.push({ key: "language", operator: "equals", value: params.language })
-    }
-
-    // New multilingual filters
-    if (params.variant) {
-      filters.all!.push({ key: "variant", operator: "equals", value: params.variant })
-    }
-
-    if (params.isAsync !== undefined) {
-      filters.all!.push({ key: "isAsync", operator: "equals", value: params.isAsync })
-    }
-
-    if (params.isStatic !== undefined) {
-      filters.all!.push({ key: "isStatic", operator: "equals", value: params.isStatic })
-    }
-
-    if (params.isAbstract !== undefined) {
-      filters.all!.push({ key: "isAbstract", operator: "equals", value: params.isAbstract })
-    }
-
-    if (params.decorator) {
-      filters.all!.push({ key: "decorators", operator: "contains", value: params.decorator })
-    }
-
-    if (params.parentScope) {
-      filters.all!.push({ key: "parentScope", operator: "contains", value: params.parentScope })
-    }
-    if ((params as any).semanticKind) {
-      const semanticKinds = expandSemanticKindFilter(String((params as any).semanticKind))
-      if (semanticKinds.length === 1) {
-        filters.all!.push({ key: "semanticKind", operator: "equals", value: semanticKinds[0] })
-      } else if (semanticKinds.length > 1) {
-        filters.any = [
-          ...(filters.any ?? []),
-          ...semanticKinds.map((value) => ({ key: "semanticKind", operator: "equals" as const, value })),
-        ]
-      } else {
-        filters.all!.push({ key: "semanticKind", operator: "equals", value: (params as any).semanticKind })
-      }
-    }
-    if (params.imports) {
-      const importValues = expandImportFilterValues(params.imports)
-      if (importValues.length === 1) {
-        filters.all!.push({ key: "imports", operator: "contains", value: importValues[0] })
-      } else if (importValues.length > 1) {
-        filters.any = [
-          ...(filters.any ?? []),
-          ...importValues.map((value) => ({ key: "imports", operator: "contains" as const, value })),
-        ]
-      }
-    }
-    const symbolQuery = params.symbol ?? params.name
-    if (symbolQuery) {
-      filters.all!.push({ key: "symbolName", operator: "contains", value: symbolQuery })
-    }
-
-    let includeMatcher: ReturnType<typeof createGlobMatcher> | undefined
-    let excludeMatcher: ReturnType<typeof createGlobMatcher> | undefined
-    if (params.include) includeMatcher = createGlobMatcher(params.include)
-    if (params.exclude) excludeMatcher = createGlobMatcher(params.exclude)
-    const gitFiles = params.gitChanged
-      ? new Set(await GitScope.changedFiles(Instance.directory, { base: params.gitBase, signal: ctx.abort }))
-      : undefined
-
-    let candidateFiles: string[] | undefined
-    if (includeMatcher || excludeMatcher || resolved.subdirPrefix || gitFiles) {
-      const indexedFiles = Object.keys(meta.files ?? {})
-      candidateFiles = indexedFiles.filter((file) => {
-        if (gitFiles && !gitFiles.has(canonicalizeProjectFilePath(file))) return false
-        if (getScopedFilePath(file, resolved.subdirPrefix) === undefined) return false
-        if (!matchesScopedGlob(file, includeMatcher, resolved.subdirPrefix)) return false
-        if (excludeMatcher && matchesScopedGlob(file, excludeMatcher, resolved.subdirPrefix)) return false
-        return true
-      })
-
-      if (candidateFiles.length === 0) {
-        const filterLabel = [
-          params.include ? `include="${params.include}"` : null,
-          params.exclude ? `exclude="${params.exclude}"` : null,
-          resolved.subdirPrefix ? `scope="${resolved.subdirPrefix}"` : null,
-          gitFiles ? "git-changed" : null,
-        ]
-          .filter(Boolean)
-          .join(", ")
-        const warning = `No indexed files matched the file filters${filterLabel ? ` (${filterLabel})` : ""}.`
-        warnings.push(warning)
-        metrics.totalMs = Date.now() - startedAt
-        return {
-          title: params.query,
-          metadata: { matches: 0, indexed: true, freshness, warnings, metrics },
-          freshness,
-          warnings,
-          metrics,
-          results: [],
-          output: prependFreshnessWarning(
-            warning,
-            freshness,
-          ),
-        }
-      }
-
-      const fileFilterValues = [...new Set(candidateFiles.flatMap((file) => expandFilePathVariants(file)))]
-      filters.all!.push({ key: "file", operator: "in", value: fileFilterValues })
-    }
-
-    // Only pass filters if we have any
-    const searchOptions: { limit: number; filters?: VectorStore.SearchFilters } = {
-      limit: params.pattern ? limit * 3 : limit * 2, // Get more if we need to post-filter
-    }
-    if ((filters.all && filters.all.length > 0) || (filters.any && filters.any.length > 0)) {
-      searchOptions.filters = filters
-    }
-
-    const shouldRunLiteralFallback = !params.pattern && queryLooksLikeIdentifier(params.query)
-    const simpleIdentifierQuery = queryLooksLikeSimpleIdentifier(params.query)
-    const exactSymbolQuery = symbolQuery ?? (params.exact || simpleIdentifierQuery ? params.query.trim() : undefined)
-    let exactSymbolResults: WorkingResult[] = []
-    if (exactSymbolQuery) {
-      const exactStartedAt = Date.now()
-      const symbolResults = await collectExactSymbolResults(exactSymbolQuery, collection, filters)
-      metrics.exactSymbolLookupMs = Date.now() - exactStartedAt
-      exactSymbolResults = symbolResults.map((result) => ({
-        file: result.file,
-        content: result.content,
-        startLine: result.startLine,
-        endLine: result.endLine,
-        semanticScore: result.semanticScore,
-        metadata: result.metadata,
-        whyMatched: [`exact symbol lookup: ${exactSymbolQuery}`],
-      }))
-    }
-    let literalFallbackResults: WorkingResult[] = []
-    const lexicalCandidateFiles =
-      params.hybrid !== false || shouldRunLiteralFallback || params.pattern
-        ? candidateFiles ??
-          Object.keys(meta.files ?? {}).filter((file) => {
-            if (getScopedFilePath(file, resolved.subdirPrefix) === undefined) return false
-            if (!matchesScopedGlob(file, includeMatcher, resolved.subdirPrefix)) return false
-            if (excludeMatcher && matchesScopedGlob(file, excludeMatcher, resolved.subdirPrefix)) return false
-            return true
-          })
-        : []
-
-    if (shouldRunLiteralFallback) {
-      const literalStartedAt = Date.now()
-      const literalResults = await collectLiteralFallbackResults(params.query, lexicalCandidateFiles, collection, filters)
-      metrics.literalFallbackMs = Date.now() - literalStartedAt
-      literalFallbackResults = literalResults.map((result) => ({
-        file: result.file,
-        content: result.content,
-        startLine: result.startLine,
-        endLine: result.endLine,
-        semanticScore: result.semanticScore,
-        metadata: result.metadata,
-        whyMatched: result.whyMatched,
-      }))
-    }
-
-    const hybridLexicalStartedAt = Date.now()
-    const hybridLexicalResults = params.hybrid !== false && !params.pattern && params.exact !== true && !shouldRunLiteralFallback && !exactSymbolQuery
-      ? await collectLexicalQueryResults(params.query, lexicalCandidateFiles, collection, filters, {
-          signal: ctx.abort,
-          limit: searchOptions.limit,
-        }).catch((error) => {
-          if (ctx.abort.aborted) throw error
-          warnings.push(`Lexical retrieval unavailable; using semantic results only: ${error instanceof Error ? error.message : String(error)}`)
-          return []
-        })
-      : []
-    metrics.lexicalSearchMs = Date.now() - hybridLexicalStartedAt
-
-    const useLexicalOnly =
-      !params.pattern &&
-      (exactSymbolResults.length > 0 || literalFallbackResults.length > 0) &&
-      (params.exact === true || Boolean(symbolQuery) || (simpleIdentifierQuery && exactSymbolResults.length > 0))
-
-    // Step 1: Semantic search with metadata filters. Explicit exact/literal hits can skip embeddings entirely.
-    let semanticResults: Awaited<ReturnType<typeof VectorStore.search>> = []
-    if (!useLexicalOnly) {
-      const semanticStartedAt = Date.now()
-      semanticResults = await VectorStore.search(collection, params.query, {
-        ...searchOptions,
-        signal: ctx.abort,
-      })
-      metrics.semanticSearchMs = Date.now() - semanticStartedAt
-
-      // Apply file globs again as a safety net after semantic search.
-      if (includeMatcher) {
-        semanticResults = semanticResults.filter((r) =>
-          matchesScopedGlob(r.metadata.file as string, includeMatcher, resolved.subdirPrefix),
-        )
-      }
-      if (excludeMatcher) {
-        semanticResults = semanticResults.filter((r) =>
-          !matchesScopedGlob(r.metadata.file as string, excludeMatcher, resolved.subdirPrefix),
-        )
-      }
-    } else {
-      metrics.semanticSearchMs = 0
-    }
-
-    // Step 2: Post-filter with ripgrep if pattern provided
-    // This runs ripgrep ONLY on files found by semantic search
-    let filteredResults = semanticResults
-    if (params.pattern && semanticResults.length > 0) {
-      const patternFilterStartedAt = Date.now()
-      const uniqueFiles = [...new Set(semanticResults.map((r) => r.metadata.file as string))]
-      const rgMatches = await runRipgrepOnFiles(params.pattern, uniqueFiles)
-
-      // Keep only chunks that contain ripgrep matches (line within chunk range)
-      filteredResults = semanticResults.filter((r) => {
-        const file = canonicalizeProjectFilePath(r.metadata.file as string)
-        const startLine = r.metadata.startLine as number
-        const endLine = r.metadata.endLine as number
-        return rgMatches.some((m) => m.file === file && m.line >= startLine && m.line <= endLine)
-      })
-      metrics.patternFilterMs = Date.now() - patternFilterStartedAt
-    }
-
-    let patternFallbackResults: WorkingResult[] = []
-    if (params.pattern) {
-      const patternFallbackStartedAt = Date.now()
-      const patternResults = await collectRipgrepFallbackResults(
-        params.pattern,
-        lexicalCandidateFiles,
-        collection,
-        filters,
-        { semanticScore: 1.04 },
-      )
-      patternFallbackResults = patternResults.map((result) => ({
-        file: result.file,
-        content: result.content,
-        startLine: result.startLine,
-        endLine: result.endLine,
-        semanticScore: result.semanticScore,
-        metadata: result.metadata,
-      }))
-      metrics.patternFallbackMs = Date.now() - patternFallbackStartedAt
-    }
-
-    // Convert to working format with semantic score
-    type WorkingResult = {
-      file: string
-      content: string
-      startLine: number
-      endLine: number
-      semanticScore: number
-      rawDistance?: number
-      distanceMetric?: VectorStore.DistanceMetric
-      metadata: Record<string, string | number | boolean | string[] | undefined>
-      rerankScore?: number
-      confidence?: "high" | "medium" | "low"
-      isWeakMatch?: boolean
-      whyMatched?: string[]
-      filterMatches?: Record<string, unknown>
-    }
-    let workingResults: WorkingResult[] = filteredResults.map((r) => ({
-      file: r.metadata.file as string,
-      content: r.content,
-      startLine: r.metadata.startLine as number,
-      endLine: r.metadata.endLine as number,
-      semanticScore: VectorStore.distanceToSimilarity(r.distance, VectorStore.getDistanceMetric(meta)),
-      rawDistance: r.distance,
-      distanceMetric: VectorStore.getDistanceMetric(meta),
-      metadata: r.metadata,
-      whyMatched: ["semantic similarity"],
-    }))
-
-    const fallbackResults = [...exactSymbolResults, ...literalFallbackResults, ...patternFallbackResults]
-    workingResults = fuseHybridResults(workingResults, [...hybridLexicalResults, ...fallbackResults])
-
-    workingResults = annotateWorkingResults(workingResults, {
-      ...(params as any),
-      symbol: symbolQuery ?? exactSymbolQuery,
+    const collected = await collectWorkingResults({
+      meta,
+      collection,
+      projectDirectory: resolved.root,
+      requestedDirectory: Instance.directory,
+      subdirPrefix: resolved.subdirPrefix,
+      freshness,
+    }, params, {
+      rawLimit: params.pattern ? limit * 3 : limit * 2,
+      diversify: false,
+      signal: ctx.abort,
     })
+    if ("output" in collected) return collected
+    Object.assign(metrics, collected.metrics)
+    warnings.push(...collected.warnings)
+    const useLexicalOnly = collected.lexicalOnly
+    let workingResults = collected.results
 
     // Sort by semantic score initially
     workingResults.sort((a, b) => b.semanticScore - a.semanticScore)
@@ -552,10 +217,12 @@ export const SenseGrepTool = Tool.define("sensegrep", {
           freshness,
           warnings,
           metrics,
+          retrieval: { mode: params.pattern ? "semantic-pattern-filter" : "semantic", exhaustive: false },
         },
         freshness,
         warnings,
         metrics,
+        retrieval: { mode: params.pattern ? "semantic-pattern-filter" : "semantic", exhaustive: false },
         results: finalResults.map(toStructuredSearchResult),
         output: prependFreshnessWarning(outputLines.join("\n"), freshness),
       }
@@ -635,10 +302,12 @@ export const SenseGrepTool = Tool.define("sensegrep", {
           freshness,
           warnings,
           metrics,
+          retrieval: { mode: params.pattern ? "semantic-pattern-filter" : "semantic", exhaustive: false },
         },
         freshness,
         warnings,
-        metrics,
+      metrics,
+      retrieval: { mode: params.pattern ? "semantic-pattern-filter" : "semantic", exhaustive: false },
         results: finalResults.map(toStructuredSearchResult),
         output: prependFreshnessWarning(outputLines.join("\n"), freshness),
       }

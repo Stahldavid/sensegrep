@@ -13,7 +13,7 @@
       "name": "sensegrep",
       "source": "./plugin/sensegrep-plugin",
       "description": "Semantic code search for AI agents. Search code by meaning, not text patterns. Adds sensegrep MCP tools + smart usage instructions to Claude Code.",
-      "version": "1.8.0",
+      "version": "1.9.0",
       "author": {
         "name": "sensegrep"
       },

@@ -186,7 +186,8 @@ Semantic + structural code search.
 - `isExported` (boolean): Only exported symbols
 - `isAsync` (boolean): Only async functions/methods
 - `language` (string): Filter by language
-- `pattern` (string): Regex post-filter
+- `pattern` (string): non-exhaustive regex post-filter on semantic candidates
+- `sensegrep_literal`: exhaustive literal/regex search without embedding calls
 - `limit` (number): Max results (default: 20)
 - `include` (string): File glob filter
 - `variant` (string): Language-specific variant

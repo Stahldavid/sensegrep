@@ -5,7 +5,7 @@ const log = Log.create({ service: "semantic.chunk-limits" })
 
 const CHARS_PER_TOKEN = 4
 const MODEL_SAFETY_RATIO = 0.85
-const CHUNKING_SIGNATURE_VERSION = 2
+const CHUNKING_SIGNATURE_VERSION = 3
 
 const CODE_TARGET_TOKENS = {
   simple: 1800,

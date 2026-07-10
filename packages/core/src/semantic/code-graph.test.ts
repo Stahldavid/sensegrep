@@ -39,10 +39,25 @@ describe("CodeGraph", () => {
     const trace = await CodeGraph.trace("handleRequest", "fetchUser")
 
     expect(references.references).toMatchObject([{ from: "handleRequest", to: "loadUser" }])
-    expect(impact.impacted).toEqual([
+    expect(impact.impacted).toMatchObject([
       { symbol: "loadUser", depth: 1 },
       { symbol: "handleRequest", depth: 2 },
     ])
     expect(trace).toMatchObject({ found: true, path: ["handleRequest", "loadUser", "fetchUser"] })
+  })
+
+  it("does not connect ambiguous call targets that only share a symbol name", async () => {
+    listDocuments.mockResolvedValue([
+      { content: "create()", metadata: { file: "src/caller.ts", startLine: 1, endLine: 2, symbolName: "run", calls: "create" } },
+      { content: "", metadata: { file: "src/users.ts", startLine: 1, endLine: 2, symbolName: "create" } },
+      { content: "", metadata: { file: "src/orders.ts", startLine: 1, endLine: 2, symbolName: "create" } },
+    ])
+    const { CodeGraph } = await import("./code-graph.js")
+
+    const impact = await CodeGraph.impact("create")
+
+    expect(impact.definitions).toHaveLength(2)
+    expect(impact.impacted).toEqual([])
+    expect(impact.ambiguous).toBe(true)
   })
 })

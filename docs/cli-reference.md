@@ -53,11 +53,12 @@ sensegrep search <query> [options]
 | Flag | Description |
 |------|-------------|
 | `--query <text>` | Query text (alternative to positional) |
-| `--pattern <regex>` | Regex post-filter on results |
+| `--pattern <regex>` | Non-exhaustive regex post-filter on semantic results |
 | `--limit <n>` | Max results (default: 20) |
 | `--include <glob>` | File glob include filter (e.g. `src/**/*.ts`) |
 | `--exclude <glob>` | File glob exclude filter (e.g. `*.md`, `docs/**`) |
 | `--json` | Output as JSON |
+| `--latency-budget <ms>` | Query embedding deadline before lexical fallback (default: 15000) |
 
 JSON search results include `score`, `rawDistance`, and `distanceMetric`. New indexes use
 cosine distance explicitly for stable scoring across embedding providers.
@@ -81,7 +82,7 @@ cosine distance explicitly for stable scoring across embedding providers.
 | `--semantic-kind <kind>` | Framework-aware kind (`convexMutation`, `convexAction`, `reactComponent`, etc.); aliases and `*` wildcards are supported |
 | `--explain-filters` | Include `whyMatched` and `filterMatches` in JSON results |
 | `--strict-parent` | Mark parent filtering as strict indexed metadata validation |
-| `--strict-imports` | Mark import filtering as strict AST metadata validation |
+| `--strict-imports` | Require an exact normalized module specifier such as `convex/react` |
 
 **Quality filters:**
 
@@ -104,6 +105,17 @@ cosine distance explicitly for stable scoring across embedding providers.
 | `--rerank` / `--no-rerank` | Compatibility flag; remote-only mode keeps semantic ranking |
 
 Changing provider, model, base URL, embedding dimension, local server pooling behavior, or task-prefix strategy requires a full reindex. Same-dimensional embeddings from different models are not interchangeable.
+
+### `sensegrep literal`
+
+Deterministic exhaustive search over indexed project files. It does not call the embedding provider.
+
+```bash
+sensegrep literal "X-Goog-Message-Number" --include "src/**" --json
+sensegrep literal "retry|backoff" --regex --ignore-case --limit 200
+```
+
+JSON reports `totalMatches`, `returnedMatches`, `truncated`, and `exhaustive`. Omitting `--limit` returns every occurrence. Use `--pattern` to anchor semantic candidates; use `literal` when every occurrence matters.
 
 ### `sensegrep detect-duplicates`
 

@@ -6,6 +6,7 @@ Usage:
   sensegrep verify [--root <dir>] [--strict] [--json]
   sensegrep status [--root <dir>] [--verify|--verbose]
   sensegrep search <query...> [options]
+  sensegrep literal <text-or-regex> [--regex] [--ignore-case] [options]
   sensegrep context <query...> [--max-tokens <n>] [options]
   sensegrep survey <query...> [options]
   sensegrep cluster <query...> [options]
@@ -44,10 +45,12 @@ Search options:
   --hybrid <true|false>     Fuse lexical and vector retrieval (default: true)
   --no-hybrid               Disable lexical/vector fusion
   --max-tokens <n>          Limit estimated output tokens (context default: 12000)
+  --latency-budget <ms>     Query embedding deadline (default: 15000ms)
   --dry-run                 Plan indexing and estimate embedding work without API calls
   --no-resume               Discard interrupted full-index staging data
   benchmark                 Measure embedding throughput and recommend concurrency
   audit <query>             Build review context restricted to Git changes
+  literal <text|regex>      Exhaustive deterministic search without embeddings
   references <symbol>       Find indexed references to a symbol
   impact <symbol>           Traverse reverse references for change impact
   trace <from> <to>         Find a symbol-reference path
@@ -55,6 +58,7 @@ Search options:
   --concurrency 1,2,4       Benchmark candidate concurrency levels
   --changed                 Restrict retrieval to Git-changed files
   --base <revision>         Base revision for --changed (default: HEAD)
+  --require-coverage        Mark audit incomplete when any changed file is unrepresented
   --profile <name>          Select a side-by-side named index profile
   --embed-model <name>      Override remote embedding model
   --embed-dim <n>           Override embedding dimension
@@ -62,7 +66,9 @@ Search options:
   --semantic-kind <kind>    Framework-aware kind (convexMutation, reactComponent, routeHandler, etc.)
   --explain-filters         Include deterministic filter match explanations
   --strict-parent           Mark parent filter as strict indexed-metadata validation
-  --strict-imports          Mark import filter as strict AST-metadata validation
+  --strict-imports          Require an exact normalized import module specifier
+  --regex                   Interpret a literal query as a regular expression
+  --ignore-case             Make literal matching case-insensitive
   --ensure-fresh <mode>     check|incremental|full before search/survey/cluster/duplicates
   --root <dir>              Root directory (default: cwd)
   --no-shake                Disable semantic tree-shaking in output
@@ -78,12 +84,14 @@ Search options:
 Survey options:
   --raw-limit <n>           Raw matches to gather before grouping (default: 60)
   --per-group <n>           Representative snippets per group (default: 2)
+  --json-detail <mode>      summary|representatives|full (default: representatives)
 
 Cluster options:
   --raw-limit <n>           Raw matches to gather before clustering (default: 70)
   --per-cluster <n>         Representative snippets per cluster (default: 2)
   --cluster-threshold <n>   Similarity threshold for linking clusters (default: 0.72)
   --min-cluster-size <n>    Minimum cluster size before singleton fallback (default: 2)
+  --json-detail <mode>      summary|representatives|full (default: representatives)
 
 Duplicate detection options:
   --threshold <number>      Minimum similarity 0.0-1.0 (default: 0.85)

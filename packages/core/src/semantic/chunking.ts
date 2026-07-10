@@ -135,6 +135,7 @@ export namespace Chunking {
     hasDocumentation?: boolean // Whether JSDoc/comments are present
     language?: string // "typescript" | "javascript" | "python" etc
     imports?: string // Comma-separated imported module names for filtering
+    calls?: string // Comma-separated call targets extracted from the AST
   }
 
   export type Analysis = {

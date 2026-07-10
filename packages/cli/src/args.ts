@@ -37,6 +37,7 @@ const SEARCH_FILTER_FLAGS = new Set([
   "parentScope", "imports", "rerank", "no-rerank", "semantic-kind", "semanticKind", "explain-filters",
   "explainFilters", "strict-parent", "strictParent", "strict-imports", "strictImports", "ensure-fresh",
   "ensureFresh", "no-shake", "hybrid", "no-hybrid", "max-tokens", "maxTokens", "changed", "base",
+  "latency-budget", "latencyBudget",
 ])
 
 const ALLOWED_FLAGS_BY_COMMAND: Record<string, Set<string>> = {
@@ -47,16 +48,17 @@ const ALLOWED_FLAGS_BY_COMMAND: Record<string, Set<string>> = {
   verify: new Set([...GLOBAL_FLAGS, "strict"]),
   status: new Set([...GLOBAL_FLAGS, "verbose", "verify"]),
   search: new Set([...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, ...SEARCH_FILTER_FLAGS]),
-  context: new Set([...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, ...SEARCH_FILTER_FLAGS]),
-  audit: new Set([...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, ...SEARCH_FILTER_FLAGS]),
+  literal: new Set([...GLOBAL_FLAGS, "query", "include", "exclude", "limit", "regex", "ignore-case", "ignoreCase"]),
+  context: new Set([...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, ...SEARCH_FILTER_FLAGS, "require-coverage", "requireCoverage"]),
+  audit: new Set([...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, ...SEARCH_FILTER_FLAGS, "require-coverage", "requireCoverage"]),
   survey: new Set([
     ...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, ...SEARCH_FILTER_FLAGS,
-    "raw-limit", "rawLimit", "per-group", "perGroup",
+    "raw-limit", "rawLimit", "per-group", "perGroup", "json-detail", "jsonDetail",
   ]),
   cluster: new Set([
     ...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, ...SEARCH_FILTER_FLAGS,
     "raw-limit", "rawLimit", "per-cluster", "perCluster", "cluster-threshold", "clusterThreshold",
-    "min-cluster-size", "minClusterSize",
+    "min-cluster-size", "minClusterSize", "json-detail", "jsonDetail",
   ]),
   "detect-duplicates": new Set([
     ...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, "ensure-fresh", "ensureFresh", "threshold",

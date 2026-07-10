@@ -73,7 +73,7 @@ export type CommonSensegrepParams = {
   minComplexity?: number
   maxComplexity?: number
   hasDocumentation?: boolean
-  language?: "typescript" | "javascript" | "python" | "java" | "vue"
+  language?: string
   parentScope?: string
   imports?: string
   semanticKind?: string
@@ -87,6 +87,7 @@ export type CommonSensegrepParams = {
   maxTokens?: number
   gitChanged?: boolean
   gitBase?: string
+  latencyBudgetMs?: number
 }
 
 type IndexMeta = NonNullable<Awaited<ReturnType<typeof VectorStore.readIndexMeta>>>
@@ -613,7 +614,7 @@ export function selectWithinTokenBudget(results: WorkingResult[], maxTokens?: nu
   return { results: selected, estimatedTokens }
 }
 
-function buildSearchFilters(params: CommonSensegrepParams): VectorStore.SearchFilters {
+export function buildSearchFilters(params: CommonSensegrepParams): VectorStore.SearchFilters {
   const filters: VectorStore.SearchFilters = { all: [] }
 
   if (params.symbolType) {
@@ -666,7 +667,9 @@ function buildSearchFilters(params: CommonSensegrepParams): VectorStore.SearchFi
     }
   }
   if (params.imports) {
-    const importValues = expandImportFilterValues(params.imports)
+    const importValues = params.strictImports
+      ? parseRequestedImportModules(params.imports)
+      : expandImportFilterValues(params.imports)
     if (importValues.length === 1) {
       filters.all!.push({ key: "imports", operator: "contains", value: importValues[0] })
     } else if (importValues.length > 1) {
@@ -700,6 +703,29 @@ export function expandImportFilterValues(imports: string): string[] {
     if (last) values.add(last)
   }
   return [...values]
+}
+
+export function normalizeImportModule(value: string): string {
+  return value.trim().replace(/^['"`]|['"`]$/g, "").replace(/\\/g, "/").replace(/\/$/, "")
+}
+
+export function parseRequestedImportModules(imports: string): string[] {
+  return imports.split(",").map(normalizeImportModule).filter(Boolean)
+}
+
+export function matchesStrictStructuralFilters(
+  result: Pick<WorkingResult, "metadata">,
+  params: Pick<CommonSensegrepParams, "imports" | "strictImports" | "parentScope" | "strictParent">,
+): boolean {
+  if (params.strictImports && params.imports) {
+    const available = new Set(splitListField(result.metadata.imports).map(normalizeImportModule))
+    if (!parseRequestedImportModules(params.imports).some((requested) => available.has(requested))) return false
+  }
+  if (params.strictParent && params.parentScope) {
+    const parent = typeof result.metadata.parentScope === "string" ? result.metadata.parentScope : ""
+    if (parent !== params.parentScope) return false
+  }
+  return true
 }
 
 function resolveFileFiltering(
@@ -742,6 +768,7 @@ function resolveFileFiltering(
       title: params.query,
       metadata: { matches: 0, indexed: true, warnings: [warning] },
       warnings: [warning],
+      results: [],
       output: warning,
     }
   }
@@ -771,6 +798,31 @@ export function queryLooksLikeIdentifier(query: string): boolean {
   )
 }
 
+export function queryLooksLikeSimpleIdentifier(query: string): boolean {
+  const trimmed = query.trim()
+  return trimmed.length >= 2 && trimmed.length <= 120 && !/\s/.test(trimmed) && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(trimmed)
+}
+
+export async function collectExactSymbolResults(
+  symbolName: string,
+  collection: Awaited<ReturnType<typeof VectorStore.getCollectionUnsafe>>,
+  filters: VectorStore.SearchFilters,
+): Promise<WorkingResult[]> {
+  const rows = await VectorStore.listDocuments(collection, {
+    filters: { ...filters, all: [...(filters.all ?? []), { key: "symbolName", operator: "equals", value: symbolName }] },
+  })
+  return rows.map((row) => ({
+    id: row.id,
+    file: String(row.metadata.file),
+    content: row.content,
+    startLine: Number(row.metadata.startLine),
+    endLine: Number(row.metadata.endLine),
+    semanticScore: 1.08,
+    metadata: row.metadata,
+    whyMatched: [`exact symbol lookup: ${symbolName}`],
+  }))
+}
+
 function isCodeFile(filePath: string): boolean {
   return CODE_EXTENSIONS.has(path.extname(filePath).toLowerCase())
 }
@@ -782,7 +834,7 @@ function buildFiltersWithFileVariants(filters: VectorStore.SearchFilters, filePa
   }
 }
 
-function pickBestLiteralDocument(
+export function pickBestLiteralDocument(
   documents: Awaited<ReturnType<typeof VectorStore.listDocuments>>,
   matchedLine: number,
 ) {
@@ -981,7 +1033,9 @@ export async function collectWorkingResults(
   resources: SearchResources,
   params: CommonSensegrepParams,
   options: CollectWorkingResultsOptions,
-): Promise<{ results: WorkingResult[]; filters: VectorStore.SearchFilters; candidateFiles?: string[] } | ToolLikeResult> {
+): Promise<{ results: WorkingResult[]; filters: VectorStore.SearchFilters; candidateFiles?: string[]; lexicalOnly: boolean; warnings: string[]; metrics: Record<string, number> } | ToolLikeResult> {
+  const metrics: Record<string, number> = { semanticSearchMs: 0 }
+  const warnings: string[] = []
   const filters = buildSearchFilters(params)
   const gitFiles = params.gitChanged
     ? new Set(await GitScope.changedFiles(Instance.directory, { base: params.gitBase, signal: options.signal }))
@@ -1010,15 +1064,26 @@ export async function collectWorkingResults(
       : []
 
   if (shouldRunLiteralFallback) {
+    const startedAt = Date.now()
     literalFallbackResults = await collectLiteralFallbackResults(
       params.query,
       lexicalCandidateFiles,
       resources.collection,
       filters,
     )
+    metrics.literalFallbackMs = Date.now() - startedAt
   }
 
-  const hybridLexicalResults = params.hybrid !== false && !params.pattern && params.exact !== true && !shouldRunLiteralFallback
+  const simpleIdentifierQuery = queryLooksLikeSimpleIdentifier(params.query)
+  const exactSymbolQuery = params.symbol ?? params.name ?? (params.exact || simpleIdentifierQuery ? params.query.trim() : undefined)
+  const exactStartedAt = Date.now()
+  const exactSymbolResults = exactSymbolQuery
+    ? await collectExactSymbolResults(exactSymbolQuery, resources.collection, filters)
+    : []
+  metrics.exactSymbolLookupMs = Date.now() - exactStartedAt
+
+  const hybridLexicalStartedAt = Date.now()
+  const hybridLexicalResults = params.hybrid !== false && !params.pattern && params.exact !== true && !shouldRunLiteralFallback && !exactSymbolQuery
     ? await collectLexicalQueryResults(
         params.query,
         lexicalCandidateFiles,
@@ -1027,16 +1092,30 @@ export async function collectWorkingResults(
         { signal: options.signal, limit: options.rawLimit },
       ).catch((error) => {
         if (options.signal?.aborted) throw error
+        warnings.push(`Lexical retrieval unavailable; using semantic results only: ${error instanceof Error ? error.message : String(error)}`)
         return []
       })
     : []
+  metrics.lexicalSearchMs = Date.now() - hybridLexicalStartedAt
+
+  const lexicalOnly =
+    !params.pattern &&
+    (exactSymbolResults.length > 0 || literalFallbackResults.length > 0) &&
+    (params.exact === true || Boolean(params.symbol ?? params.name) || (simpleIdentifierQuery && exactSymbolResults.length > 0))
 
   let semanticResults: Awaited<ReturnType<typeof VectorStore.search>> = []
-  if (!(params.exact === true && literalFallbackResults.length > 0)) {
+  if (!lexicalOnly) {
+    const semanticStartedAt = Date.now()
     semanticResults = await VectorStore.search(resources.collection, params.query, {
       ...searchOptions,
       signal: options.signal,
+      retryDeadlineMs: params.latencyBudgetMs,
+    }).catch((error) => {
+      if (options.signal?.aborted) throw error
+      warnings.push(`Semantic provider unavailable within the latency budget; returning exact/lexical results only: ${error instanceof Error ? error.message : String(error)}`)
+      return []
     })
+    metrics.semanticSearchMs = Date.now() - semanticStartedAt
 
     if (fileFiltering.includeMatcher) {
       semanticResults = semanticResults.filter((result) =>
@@ -1087,10 +1166,11 @@ export async function collectWorkingResults(
     whyMatched: ["semantic similarity"],
   }))
 
-  const fallbackResults = [...literalFallbackResults, ...patternFallbackResults]
+  const fallbackResults = [...exactSymbolResults, ...literalFallbackResults, ...patternFallbackResults]
   workingResults = fuseHybridResults(workingResults, [...hybridLexicalResults, ...fallbackResults])
 
   workingResults = annotateWorkingResults(workingResults, params)
+  workingResults = workingResults.filter((result) => matchesStrictStructuralFilters(result, params))
   workingResults = params.rerank ? rerankWorkingResults(params.query, workingResults) : workingResults
   workingResults.sort((a, b) => (b.rerankScore ?? b.semanticScore) - (a.rerankScore ?? a.semanticScore))
 
@@ -1111,6 +1191,9 @@ export async function collectWorkingResults(
     results: processedResults,
     filters,
     candidateFiles: fileFiltering.candidateFiles,
+    lexicalOnly,
+    warnings,
+    metrics,
   }
 }
 
@@ -1354,7 +1437,9 @@ export function annotateWorkingResults(results: WorkingResult[], params: CommonS
 
     if (params.imports) {
       const imports = splitListField(metadata.imports)
-      const matched = importFilters.filter((value) => imports.some((item) => item.includes(value)))
+      const matched = params.strictImports
+        ? parseRequestedImportModules(params.imports).filter((value) => imports.map(normalizeImportModule).includes(value))
+        : importFilters.filter((value) => imports.some((item) => item.includes(value)))
       if (matched.length > 0) whyMatched.add(`import matched: ${matched.join(", ")}`)
       if (matched.length > 0) {
         signals.structuralMatches += 1
@@ -1628,6 +1713,7 @@ export async function runGroupedSearch<TGroup>(input: {
     limit?: number
     rawLimit?: number
     shake?: boolean
+    jsonDetail?: "summary" | "representatives" | "full"
   }
   heading: string
   groupLabel: string
@@ -1685,6 +1771,7 @@ export async function runGroupedSearch<TGroup>(input: {
         matches: preparedResults.length,
         files: fileCount,
         shaked: input.params.shake !== false,
+        jsonDetail: input.params.jsonDetail ?? "representatives",
         freshness: resources.freshness,
         ...(input.metadata?.(groups) ?? {}),
       },

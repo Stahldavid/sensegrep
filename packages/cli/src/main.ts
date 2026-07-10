@@ -13,6 +13,7 @@ import {
   getSearchQuery,
   toBool,
   type Flags,
+  type SearchLikeParams,
 } from "./search-commands.js"
 
 function parseRequiredNumberFlag(flags: Flags, name: string, options: { min?: number; max?: number } = {}): number | undefined {
@@ -262,6 +263,7 @@ async function run() {
   const {
     SenseGrepTool,
     SenseGrepContextTool,
+    SenseGrepLiteralTool,
     SenseGrepSurveyTool,
     SenseGrepClusterTool,
     Indexer,
@@ -279,6 +281,21 @@ async function run() {
   const rootDir = (flags.root as string | undefined) || process.cwd()
   applyEmbeddingOverrides(flags, Embeddings)
   if (await runAnalysisCommand({ command, flags, positional, rootDir, core: await loadCore() })) return
+
+  if (command === "literal") {
+    const query = getSearchQuery(flags, positional)
+    if (!query) throw new CliUsageError("literal requires <text-or-regex>")
+    const params: SearchLikeParams = {
+      query,
+      regex: flags.regex === true,
+      caseSensitive: flags["ignore-case"] === undefined && flags.ignoreCase === undefined,
+    }
+    if (typeof flags.include === "string") params.include = flags.include
+    if (typeof flags.exclude === "string") params.exclude = flags.exclude
+    assignNumberParam(params, flags, "limit", ["limit"])
+    await executeSearchLikeTool({ flags, rootDir, Instance, toolFactory: SenseGrepLiteralTool, params })
+    return
+  }
 
   if (command === "index") {
     const full = flags.full === true
@@ -515,6 +532,7 @@ async function run() {
       ...(command === "context" || command === "audit" ? { maxTokens: 12_000 } : {}),
       ...(command === "audit" ? { gitChanged: true } : {}),
     })
+    if (flags["require-coverage"] !== undefined || flags.requireCoverage !== undefined) params.requireCoverage = true
     if (flags.exact !== undefined) params.exact = true
     assignNumberParam(params, flags, "maxPerFile", ["max-per-file", "maxPerFile"])
     assignNumberParam(params, flags, "maxPerSymbol", ["max-per-symbol", "maxPerSymbol"])
@@ -547,6 +565,8 @@ async function run() {
     const params = buildCommonSearchParams(query, flags, { shake: true })
     assignNumberParam(params, flags, "rawLimit", ["raw-limit", "rawLimit"])
     assignNumberParam(params, flags, "perGroup", ["per-group", "perGroup"])
+    const surveyJsonDetail = flags["json-detail"] ?? flags.jsonDetail
+    if (typeof surveyJsonDetail === "string") params.jsonDetail = surveyJsonDetail
 
     await ensureFreshIfRequested(flags, rootDir, Instance, Indexer)
     await executeSearchLikeTool({ flags, rootDir, Instance, toolFactory: SenseGrepSurveyTool, params })
@@ -567,6 +587,8 @@ async function run() {
     assignNumberParam(params, flags, "perCluster", ["per-cluster", "perCluster"])
     assignNumberParam(params, flags, "clusterThreshold", ["cluster-threshold", "clusterThreshold"])
     assignNumberParam(params, flags, "minClusterSize", ["min-cluster-size", "minClusterSize"])
+    const clusterJsonDetail = flags["json-detail"] ?? flags.jsonDetail
+    if (typeof clusterJsonDetail === "string") params.jsonDetail = clusterJsonDetail
 
     await ensureFreshIfRequested(flags, rootDir, Instance, Indexer)
     await executeSearchLikeTool({ flags, rootDir, Instance, toolFactory: SenseGrepClusterTool, params })

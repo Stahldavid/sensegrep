@@ -1040,6 +1040,7 @@ export class SensegrepCore {
             ...this.toThematicParams(query, options),
             rawLimit: options?.rawLimit,
             perGroup: options?.perGroup,
+            jsonDetail: "representatives",
           },
           {
             sessionID: "vscode",
@@ -1077,6 +1078,7 @@ export class SensegrepCore {
             perCluster: options?.perCluster,
             clusterThreshold: options?.clusterThreshold,
             minClusterSize: options?.minClusterSize,
+            jsonDetail: "representatives",
           },
           {
             sessionID: "vscode",

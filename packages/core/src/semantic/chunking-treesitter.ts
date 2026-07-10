@@ -229,25 +229,29 @@ export namespace TreeSitterChunking {
     node: SyntaxNode,
     symbolName: string | undefined,
     symbolType: string | undefined,
+    filePath: string,
   ): { semanticKind?: string; framework?: string } {
     const text = node.text
     const name = symbolName ?? ""
 
+    const isExportedHttpVerb =
+      /^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)$/.test(name) &&
+      (node.parent?.type === "export_statement" || text.includes("export"))
+    if (isExportedHttpVerb && /(?:^|\/)route\.[cm]?[jt]sx?$/.test(filePath.replace(/\\/g, "/"))) {
+      return { semanticKind: "routeHandler", framework: "web" }
+    }
+
     const convexWrappers: Array<[RegExp, string]> = [
-      [/\binternalMutation\s*\(/, "convexInternalMutation"],
-      [/\binternalAction\s*\(/, "convexInternalAction"],
-      [/\binternalQuery\s*\(/, "convexInternalQuery"],
-      [/\bhttpAction\s*\(/, "convexHttpAction"],
-      [/\bmutation\s*\(/, "convexMutation"],
-      [/\baction\s*\(/, "convexAction"],
-      [/\bquery\s*\(/, "convexQuery"],
+      [/^(?:export\s+)?(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*internalMutation\s*\(/, "convexInternalMutation"],
+      [/^(?:export\s+)?(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*internalAction\s*\(/, "convexInternalAction"],
+      [/^(?:export\s+)?(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*internalQuery\s*\(/, "convexInternalQuery"],
+      [/^(?:export\s+)?(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*httpAction\s*\(/, "convexHttpAction"],
+      [/^(?:export\s+)?(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*mutation\s*\(/, "convexMutation"],
+      [/^(?:export\s+)?(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*action\s*\(/, "convexAction"],
+      [/^(?:export\s+)?(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*query\s*\(/, "convexQuery"],
     ]
     for (const [pattern, semanticKind] of convexWrappers) {
       if (pattern.test(text)) return { semanticKind, framework: "convex" }
-    }
-
-    if (/^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)$/.test(name) && (node.parent?.type === "export_statement" || text.includes("export"))) {
-      return { semanticKind: "routeHandler", framework: "web" }
     }
 
     if (/^use[A-Z0-9]/.test(name) && (symbolType === "function" || symbolType === "variable")) {
@@ -269,6 +273,29 @@ export namespace TreeSitterChunking {
     }
 
     return {}
+  }
+
+  function extractCallTargets(node: SyntaxNode): string[] {
+    const targets = new Set<string>()
+
+    const visit = (current: SyntaxNode) => {
+      if (current.type === "call_expression" || current.type === "new_expression") {
+        const callee = current.childForFieldName("function") ?? current.childForFieldName("constructor") ?? current.child(0)
+        if (callee) {
+          const property = callee.childForFieldName("property")
+          const candidate = property?.text ?? callee.text
+          const match = candidate.match(/[A-Za-z_$][A-Za-z0-9_$]*$/)
+          if (match) targets.add(match[0])
+        }
+      }
+      for (let index = 0; index < current.childCount && targets.size < 200; index++) {
+        const child = current.child(index)
+        if (child) visit(child)
+      }
+    }
+
+    visit(node)
+    return [...targets]
   }
 
   /**
@@ -750,7 +777,7 @@ export namespace TreeSitterChunking {
 
         const moduleMatch = fullImport.match(/\bfrom\s+["']([^"']+)["']/) ?? fullImport.match(/^import\s+["']([^"']+)["']/)
         const moduleName = moduleMatch?.[1]
-        if (moduleName) imports.add(moduleName.split("/").pop() || moduleName)
+        if (moduleName) imports.add(moduleName)
         continue
       }
 
@@ -758,7 +785,7 @@ export namespace TreeSitterChunking {
       if (requireMatch) {
         sawImportSection = true
         const moduleName = requireMatch[1]
-        imports.add(moduleName.split("/").pop() || moduleName)
+        imports.add(moduleName)
         continue
       }
 
@@ -870,7 +897,8 @@ ${content}`
     const isAbstract = hasAbstractKeyword(node)
     const decorators = extractDecorators(node)
     const variant = getNodeVariant(node, symbolType)
-    const { semanticKind, framework } = inferSemanticKind(node, nodeName, symbolType)
+    const { semanticKind, framework } = inferSemanticKind(node, nodeName, symbolType, filePath)
+    const calls = extractCallTargets(node).filter((target) => target !== nodeName)
 
     // Calculate scope depth (how many parents until we hit program)
     let scopeDepth = 0
@@ -904,6 +932,7 @@ ${content}`
       isAbstract,
       decorators,
       language,
+      calls: calls.length > 0 ? calls.join(",") : undefined,
     }
   }
 

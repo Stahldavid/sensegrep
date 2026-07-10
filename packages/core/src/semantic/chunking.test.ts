@@ -128,6 +128,42 @@ export function useCalendarSync() {
     })
   })
 
+  it("prefers a Next.js route handler over calls made inside its body", async () => {
+    const content = `
+import { ConvexHttpClient } from "convex/browser"
+
+export async function GET(request: Request) {
+  const convex = new ConvexHttpClient(process.env.CONVEX_URL!)
+  return convex.action(api.actions.calendar.complete, { request })
+}
+`
+
+    const chunks = await Chunking.chunkAsync(content, "apps/web/app/settings/calendar/callback/route.ts")
+    expect(chunks.find((chunk) => chunk.symbolName === "GET")).toMatchObject({
+      semanticKind: "routeHandler",
+      framework: "web",
+    })
+  })
+
+  it("preserves complete import module specifiers", async () => {
+    const content = `
+import { ConvexProvider } from "convex/react"
+import type { ReactNode } from "react"
+
+${"// Provider integration context.\n".repeat(20)}
+
+export function Provider({ children }: { children: ReactNode }) {
+  return ConvexProvider({ children })
+}
+`
+
+    const chunks = await Chunking.chunkAsync(content, "src/provider.ts")
+    expect(chunks.find((chunk) => chunk.symbolName === "Provider")?.imports?.split(",")).toEqual([
+      "convex/react",
+      "react",
+    ])
+  })
+
   it("indexes internal functions inside exported TypeScript namespaces with parent scope metadata", async () => {
     const content = `
 export namespace EmbeddingsRemote {

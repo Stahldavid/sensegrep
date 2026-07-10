@@ -161,6 +161,8 @@ describe("SenseGrepSurveyTool", () => {
     expect(result.output).toContain("## types / contracts")
     expect(result.output).toContain("frontend-admin/src/middleware/auth.global.ts")
     expect(result.output).toContain("frontend-store/stores/auth.ts")
+    expect((result.groups as any[]).every((group) => group.results.length <= 1)).toBe(true)
+    expect((result.groups as any[]).every((group) => group.returnedResults <= 1)).toBe(true)
     expect(search).toHaveBeenCalledTimes(1)
   })
 })

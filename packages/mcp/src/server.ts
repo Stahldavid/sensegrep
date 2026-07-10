@@ -22,6 +22,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const TOOL_NAMES = {
   search: "sensegrep_search",
+  literal: "sensegrep_literal",
   context: "sensegrep_context",
   survey: "sensegrep_survey",
   cluster: "sensegrep_cluster",
@@ -363,6 +364,11 @@ async function generateTools(): Promise<Tool[]> {
     description: "Build a diversified, tree-shaken context pack constrained by a token budget.",
     inputSchema: toRootedInputSchema(core.SenseGrepContextParametersSchema) as Tool["inputSchema"],
   });
+  cachedTools.splice(1, 0, {
+    name: TOOL_NAMES.literal,
+    description: "Exhaustive deterministic literal or regex search without embedding calls.",
+    inputSchema: toRootedInputSchema(core.SenseGrepLiteralParametersSchema) as Tool["inputSchema"],
+  });
 
   return cachedTools;
 }
@@ -370,7 +376,7 @@ async function generateTools(): Promise<Tool[]> {
 const server = new Server(
   {
     name: "sensegrep",
-    version: "1.8.0",
+    version: "1.9.0",
   },
   {
     capabilities: {
@@ -395,6 +401,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
   const profile = typeof args.profile === "string" ? args.profile : undefined;
 
   try {
+    if (matchesToolName(name, TOOL_NAMES.literal, "sensegrep.literal")) {
+      const core = await loadCore();
+      const tool = await core.SenseGrepLiteralTool.init();
+      const { rootDir: _root, profile: _profile, ...toolArgs } = args as any;
+      const res = await core.Instance.provide({
+        directory: rootDir,
+        profile,
+        fn: () => tool.execute(toolArgs, {
+          sessionID: "mcp",
+          messageID: "mcp",
+          agent: "sensegrep-mcp",
+          abort: requestContext.signal,
+          metadata(_input: unknown) {},
+        }),
+      });
+      return { content: [{ type: "text", text: res.output }], structuredContent: res };
+    }
+
     if (matchesToolName(name, TOOL_NAMES.context, "sensegrep.context")) {
       const { core, tool } = await loadContextTool();
       const { rootDir: _root, profile: _profile, ...toolArgs } = args as any;
@@ -432,10 +456,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
       });
       return {
         content: [{ type: "text", text: res.output }],
-        structuredContent: {
-          ...res,
-          output: res.output,
-        },
+        structuredContent: { ...res, output: res.output },
       };
     }
 
@@ -455,12 +476,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
             metadata(_input: { title?: string; metadata?: unknown }) {},
           }),
       });
+      const { output: _output, ...compact } = res;
       return {
         content: [{ type: "text", text: res.output }],
-        structuredContent: {
-          ...res,
-          output: res.output,
-        },
+        structuredContent: toolArgs.jsonDetail === "full" ? { ...res, output: res.output } : compact,
       };
     }
 
@@ -480,12 +499,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
             metadata(_input: { title?: string; metadata?: unknown }) {},
           }),
       });
+      const { output: _output, ...compact } = res;
       return {
         content: [{ type: "text", text: res.output }],
-        structuredContent: {
-          ...res,
-          output: res.output,
-        },
+        structuredContent: toolArgs.jsonDetail === "full" ? { ...res, output: res.output } : compact,
       };
     }
 

@@ -155,7 +155,9 @@ async function withRetry<T>(
   baseDelayMs: number,
   label: string,
   signal?: AbortSignal,
+  deadlineMs?: number,
 ): Promise<T> {
+  const startedAt = Date.now()
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       if (signal?.aborted) throw abortError(signal)
@@ -181,6 +183,9 @@ async function withRetry<T>(
       const jitter = 0.5 + Math.random() * 0.5
       const retryAfterMs = typeof err?.retryAfterMs === "number" ? err.retryAfterMs : 0
       const delay = Math.min(Math.max(retryAfterMs, baseDelayMs * Math.pow(2, attempt) * jitter), 60_000)
+      if (deadlineMs !== undefined && Date.now() - startedAt + delay >= deadlineMs) {
+        throw new Error(`${label}: retry deadline of ${deadlineMs}ms exhausted after ${attempt + 1} attempts`, { cause: err })
+      }
       log.warn(`${label}: transient error, retry ${attempt + 1}/${maxRetries} in ${Math.ceil(delay / 1000)}s`, {
         statusCode,
         errorName: err?.name,
@@ -433,6 +438,19 @@ export namespace EmbeddingsRemote {
     title?: string | string[]
     outputDimensionality?: number
     signal?: AbortSignal
+    operation?: "query" | "index" | "benchmark"
+    retryDeadlineMs?: number
+  }
+
+  let queryCircuit: { openUntil: number; reason: string } | undefined
+
+  function getRetryPolicy(config: EmbeddingConfig, options?: EmbedOptions) {
+    const query = options?.operation === "query"
+    return {
+      maxRetries: config.rateLimit?.maxRetries ?? (query ? 2 : 6),
+      retryBaseDelayMs: config.rateLimit?.retryBaseDelayMs ?? 1_000,
+      retryDeadlineMs: options?.retryDeadlineMs ?? (query ? 15_000 : undefined),
+    }
   }
 
   export async function embed(
@@ -442,17 +460,30 @@ export namespace EmbeddingsRemote {
     const input = Array.isArray(texts) ? texts : [texts]
     if (input.length === 0) return []
 
+    if (options?.operation === "query" && queryCircuit && queryCircuit.openUntil > Date.now()) {
+      throw new Error(`Embedding query circuit is open: ${queryCircuit.reason}`)
+    }
+
     const config = getEmbeddingConfig()
-    if (config.provider === "gemini") {
-      return embedGemini(input, options, config)
+    try {
+      const result = config.provider === "gemini"
+        ? await embedGemini(input, options, config)
+        : config.provider === "bedrock"
+          ? await embedBedrock(input, options, config)
+          : config.provider === "ollama"
+            ? await embedOllama(input, options, config)
+            : await embedOpenAI(input, options, config)
+      if (options?.operation === "query") queryCircuit = undefined
+      return result
+    } catch (error) {
+      if (options?.operation === "query") {
+        queryCircuit = {
+          openUntil: Date.now() + 15_000,
+          reason: error instanceof Error ? error.message : String(error),
+        }
+      }
+      throw error
     }
-    if (config.provider === "bedrock") {
-      return embedBedrock(input, options, config)
-    }
-    if (config.provider === "ollama") {
-      return embedOllama(input, options, config)
-    }
-    return embedOpenAI(input, options, config)
   }
 
   function getBedrockClient(config: EmbeddingConfig): BedrockRuntimeClient {
@@ -551,8 +582,7 @@ export namespace EmbeddingsRemote {
     const batches = batchTextsForBedrock(validatedTexts)
     const allVectors: number[][] = []
     const limiter = getLimiter(config)
-    const maxRetries = config.rateLimit?.maxRetries ?? 6
-    const retryBaseDelayMs = config.rateLimit?.retryBaseDelayMs ?? 1_000
+    const { maxRetries, retryBaseDelayMs, retryDeadlineMs } = getRetryPolicy(config, options)
     const client = getBedrockClient(config)
     const inputType = getBedrockInputType(options?.taskType)
 
@@ -587,6 +617,7 @@ export namespace EmbeddingsRemote {
         retryBaseDelayMs,
         "Bedrock",
         options?.signal,
+        retryDeadlineMs,
       )
 
       const embeddings = parseBedrockFloatEmbeddings(data)
@@ -633,8 +664,7 @@ export namespace EmbeddingsRemote {
     const batchSize = 64
     const allVectors: number[][] = []
     const limiter = getLimiter(config)
-    const maxRetries = config.rateLimit?.maxRetries ?? 6
-    const retryBaseDelayMs = config.rateLimit?.retryBaseDelayMs ?? 1_000
+    const { maxRetries, retryBaseDelayMs, retryDeadlineMs } = getRetryPolicy(config, options)
 
     for (let i = 0; i < validatedTexts.length; i += batchSize) {
       const batchTexts = validatedTexts.slice(i, i + batchSize)
@@ -678,6 +708,7 @@ export namespace EmbeddingsRemote {
         retryBaseDelayMs,
         "Gemini",
         options?.signal,
+        retryDeadlineMs,
       )
 
       const embeddings: any[] = Array.isArray(data.embeddings)
@@ -733,8 +764,7 @@ export namespace EmbeddingsRemote {
     const validatedTexts = await prepareValidatedTexts(texts, "openai", config, options?.skipValidation)
 
     const limiter = getLimiter(config)
-    const maxRetries = config.rateLimit?.maxRetries ?? 6
-    const retryBaseDelayMs = config.rateLimit?.retryBaseDelayMs ?? 1_000
+    const { maxRetries, retryBaseDelayMs, retryDeadlineMs } = getRetryPolicy(config, options)
     const batches = numberedBatches(validatedTexts, batchSize)
     const requestCount = batches.length
     const concurrency = Math.min(getOpenAiEmbeddingConcurrency(config, baseUrl, model), Math.max(1, requestCount))
@@ -805,6 +835,7 @@ export namespace EmbeddingsRemote {
         retryBaseDelayMs,
         "OpenAI",
         options?.signal,
+        retryDeadlineMs,
       )
     })
 
@@ -834,8 +865,7 @@ export namespace EmbeddingsRemote {
     const batchSize = getLocalEmbeddingBatchSize("ollama")
     const allVectors: number[][] = []
     const limiter = getLimiter(config)
-    const maxRetries = config.rateLimit?.maxRetries ?? 6
-    const retryBaseDelayMs = config.rateLimit?.retryBaseDelayMs ?? 1_000
+    const { maxRetries, retryBaseDelayMs, retryDeadlineMs } = getRetryPolicy(config, options)
 
     for (let i = 0; i < validatedTexts.length; i += batchSize) {
       const batch = validatedTexts.slice(i, i + batchSize)
@@ -859,6 +889,7 @@ export namespace EmbeddingsRemote {
         retryBaseDelayMs,
         "Ollama",
         options?.signal,
+        retryDeadlineMs,
       )
 
       const embeddings: any[] = Array.isArray(data.embeddings)

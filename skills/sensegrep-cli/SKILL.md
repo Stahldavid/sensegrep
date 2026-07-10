@@ -50,7 +50,7 @@ Start with these defaults and adjust based on what you find:
 
 > **Subdirectory roots:** If the repo root was indexed and you run `sensegrep` with `--root` pointing at a subdirectory, Sensegrep reuses the nearest indexed parent and scopes the query to that subdirectory. You no longer need to reindex every subfolder separately.
 
-> **JSON output:** `--json` returns structured data plus human-readable `output`: `search`, `context`, and `audit` return `results`; `survey` returns `groups`; `cluster` returns `clusters`. Graph commands return direct structured objects. Prefer these fields over parsing Markdown. stdout is reserved for JSON; progress and warnings go to stderr. Use `--log-format none` when stderr must not contain progress logs.
+> **JSON output:** `--json` returns structured data: `search`, `context`, and `audit` return `results`; `literal` returns `matches`; `survey` returns `groups`; `cluster` returns `clusters`. Survey and cluster default to representative-only JSON; use `--json-detail summary|representatives|full`. Prefer these fields over parsing Markdown. stdout is reserved for JSON; progress and warnings go to stderr.
 
 > **Profiles:** Use `--profile <name>` when comparing embedding models/settings. Profiles have independent indexes. Sensegrep validates a non-secret endpoint/model fingerprint before searching.
 
@@ -93,6 +93,15 @@ sensegrep search "error handling and retry logic" \
 `--parent` matches parent/class scope by containment, so partial class names are acceptable. `--imports` tries package-name variants (`@scope/pkg`, `scope/pkg`, `pkg`) to reduce false misses in scoped packages.
 
 Hybrid retrieval is the default: lexical and vector ranks are fused before structural filtering. If optional ripgrep execution is unavailable, natural-language search safely falls back to vector results. Use `--no-hybrid` only for controlled comparisons.
+
+### `sensegrep literal` — Exhaustive text evidence
+
+Use this instead of `search --pattern` when every occurrence matters. It skips embeddings and reports whether `--limit` truncated the result set.
+
+```bash
+sensegrep literal "X-Goog-Message-Number" --include "convex/**" --json
+sensegrep literal "retry|backoff" --regex --ignore-case
+```
 
 ### `sensegrep context` — Build an agent context pack
 
@@ -152,7 +161,7 @@ sensegrep trace handleRequest loadUser --depth 6 --json
 ```
 
 - `references` lists definitions and indexed reference sites.
-- `impact` walks reverse references to estimate transitive blast radius.
+- `impact` walks resolved reverse call edges and returns canonical locations. Ambiguous same-name targets are intentionally omitted instead of guessed.
 - `trace` finds a reference path between two symbols.
 
 ### `sensegrep detect-duplicates` — Find logical duplicates
@@ -295,7 +304,7 @@ as a scope/glob problem, not as proof that the symbol or behavior does not exist
 
 ### 2. `--pattern` — ripgrep regex post-filter (after semantic search)
 
-Ripgrep runs on result files after semantic ranking. Only chunks where the regex matches are kept. Use `--pattern` when you need to guarantee a specific identifier, call, or token appears. Keep `--limit` at the default — the pipeline already fetches `limit × 3` candidates internally before filtering, so raising limit adds little when pattern is set.
+`--pattern` anchors semantic results but remains non-exhaustive and returns `retrieval.exhaustive=false`. Use `sensegrep literal` for proof that every textual occurrence was considered.
 
 ```bash
 # Find auth functions that specifically call jwt.verify

@@ -36,6 +36,7 @@ export const SurveyParametersSchema = z.object({
   limit: z.number().int().positive().max(100).optional().describe("Maximum number of survey groups to return (default: 5)"),
   rawLimit: z.number().int().positive().max(2000).optional().describe("Maximum raw matches to retrieve before grouping (default: 60)"),
   perGroup: z.number().int().positive().max(20).optional().describe("Representative snippets per group (default: 2)"),
+  jsonDetail: z.enum(["summary", "representatives", "full"]).default("representatives").describe("Structured result detail"),
 })
 
 type SurveyParams = z.infer<typeof SurveyParametersSchema>
@@ -173,7 +174,11 @@ async function runSurvey(params: SurveyParams, ctx?: Tool.Context) {
           files: group.files.size,
           symbols: new Set(group.members.map((member) => member.metadata.symbolName).filter(Boolean)).size,
         },
-        results: group.members.map(toStructuredSearchResult),
+        returnedResults: params.jsonDetail === "full" ? group.members.length : params.jsonDetail === "summary" ? 0 : Math.min(perGroup, group.members.length),
+        omittedResults: params.jsonDetail === "full" ? 0 : params.jsonDetail === "summary" ? group.members.length : Math.max(0, group.members.length - perGroup),
+        ...(params.jsonDetail === "summary" ? {} : {
+          results: (params.jsonDetail === "full" ? group.members : group.members.slice(0, perGroup)).map(toStructuredSearchResult),
+        }),
       }),
   })
 }

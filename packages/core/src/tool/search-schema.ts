@@ -35,6 +35,7 @@ export const CommonSearchShape = {
   maxTokens: z.number().int().positive().max(1_000_000).optional().describe("Maximum estimated output tokens"),
   gitChanged: z.boolean().optional().describe("Restrict results to Git-changed files"),
   gitBase: z.string().optional().describe("Git base revision used by gitChanged"),
+  latencyBudgetMs: z.number().int().positive().max(300_000).optional().describe("Embedding latency budget for an interactive query"),
 } as const
 
 export const SenseGrepParametersSchema = z.object({

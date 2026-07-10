@@ -1,6 +1,6 @@
 {
   "name": "sensegrep",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "description": "Semantic + structural code search for AI agents. Read the right code, not more code — combining semantic search, exact matching, and AST-aware retrieval.",
   "author": {
     "name": "sensegrep",

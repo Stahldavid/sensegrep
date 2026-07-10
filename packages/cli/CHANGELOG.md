@@ -1,5 +1,18 @@
 # @sensegrep/cli
 
+## 1.9.0
+
+### Minor Changes
+
+- Add deterministic literal search, exact import filtering, canonical call graphs, compact grouped JSON, changed-file audit coverage, and latency-bounded semantic fallback.
+
+  Fix Next.js route handler classification when route bodies call framework APIs, persist full import specifiers and AST call targets in the index, and consolidate search retrieval into one shared pipeline.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @sensegrep/core@1.9.0
+
 ## 1.8.0
 
 ### Minor Changes

@@ -202,6 +202,7 @@ export namespace VectorStore {
     hasDocumentation: boolean
     language: string
     imports: string
+    calls: string
     variant: string
     isAsync: boolean
     isStatic: boolean
@@ -482,6 +483,7 @@ export namespace VectorStore {
           "hasDocumentation",
           "language",
           "imports",
+          "calls",
           // Multilingual support fields
           "variant",
           "isAsync",
@@ -537,6 +539,7 @@ export namespace VectorStore {
       hasDocumentation: false,
       language: "",
       imports: "",
+      calls: "",
       // Multilingual support fields
       variant: "",
       isAsync: false,
@@ -862,6 +865,7 @@ export namespace VectorStore {
       hasDocumentation: md.hasDocumentation !== undefined ? Boolean(md.hasDocumentation) : false,
       language: md.language ? String(md.language) : "",
       imports: md.imports ? String(md.imports) : "",
+      calls: md.calls ? String(md.calls) : "",
       // Multilingual support fields
       variant: md.variant ? String(md.variant) : "",
       isAsync: md.isAsync !== undefined ? Boolean(md.isAsync) : false,
@@ -1075,6 +1079,7 @@ export namespace VectorStore {
         hasDocumentation: row?.hasDocumentation !== undefined ? Boolean(row.hasDocumentation) : undefined,
         language: row?.language ? String(row.language) : undefined,
         imports: row?.imports ? String(row.imports) : undefined,
+        calls: row?.calls ? String(row.calls) : undefined,
         // Multilingual support fields
         variant: row?.variant ? String(row.variant) : undefined,
         isAsync: row?.isAsync !== undefined ? Boolean(row.isAsync) : undefined,
@@ -1146,6 +1151,7 @@ export namespace VectorStore {
       where?: Record<string, string> // Legacy format (kept for backward compatibility)
       filters?: SearchFilters // New structured filters
       signal?: AbortSignal
+      retryDeadlineMs?: number
     } = {},
   ): Promise<
     {
@@ -1156,11 +1162,16 @@ export namespace VectorStore {
     }[]
   > {
     const limit = options.limit ?? 20
+    const deadlineMs = options.retryDeadlineMs ?? 15_000
+    const timeoutSignal = AbortSignal.timeout(deadlineMs)
+    const signal = options.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal
     const [queryEmbedding] = await Embeddings.embed(query, {
       taskType: "RETRIEVAL_QUERY",
-      signal: options.signal,
+      signal,
+      operation: "query",
+      retryDeadlineMs: deadlineMs,
     })
-    options.signal?.throwIfAborted()
+    signal.throwIfAborted()
 
     // Build WHERE clause: prioritize structured filters, fall back to legacy where
     let whereClause: string | undefined
@@ -1197,6 +1208,7 @@ export namespace VectorStore {
         hasDocumentation: r.hasDocumentation !== undefined ? Boolean(r.hasDocumentation) : undefined,
         language: r.language ? String(r.language) : undefined,
         imports: r.imports ? String(r.imports) : undefined,
+        calls: r.calls ? String(r.calls) : undefined,
         // Multilingual support fields
         variant: r.variant ? String(r.variant) : undefined,
         isAsync: r.isAsync !== undefined ? Boolean(r.isAsync) : undefined,

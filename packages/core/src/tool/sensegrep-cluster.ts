@@ -43,6 +43,7 @@ export const ClusterParametersSchema = z.object({
   perCluster: z.number().int().positive().max(20).optional().describe("Representative snippets per cluster (default: 2)"),
   clusterThreshold: z.number().min(0).max(1).optional().describe("Similarity threshold for linking matches into a cluster (default: 0.72)"),
   minClusterSize: z.number().int().positive().optional().describe("Minimum cluster size to keep before singleton fallback (default: 2)"),
+  jsonDetail: z.enum(["summary", "representatives", "full"]).default("representatives").describe("Structured result detail"),
 })
 
 type ClusterParams = z.infer<typeof ClusterParametersSchema>
@@ -334,7 +335,11 @@ async function runCluster(params: ClusterParams, ctx?: Tool.Context) {
           files: group.files.size,
           symbols: new Set(group.members.map((member) => member.metadata.symbolName).filter(Boolean)).size,
         },
-        results: group.members.map(toStructuredSearchResult),
+        returnedResults: params.jsonDetail === "full" ? group.members.length : params.jsonDetail === "summary" ? 0 : Math.min(perCluster, group.members.length),
+        omittedResults: params.jsonDetail === "full" ? 0 : params.jsonDetail === "summary" ? group.members.length : Math.max(0, group.members.length - perCluster),
+        ...(params.jsonDetail === "summary" ? {} : {
+          results: (params.jsonDetail === "full" ? group.members : group.members.slice(0, perCluster)).map(toStructuredSearchResult),
+        }),
       }),
   })
 }

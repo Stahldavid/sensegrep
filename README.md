@@ -71,6 +71,9 @@ sensegrep index --root .
 # Search by meaning
 sensegrep search "error handling and retry logic" --type function --exported --exclude "*.md"
 
+# Deterministic and exhaustive: no embedding call
+sensegrep literal "X-Goog-Message-Number" --include "src/**"
+
 # Build a reading map for a broad theme
 sensegrep survey "authentication login token" --language typescript --limit 4
 
@@ -148,7 +151,7 @@ npm install -g @sensegrep/mcp
 }
 ```
 
-The MCP server provides canonical `sensegrep_search`, `sensegrep_context`, `sensegrep_survey`, `sensegrep_cluster`, `sensegrep_graph`, `sensegrep_index`, and `sensegrep_detect_duplicates` tools. Legacy dotted names such as `sensegrep.search` remain available as compatibility aliases where supported.
+The MCP server provides canonical `sensegrep_search`, `sensegrep_literal`, `sensegrep_context`, `sensegrep_survey`, `sensegrep_cluster`, `sensegrep_graph`, `sensegrep_index`, and `sensegrep_detect_duplicates` tools. Legacy dotted names such as `sensegrep.search` remain available as compatibility aliases where supported.
 
 ### Agent Skill — CLI (no MCP server)
 
@@ -259,6 +262,8 @@ sensegrep references loadUser
 sensegrep impact loadUser --depth 3
 sensegrep trace handleRequest loadUser
 ```
+
+Graph nodes use canonical file/range identities. Ambiguous same-name call targets are omitted instead of expanded into speculative impact edges.
 
 ## Index Operations
 

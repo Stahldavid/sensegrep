@@ -602,6 +602,7 @@ export namespace Indexer {
         ...(chunk.hasDocumentation !== undefined && { hasDocumentation: chunk.hasDocumentation }),
         ...(chunk.language && { language: chunk.language }),
         ...(chunk.imports && { imports: chunk.imports }),
+        ...(chunk.calls && { calls: chunk.calls }),
         // Multilingual support fields
         ...(chunk.variant && { variant: chunk.variant }),
         ...(chunk.isAsync !== undefined && { isAsync: chunk.isAsync }),

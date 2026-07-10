@@ -1,5 +1,6 @@
 export { SenseGrepTool } from "./tool/sensegrep.js"
 export { SenseGrepContextTool, SenseGrepContextParametersSchema } from "./tool/sensegrep-context.js"
+export { SenseGrepLiteralTool, SenseGrepLiteralParametersSchema } from "./tool/sensegrep-literal.js"
 export { SenseGrepParametersSchema, CommonSearchShape } from "./tool/search-schema.js"
 export { SurveyParametersSchema } from "./tool/sensegrep-survey.js"
 export { ClusterParametersSchema } from "./tool/sensegrep-cluster.js"

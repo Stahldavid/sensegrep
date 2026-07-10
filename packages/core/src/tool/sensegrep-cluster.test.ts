@@ -225,6 +225,8 @@ describe("SenseGrepClusterTool", () => {
     expect(result.output).toContain("## persistence / data / packaging")
     expect(result.output).toContain("PriceListCommissionService")
     expect(result.output).toContain("NcmPackagingRuleRepository")
+    expect((result.clusters as any[]).every((cluster) => cluster.results.length <= 1)).toBe(true)
+    expect((result.clusters as any[]).some((cluster) => cluster.omittedResults > 0)).toBe(true)
     expect(listDocuments).toHaveBeenCalledTimes(1)
   })
 })

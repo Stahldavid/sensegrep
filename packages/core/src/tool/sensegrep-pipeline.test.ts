@@ -3,11 +3,30 @@ import {
   annotateWorkingResults,
   fuseHybridResults,
   getDominantSymbolPhrases,
+  matchesStrictStructuralFilters,
+  parseRequestedImportModules,
   rerankWorkingResults,
   selectWithinTokenBudget,
 } from "./sensegrep-pipeline.js"
 
 describe("sensegrep pipeline result metadata", () => {
+  it("matches strict imports by complete normalized module specifier", () => {
+    const result = {
+      metadata: { imports: "convex/react,react,@clerk/nextjs/server" },
+    } as any
+
+    expect(matchesStrictStructuralFilters(result, { imports: "convex/react", strictImports: true })).toBe(true)
+    expect(matchesStrictStructuralFilters(result, { imports: "convex", strictImports: true })).toBe(false)
+    expect(matchesStrictStructuralFilters({ metadata: { imports: "react" } } as any, {
+      imports: "convex/react",
+      strictImports: true,
+    })).toBe(false)
+    expect(parseRequestedImportModules("'convex/react', @clerk\\nextjs\\server")).toEqual([
+      "convex/react",
+      "@clerk/nextjs/server",
+    ])
+  })
+
   it("raises confidence for exact symbol matches even with weak embedding scores", () => {
     const [result] = annotateWorkingResults(
       [
