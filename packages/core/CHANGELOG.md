@@ -1,5 +1,19 @@
 # @sensegrep/core
 
+## 1.12.0
+
+### Minor Changes
+
+- [`66c9b74`](https://github.com/Stahldavid/sensegrep/commit/66c9b7401d2303627d7e9abb082f5c70f4658c88) Thanks [@Stahldavid](https://github.com/Stahldavid)! - Make agent output contracts strict, structured, and substantially faster.
+
+  - enforce output byte budgets against complete serialized CLI and MCP payloads
+  - return typed JSON errors with argument exit code 2
+  - preserve retrieval, universe, index, budget, warning, and filter explanation metadata
+  - default survey and cluster agent output to summary and propagate lexical fallback warnings
+  - add lightweight filesystem literal and show entry points
+  - persist graph snapshots for fast references and impact calls
+  - support clustering against readable legacy schemas without optional metadata columns
+
 ## 1.11.0
 
 ### Minor Changes
