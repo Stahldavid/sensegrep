@@ -97,7 +97,9 @@ sensegrep detect-duplicates --threshold 0.85 --timeout 30s --resume-cursor 0 --j
 
 Agent-facing JSON is minified and `minimal` by default. Opt into `--json-detail content`,
 `--diagnostic`, `--json-detail full`, or `--pretty` only when that additional payload is needed.
-Duplicate JSON excludes source code unless `--show-code` is supplied.
+Minimal output keeps retrieval mode/universe, index state, budgets, and warnings. Physical
+output budgets apply to the final serialized JSON. Duplicate JSON excludes source code
+unless `--show-code` is supplied. Survey and cluster JSON default to summary mode.
 
 ### Cursor Plugin
 

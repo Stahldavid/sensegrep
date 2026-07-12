@@ -96,9 +96,10 @@ async function loadShowTool() {
 
 function compactSearchResponse(res: any, includeContent = false) {
   const retrieval = res.retrieval ? {
-    mode: res.retrieval.actualMode ?? res.retrieval.requestedMode,
+    actualMode: res.retrieval.actualMode ?? res.retrieval.requestedMode,
     exhaustive: res.retrieval.exhaustive === true,
     truncated: res.status === "incomplete" || res.coverage?.truncated === true,
+    universe: res.retrieval.universe,
   } : undefined;
   return {
     schemaVersion: res.schemaVersion ?? 1,
@@ -106,6 +107,7 @@ function compactSearchResponse(res: any, includeContent = false) {
     status: res.status,
     ...(Array.isArray(res.warnings) && res.warnings.length > 0 ? { warnings: res.warnings } : {}),
     ...(retrieval ? { retrieval } : {}),
+    ...(res.index ? { index: res.index } : {}),
     ...(res.coverage ? {
       coverage: {
         changedFiles: res.coverage.changedFiles,
@@ -142,24 +144,75 @@ function compactSearchResponse(res: any, includeContent = false) {
 function enforceStructuredBudget(payload: any) {
   const maxOutputBytes = Number(payload?.budget?.maxOutputBytes ?? 0);
   if (!payload?.budget) return payload;
-  let results = Array.isArray(payload.results) ? [...payload.results] : [];
-  let projected = payload;
-  for (;;) {
-    const actualOutputBytes = Buffer.byteLength(JSON.stringify(projected));
-    projected = {
+  const measure = (value: any) => {
+    let bytes = 0;
+    let measured = value;
+    for (let iteration = 0; iteration < 10; iteration++) {
+      const attemptedOutputBytes = Math.max(
+        bytes,
+        Number(value.budget?.attemptedOutputBytes || value.budget?.outputBytes || 0),
+      );
+      measured = {
+        ...value,
+        budget: {
+          ...value.budget,
+          attemptedOutputBytes,
+          attemptedTokens: Math.max(Math.ceil(attemptedOutputBytes / 4), Number(value.budget?.attemptedTokens || 0)),
+          actualOutputBytes: bytes,
+          actualEmittedTokens: Math.ceil(bytes / 4),
+        },
+      };
+      const next = Buffer.byteLength(JSON.stringify(measured));
+      if (next === bytes) return measured;
+      bytes = next;
+    }
+    return measured;
+  };
+  let projected = measure(payload);
+  if (!maxOutputBytes || projected.budget.actualOutputBytes <= maxOutputBytes) return projected;
+  projected = measure({
+    ...projected,
+    status: "incomplete",
+    truncated: true,
+    coverageSatisfied: projected.coverage ? false : projected.coverageSatisfied,
+    retrieval: projected.retrieval ? { ...projected.retrieval, exhaustive: false, truncated: true } : projected.retrieval,
+  });
+  for (const key of ["results", "matches", "groups", "clusters", "references", "impacted", "batches"]) {
+    if (!Array.isArray(projected[key]) || projected[key].length === 0) continue;
+    const original = [...projected[key]];
+    let low = 0;
+    let high = original.length;
+    let best: any;
+    while (low <= high) {
+      const count = Math.floor((low + high) / 2);
+      const replacement = {
+        ...projected,
+        [key]: original.slice(0, count),
+        ...(key === "matches" ? { returnedMatches: count, exhaustive: false } : {}),
+      };
+      const candidate = measure(replacement);
+      if (candidate.budget.actualOutputBytes <= maxOutputBytes) {
+        best = candidate;
+        low = count + 1;
+      } else high = count - 1;
+    }
+    if (best) return best;
+    projected = measure({
       ...projected,
-      budget: { ...projected.budget, actualOutputBytes, actualEmittedTokens: Math.ceil(actualOutputBytes / 4) },
-    };
-    if (!maxOutputBytes || Buffer.byteLength(JSON.stringify(projected)) <= maxOutputBytes || results.length === 0) return projected;
-    results.pop();
-    projected = {
-      ...projected,
-      status: "incomplete",
-      coverageSatisfied: projected.coverage ? false : projected.coverageSatisfied,
-      retrieval: projected.retrieval ? { ...projected.retrieval, truncated: true } : projected.retrieval,
-      results,
-    };
+      [key]: [],
+      ...(key === "matches" ? { returnedMatches: 0, exhaustive: false } : {}),
+    });
   }
+  const compact = measure({
+    schemaVersion: projected.schemaVersion ?? 1,
+    command: projected.command,
+    status: "incomplete",
+    truncated: true,
+    budget: { maxOutputBytes, attemptedOutputBytes: projected.budget.attemptedOutputBytes },
+  });
+  if (Buffer.byteLength(JSON.stringify(compact)) <= maxOutputBytes) return compact;
+  const emergency = { command: projected.command, status: "incomplete", truncated: true };
+  return Buffer.byteLength(JSON.stringify(emergency)) <= maxOutputBytes ? emergency : {};
 }
 
 function projectStructuredSearchResponse(res: any, detail: string) {
@@ -190,7 +243,14 @@ function projectLiteralStructuredResponse(res: any, detail: string) {
     returnedMatches: res.metadata?.returnedMatches ?? 0,
     truncated: res.metadata?.truncated ?? false,
     exhaustive: res.retrieval?.exhaustive ?? false,
-    scope: res.retrieval?.exhaustiveWithin,
+    retrieval: res.retrieval ? {
+      actualMode: res.retrieval.actualMode,
+      exhaustive: res.retrieval.exhaustive,
+      exhaustiveWithin: res.retrieval.exhaustiveWithin,
+      universe: res.retrieval.universe,
+    } : undefined,
+    index: res.index,
+    budget: res.budget,
     matches: (res.matches ?? []).map((match: any) => ({ file: match.file, line: match.line, text: match.text })),
   };
 }
@@ -577,8 +637,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
           metadata(_input: unknown) {},
         }),
       });
-      const structuredContent = projectLiteralStructuredResponse(res, toolArgs.resultDetail ?? "minimal");
-      return { content: [{ type: "text", text: res.output }], structuredContent };
+      const structuredContent = enforceStructuredBudget(projectLiteralStructuredResponse(res, toolArgs.resultDetail ?? "minimal"));
+      return { content: [{ type: "text", text: JSON.stringify(structuredContent) }], structuredContent };
     }
 
     if (matchesToolName(name, TOOL_NAMES.context, "sensegrep.context")) {
@@ -598,7 +658,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
       });
       const detail = toolArgs.resultDetail ?? "content";
       const structuredContent = enforceStructuredBudget(projectStructuredSearchResponse(res, detail));
-      return { content: [{ type: "text", text: res.output }], structuredContent };
+      return { content: [{ type: "text", text: detail === "full" ? res.output : JSON.stringify(structuredContent) }], structuredContent };
     }
 
     if (matchesToolName(name, TOOL_NAMES.search, "sensegrep.search")) {
@@ -630,11 +690,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
       const { core, tool } = await loadSurveyTool();
       const { rootDir: _root, profile: _profile, ...toolArgs } = args as any;
       const { Instance } = core;
+      const groupedArgs = { ...toolArgs, jsonDetail: toolArgs.jsonDetail ?? "summary" };
       const res = await Instance.provide({
         directory: rootDir,
         profile,
         fn: () =>
-          tool.execute(toolArgs, {
+          tool.execute(groupedArgs, {
             sessionID: "mcp",
             messageID: "mcp",
             agent: "sensegrep-mcp",
@@ -643,9 +704,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
           }),
       });
       const { output: _output, ...compact } = res;
+      const structuredContent = groupedArgs.jsonDetail === "full" ? { ...res, output: res.output } : compact;
       return {
-        content: [{ type: "text", text: res.output }],
-        structuredContent: toolArgs.jsonDetail === "full" ? { ...res, output: res.output } : compact,
+        content: [{ type: "text", text: groupedArgs.jsonDetail === "summary" ? JSON.stringify(structuredContent) : res.output }],
+        structuredContent,
       };
     }
 
@@ -653,11 +715,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
       const { core, tool } = await loadClusterTool();
       const { rootDir: _root, profile: _profile, ...toolArgs } = args as any;
       const { Instance } = core;
+      const groupedArgs = { ...toolArgs, jsonDetail: toolArgs.jsonDetail ?? "summary" };
       const res = await Instance.provide({
         directory: rootDir,
         profile,
         fn: () =>
-          tool.execute(toolArgs, {
+          tool.execute(groupedArgs, {
             sessionID: "mcp",
             messageID: "mcp",
             agent: "sensegrep-mcp",
@@ -666,9 +729,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
           }),
       });
       const { output: _output, ...compact } = res;
+      const structuredContent = groupedArgs.jsonDetail === "full" ? { ...res, output: res.output } : compact;
       return {
-        content: [{ type: "text", text: res.output }],
-        structuredContent: toolArgs.jsonDetail === "full" ? { ...res, output: res.output } : compact,
+        content: [{ type: "text", text: groupedArgs.jsonDetail === "summary" ? JSON.stringify(structuredContent) : res.output }],
+        structuredContent,
       };
     }
 

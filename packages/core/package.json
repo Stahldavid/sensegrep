@@ -8,6 +8,14 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./filesystem-literal": {
+      "types": "./dist/tool/filesystem-literal.d.ts",
+      "default": "./dist/tool/filesystem-literal.js"
+    },
+    "./show": {
+      "types": "./dist/tool/show-result.d.ts",
+      "default": "./dist/tool/show-result.js"
     }
   },
   "files": [

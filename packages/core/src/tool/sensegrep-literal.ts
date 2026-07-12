@@ -13,6 +13,7 @@ import {
   pickBestLiteralDocument,
   runRipgrepOnFiles,
 } from "./sensegrep-pipeline.js"
+import { runFilesystemLiteral } from "./filesystem-literal.js"
 
 export const SenseGrepLiteralParametersSchema = z.object({
   query: z.string().min(1).describe("Literal string or regular expression"),
@@ -30,6 +31,19 @@ export const SenseGrepLiteralTool = Tool.define("sensegrep-literal", {
   description: "Exhaustive deterministic code search backed by ripgrep, with optional indexed symbol mapping.",
   parameters: SenseGrepLiteralParametersSchema,
   async execute(params, ctx): Promise<Tool.Result<Record<string, unknown>>> {
+    if (params.filesystem) {
+      return runFilesystemLiteral({
+        rootDir: Instance.directory,
+        query: params.query,
+        regex: params.regex,
+        caseSensitive: params.caseSensitive,
+        include: params.include,
+        exclude: params.exclude,
+        limit: params.limit,
+        maxOutputBytes: params.maxOutputBytes,
+        signal: ctx.abort,
+      })
+    }
     const resolved = await VectorStore.resolveIndexedProject(Instance.directory)
     if (!resolved?.meta && !params.filesystem) {
       return {

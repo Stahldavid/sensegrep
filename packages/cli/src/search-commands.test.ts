@@ -6,6 +6,7 @@ import {
   projectGraphResponse,
   projectLiteralResponse,
   projectSearchResponse,
+  projectShowResponse,
   withActualOutputMetrics,
 } from "./search-commands.js"
 
@@ -50,6 +51,13 @@ describe("search command JSON contracts", () => {
       actualEmittedTokens: Math.ceil(serializedBytes / 4),
       emittedTokens: Math.ceil(serializedBytes / 4),
     })
+    expect(payload.budget.attemptedOutputBytes).toBeGreaterThanOrEqual(payload.budget.actualOutputBytes)
+  })
+
+  it("keeps attempted metrics above envelope-inflated actual metrics", () => {
+    const payload = withActualOutputMetrics({ budget: { outputBytes: 1 }, results: [] }) as any
+    expect(payload.budget.attemptedOutputBytes).toBeGreaterThanOrEqual(payload.budget.actualOutputBytes)
+    expect(payload.budget.attemptedTokens).toBeGreaterThanOrEqual(payload.budget.actualEmittedTokens)
   })
 
   it("projects minimal, content, and diagnostic search output without duplicate metadata", () => {
@@ -128,6 +136,52 @@ describe("search command JSON contracts", () => {
     expect(references.references[0]).toEqual({ fromId: "source", kind: "call", confidence: "high" })
   })
 
+  it("retains operational metadata and requested filter explanations in minimal search output", () => {
+    const projected = projectSearchResponse({
+      command: "search",
+      status: "complete",
+      warnings: ["fallback"],
+      retrieval: { actualMode: "lexical-fallback", exhaustive: false, universe: { indexedFiles: 10 } },
+      index: { fresh: false, schemaCompatible: true },
+      budget: { outputBytes: 100 },
+      results: [{
+        resultId: "symbol:test",
+        file: "a.ts",
+        startLine: 1,
+        endLine: 2,
+        symbolName: "run",
+        symbolType: "function",
+        score: 0.8,
+        rankScore: 1,
+        whyMatched: ["symbol matched"],
+        filterMatches: { symbol: { matched: true } },
+      }],
+    }, "minimal", false, true)
+
+    expect(projected).toMatchObject({
+      warnings: ["fallback"],
+      retrieval: { actualMode: "lexical-fallback", universe: { indexedFiles: 10 } },
+      index: { fresh: false },
+    })
+    expect(projected.results[0]).toMatchObject({
+      whyMatched: ["symbol matched"],
+      filterMatches: { symbol: { matched: true } },
+    })
+  })
+
+  it("removes duplicated show metadata and names target-scoped freshness", () => {
+    const projected = projectShowResponse({
+      command: "show",
+      status: "complete",
+      metadata: { resultId: "symbol:test", file: "a.ts" },
+      index: { freshnessScope: "target-location", targetFresh: true },
+      result: { resultId: "symbol:test", file: "a.ts", content: "code" },
+      output: "code",
+    }, "content")
+    expect(projected).not.toHaveProperty("metadata")
+    expect(projected.index).toEqual({ freshnessScope: "target-location", targetFresh: true })
+  })
+
   it("trims content results until the actual JSON fits maxOutputBytes", () => {
     const payload = enforceActualOutputBudget({
       schemaVersion: 1,
@@ -142,5 +196,18 @@ describe("search command JSON contracts", () => {
     expect(payload.status).toBe("incomplete")
     expect(payload.budget.actualOutputBytes).toBeLessThanOrEqual(500)
     expect(payload.results.length).toBeLessThan(2)
+  })
+
+  it.each([100, 400, 1_000, 2_000])("never exceeds a %i-byte physical output budget", (maxOutputBytes) => {
+    const payload = enforceActualOutputBudget({
+      schemaVersion: 1,
+      command: "literal",
+      status: "complete",
+      retrieval: { actualMode: "literal", exhaustive: true, universe: { searchedFiles: 100 } },
+      index: { fresh: true, schemaCompatible: true },
+      budget: { maxOutputBytes, attemptedOutputBytes: 50_000 },
+      matches: Array.from({ length: 20 }, (_, index) => ({ file: `src/${index}.ts`, line: index + 1, text: "x".repeat(100) })),
+    }) as any
+    expect(Buffer.byteLength(`${JSON.stringify(payload)}\n`)).toBeLessThanOrEqual(maxOutputBytes)
   })
 })

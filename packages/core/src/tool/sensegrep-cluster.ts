@@ -316,7 +316,7 @@ async function runCluster(params: ClusterParams, ctx?: Tool.Context) {
     signal: ctx?.abort,
     defaultRawLimit: 70,
     rawLimitMultiplier: 8,
-    prepareResults: (resources, results) => hydrateResultsWithVectors(resources.collection, results),
+    prepareResults: (resources, results) => hydrateResultsWithVectors(resources.collection, results, resources.schema.fields),
     buildGroups: (results) => buildClusterGroups(results as ClusterNode[], params.query, clusterThreshold, minClusterSize),
     formatGroup: (resources, group) => formatClusterGroup(resources, group, perCluster, params.shake !== false),
     metadata: () => ({ clusterThreshold }),

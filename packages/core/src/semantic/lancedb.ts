@@ -170,6 +170,10 @@ export namespace VectorStore {
     return existsSync(legacy) ? legacy : current
   }
 
+  export function getIndexStoragePath(projectPath: string): string {
+    return projectDir(projectPath)
+  }
+
   function indexMetaPath(projectPath: string): string {
     return path.join(projectDir(projectPath), "index-meta.json")
   }

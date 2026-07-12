@@ -1,3 +1,5 @@
+import fs from "node:fs/promises"
+import path from "node:path"
 import { Instance } from "../project/instance.js"
 import { VectorStore } from "./lancedb.js"
 
@@ -28,6 +30,65 @@ export namespace CodeGraph {
     "if", "for", "while", "switch", "catch", "function", "return", "typeof", "new", "super", "import",
   ])
   let cached: { key: string; snapshot: Snapshot } | undefined
+  const CACHE_VERSION = 1
+
+  type PersistedSnapshot = {
+    version: number
+    key: string
+    symbols: Array<[string, Location[]]>
+    nodes: Array<[string, Node]>
+    outgoing: Array<[string, string[]]>
+    references: Reference[]
+    documents: number
+    truncated: boolean
+    metrics: Snapshot["metrics"]
+  }
+
+  function hydrateSnapshot(value: PersistedSnapshot): Snapshot {
+    return {
+      symbols: new Map(value.symbols),
+      nodes: new Map(value.nodes),
+      outgoing: new Map(value.outgoing.map(([id, targets]) => [id, new Set(targets)])),
+      references: value.references,
+      documents: value.documents,
+      truncated: value.truncated,
+      metrics: value.metrics,
+    }
+  }
+
+  async function readPersistedSnapshot(root: string, key: string): Promise<Snapshot | undefined> {
+    const cachePath = path.join(VectorStore.getIndexStoragePath(root), "code-graph-cache.json")
+    try {
+      const parsed = JSON.parse(await fs.readFile(cachePath, "utf8")) as PersistedSnapshot
+      if (parsed.version !== CACHE_VERSION || parsed.key !== key) return undefined
+      return hydrateSnapshot(parsed)
+    } catch {
+      return undefined
+    }
+  }
+
+  async function persistSnapshot(root: string, key: string, snapshot: Snapshot): Promise<void> {
+    const cachePath = path.join(VectorStore.getIndexStoragePath(root), "code-graph-cache.json")
+    const temporaryPath = `${cachePath}.${process.pid}.tmp`
+    const serialized: PersistedSnapshot = {
+      version: CACHE_VERSION,
+      key,
+      symbols: [...snapshot.symbols.entries()],
+      nodes: [...snapshot.nodes.entries()],
+      outgoing: [...snapshot.outgoing.entries()].map(([id, targets]) => [id, [...targets]]),
+      references: snapshot.references,
+      documents: snapshot.documents,
+      truncated: snapshot.truncated,
+      metrics: snapshot.metrics,
+    }
+    try {
+      await fs.writeFile(temporaryPath, `${JSON.stringify(serialized)}\n`, "utf8")
+      await fs.rm(cachePath, { force: true })
+      await fs.rename(temporaryPath, cachePath)
+    } catch {
+      await fs.rm(temporaryPath, { force: true }).catch(() => {})
+    }
+  }
 
   function canonicalNodeId(location: Omit<Location, "id">): string {
     return `${location.file}:${location.startLine}:${location.endLine}:${location.symbol ?? "<file>"}`
@@ -78,6 +139,13 @@ export namespace CodeGraph {
     const maxDocuments = Math.max(1, Math.floor(options.maxDocuments ?? 20_000))
     const cacheKey = `${resolved.root}\0${resolved.meta.updatedAt}\0${maxDocuments}`
     if (process.env.NODE_ENV !== "test" && cached?.key === cacheKey) return cached.snapshot
+    if (process.env.NODE_ENV !== "test") {
+      const persisted = await readPersistedSnapshot(resolved.root, cacheKey)
+      if (persisted) {
+        cached = { key: cacheKey, snapshot: persisted }
+        return persisted
+      }
+    }
 
     const schema = await VectorStore.inspectCollectionSchema(resolved.root)
     const collection = schema.schemaCompatible
@@ -209,7 +277,10 @@ export namespace CodeGraph {
       graphCoverage: totalEdges === 0 ? 1 : references.length / totalEdges,
     }
     const snapshot = { symbols, nodes, outgoing, references, documents: documents.length, truncated, metrics }
-    if (process.env.NODE_ENV !== "test") cached = { key: cacheKey, snapshot }
+    if (process.env.NODE_ENV !== "test") {
+      cached = { key: cacheKey, snapshot }
+      await persistSnapshot(resolved.root, cacheKey, snapshot)
+    }
     return snapshot
   }
 

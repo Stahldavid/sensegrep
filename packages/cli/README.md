@@ -29,9 +29,11 @@ sensegrep detect-duplicates --cross-file-only --timeout 30s
 sensegrep semantic-kinds --json
 ```
 
-`status`, `verify`, search, graph, and literal open existing indexes read-only. If the table schema is old, they report `schemaCompatible: false` and recommend an atomic full rebuild; they never recreate the active table. Search JSON defaults to minified `minimal` cards. Use `--json-detail content|diagnostic|full`, `--diagnostic`, or `--pretty` to opt into heavier output. Audit `--batch-tokens` is a strict per-batch ceiling, including explicit split ranges from large files. Duplicate JSON omits code unless `--show-code` is set.
+`status`, `verify`, search, graph, and indexed literal open existing indexes read-only. `literal --filesystem` and `show` use lightweight paths that do not open the vector table. If the table schema is old, commands report `schemaCompatible: false` and recommend an atomic full rebuild; they never recreate the active table. Search JSON defaults to minified `minimal` cards, while survey/cluster JSON defaults to `summary`. Use `--json-detail content|representatives|diagnostic|full`, as supported by each command, `--diagnostic`, or `--pretty` to opt into heavier output. Audit `--batch-tokens` is a strict per-batch ceiling, including explicit split ranges from large files. Duplicate JSON omits code unless `--show-code` is set.
 
 `--json` writes parseable JSON to stdout; progress and warnings are written to stderr.
+Argument errors under `--json` also use stdout JSON and exit code 2. `--max-output-bytes`
+is enforced against the complete serialized payload.
 Use `--log-format none` when a JSON command must suppress all non-fatal logs entirely.
 If an `--include`/`--exclude` scope matches no indexed files, JSON output includes a
 structured warning instead of failing silently.

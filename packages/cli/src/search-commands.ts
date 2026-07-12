@@ -16,7 +16,7 @@ export function resolveJsonProjection(value: unknown, diagnostic = false): JsonP
   return "minimal"
 }
 
-export function compactSearchResult(entry: any) {
+export function compactSearchResult(entry: any, includeFilterExplanations = false) {
   return {
     resultId: entry.resultId,
     file: entry.file,
@@ -26,6 +26,10 @@ export function compactSearchResult(entry: any) {
     symbolType: entry.symbolType,
     score: entry.score,
     rankScore: entry.rankScore,
+    ...(includeFilterExplanations ? {
+      ...(entry.whyMatched ? { whyMatched: entry.whyMatched } : {}),
+      ...(entry.filterMatches ? { filterMatches: entry.filterMatches } : {}),
+    } : {}),
   }
 }
 
@@ -57,7 +61,12 @@ function minimalBudget(budget: any) {
   }
 }
 
-export function projectSearchResponse(res: any, detail: JsonProjection, includeRendered = false): any {
+export function projectSearchResponse(
+  res: any,
+  detail: JsonProjection,
+  includeRendered = false,
+  includeFilterExplanations = false,
+): any {
   if (detail === "full") return res
   if (detail === "diagnostic") {
     const { output: _output, metadata: _metadata, title: _title, ...diagnostic } = res
@@ -74,21 +83,23 @@ export function projectSearchResponse(res: any, detail: JsonProjection, includeR
   }
 
   const cards = Array.isArray(res.results)
-    ? res.results.map((entry: any) => detail === "content" ? { ...compactSearchResult(entry), content: entry.content } : compactSearchResult(entry))
+    ? res.results.map((entry: any) => detail === "content"
+      ? { ...compactSearchResult(entry, includeFilterExplanations), content: entry.content }
+      : compactSearchResult(entry, includeFilterExplanations))
     : res.results
   const retrieval = res.retrieval ? {
-    mode: res.retrieval.actualMode ?? res.retrieval.requestedMode,
+    actualMode: res.retrieval.actualMode ?? res.retrieval.requestedMode,
     exhaustive: res.retrieval.exhaustive === true,
     truncated: res.status === "incomplete" || res.coverage?.truncated === true,
+    universe: res.retrieval.universe,
   } : undefined
-  const unhealthyIndex = res.index && (res.index.fresh === false || res.index.schemaCompatible === false) ? res.index : undefined
   return {
     schemaVersion: res.schemaVersion ?? 1,
     command: res.command,
     status: res.status,
     ...(Array.isArray(res.warnings) && res.warnings.length > 0 ? { warnings: res.warnings } : {}),
     ...(retrieval ? { retrieval } : {}),
-    ...(unhealthyIndex ? { index: unhealthyIndex } : {}),
+    ...(res.index ? { index: res.index } : {}),
     ...(res.coverage ? { coverage: minimalCoverage(res.coverage), coverageSatisfied: res.coverageSatisfied } : {}),
     ...(res.batches ? { batches: res.batches } : {}),
     ...(res.budget ? { budget: minimalBudget(res.budget) } : {}),
@@ -170,7 +181,14 @@ export function projectLiteralResponse(res: any, detail: JsonProjection): any {
     returnedMatches: res.metadata?.returnedMatches ?? res.matches?.length ?? 0,
     truncated: res.metadata?.truncated ?? false,
     exhaustive: res.retrieval?.exhaustive ?? res.metadata?.exhaustive ?? false,
-    scope: res.retrieval?.exhaustiveWithin,
+    retrieval: res.retrieval ? {
+      actualMode: res.retrieval.actualMode,
+      exhaustive: res.retrieval.exhaustive,
+      exhaustiveWithin: res.retrieval.exhaustiveWithin,
+      universe: res.retrieval.universe,
+    } : undefined,
+    index: res.index,
+    budget: res.budget,
     ...(Array.isArray(res.warnings) && res.warnings.length > 0 ? { warnings: res.warnings } : {}),
     matches: (res.matches ?? []).map((match: any) => ({
       file: match.file,
@@ -178,6 +196,21 @@ export function projectLiteralResponse(res: any, detail: JsonProjection): any {
       text: match.text,
       ...(match.symbolName ? { symbolName: match.symbolName } : {}),
     })),
+  }
+}
+
+export function projectShowResponse(res: any, detail: JsonProjection, includeRendered = false): any {
+  if (detail === "full") return res
+  const result = res.result ? { ...res.result } : undefined
+  return {
+    schemaVersion: res.schemaVersion ?? 1,
+    command: res.command,
+    status: res.status,
+    ...(Array.isArray(res.warnings) && res.warnings.length > 0 ? { warnings: res.warnings } : {}),
+    index: res.index,
+    result,
+    ...(res.graph ? { graph: res.graph } : {}),
+    ...(includeRendered ? { output: res.output } : {}),
   }
 }
 
@@ -227,12 +260,17 @@ export function projectGraphResponse(res: any, detail: JsonProjection): any {
 export function withActualOutputMetrics(payload: any, pretty = isPrettyJson()): any {
   if (!payload?.budget || typeof payload.budget !== "object") return payload
   const projectedBytes = Buffer.byteLength(serializeJson(payload, pretty))
-  const attemptedOutputBytes = Number(payload.budget.attemptedOutputBytes || payload.budget.outputBytes || projectedBytes)
-  const attemptedTokens = Number(payload.budget.attemptedTokens || payload.budget.emittedTokens || Math.ceil(attemptedOutputBytes / 4))
+  const baseAttemptedOutputBytes = Math.max(
+    projectedBytes,
+    Number(payload.budget.attemptedOutputBytes || payload.budget.outputBytes || 0),
+  )
+  const baseAttemptedTokens = Number(payload.budget.attemptedTokens || payload.budget.emittedTokens || 0)
   let actualOutputBytes = 0
   let actualEmittedTokens = 0
   let measured = payload
   for (let iteration = 0; iteration < 10; iteration++) {
+    const attemptedOutputBytes = Math.max(baseAttemptedOutputBytes, actualOutputBytes)
+    const attemptedTokens = Math.max(Math.ceil(attemptedOutputBytes / 4), baseAttemptedTokens)
     measured = {
       ...payload,
       budget: {
@@ -255,6 +293,8 @@ export function withActualOutputMetrics(payload: any, pretty = isPrettyJson()): 
     ...measured,
     budget: {
       ...measured.budget,
+      attemptedOutputBytes: Math.max(baseAttemptedOutputBytes, actualOutputBytes),
+      attemptedTokens: Math.max(Math.ceil(Math.max(baseAttemptedOutputBytes, actualOutputBytes) / 4), baseAttemptedTokens),
       actualOutputBytes,
       actualEmittedTokens,
       outputBytes: actualOutputBytes,
@@ -268,7 +308,10 @@ function markOutputTruncated(payload: any) {
   return {
     ...payload,
     status: "incomplete",
-    retrieval: payload.retrieval ? { ...payload.retrieval, truncated: true } : payload.retrieval,
+    truncated: true,
+    ...(typeof payload.exhaustive === "boolean" ? { exhaustive: false } : {}),
+    retrieval: payload.retrieval ? { ...payload.retrieval, exhaustive: false, truncated: true } : payload.retrieval,
+    metadata: payload.metadata ? { ...payload.metadata, truncated: true, exhaustive: false } : payload.metadata,
     coverage: payload.coverage ? { ...payload.coverage, exhaustive: false, truncated: true, truncationReasons: [...reasons] } : payload.coverage,
     coverageSatisfied: payload.coverage ? false : payload.coverageSatisfied,
   }
@@ -278,22 +321,65 @@ export function enforceActualOutputBudget(payload: any, pretty = isPrettyJson())
   const maxOutputBytes = Number(payload?.budget?.maxOutputBytes ?? 0)
   let projected = withActualOutputMetrics(payload, pretty)
   if (!maxOutputBytes || projected.budget.actualOutputBytes <= maxOutputBytes) return projected
-  let results = Array.isArray(projected.results) ? [...projected.results] : []
   projected = markOutputTruncated(projected)
-  while (results.length > 0) {
-    results.pop()
-    const retainedIds = new Set(results.map((entry: any) => entry.resultId).filter(Boolean))
-    const batches = Array.isArray(projected.batches) ? projected.batches
-      .map((batch: any) => ({
-        ...batch,
-        resultIds: Array.isArray(batch.resultIds) ? batch.resultIds.filter((id: string) => retainedIds.has(id)) : batch.resultIds,
-        ranges: Array.isArray(batch.ranges) ? batch.ranges.filter((range: any) => retainedIds.has(range.resultId)) : batch.ranges,
-      }))
-      .filter((batch: any) => !Array.isArray(batch.resultIds) || batch.resultIds.length > 0) : projected.batches
-    projected = withActualOutputMetrics({ ...projected, results, ...(batches ? { batches } : {}) }, pretty)
-    if (projected.budget.actualOutputBytes <= maxOutputBytes) return projected
+  const collectionKeys = ["results", "matches", "groups", "clusters", "references", "impacted", "duplicates", "batches"]
+  const replaceCollection = (source: any, key: string, values: any[]) => {
+    const next = { ...source, [key]: values }
+    if (key === "results") {
+      const retainedIds = new Set(values.map((entry: any) => entry.resultId).filter(Boolean))
+      if (Array.isArray(source.batches)) {
+        next.batches = source.batches
+          .map((batch: any) => ({
+            ...batch,
+            resultIds: Array.isArray(batch.resultIds) ? batch.resultIds.filter((id: string) => retainedIds.has(id)) : batch.resultIds,
+            ranges: Array.isArray(batch.ranges) ? batch.ranges.filter((range: any) => retainedIds.has(range.resultId)) : batch.ranges,
+          }))
+          .filter((batch: any) => !Array.isArray(batch.resultIds) || batch.resultIds.length > 0)
+      }
+    }
+    if (key === "matches") {
+      next.returnedMatches = values.length
+      if (next.metadata) next.metadata = { ...next.metadata, returnedMatches: values.length, truncated: true, exhaustive: false }
+    }
+    return next
   }
-  return projected
+
+  for (const key of collectionKeys) {
+    if (!Array.isArray(projected[key]) || projected[key].length === 0) continue
+    const original = [...projected[key]]
+    let low = 0
+    let high = original.length
+    let best: any | undefined
+    while (low <= high) {
+      const count = Math.floor((low + high) / 2)
+      const candidate = withActualOutputMetrics(replaceCollection(projected, key, original.slice(0, count)), pretty)
+      if (candidate.budget.actualOutputBytes <= maxOutputBytes) {
+        best = candidate
+        low = count + 1
+      } else {
+        high = count - 1
+      }
+    }
+    if (best) return best
+    projected = withActualOutputMetrics(replaceCollection(projected, key, []), pretty)
+  }
+
+  const compact = withActualOutputMetrics({
+    schemaVersion: projected.schemaVersion ?? 1,
+    command: projected.command,
+    status: "incomplete",
+    truncated: true,
+    ...(projected.retrieval?.actualMode || projected.retrieval?.mode ? {
+      retrieval: { actualMode: projected.retrieval.actualMode ?? projected.retrieval.mode },
+    } : {}),
+    budget: { maxOutputBytes, attemptedOutputBytes: projected.budget.attemptedOutputBytes },
+  }, pretty)
+  if (Buffer.byteLength(serializeJson(compact, pretty)) <= maxOutputBytes) return compact
+
+  const emergency = { command: projected.command, status: "incomplete", truncated: true }
+  if (Buffer.byteLength(serializeJson(emergency, pretty)) <= maxOutputBytes) return emergency
+  const smallest = { status: "incomplete" }
+  return Buffer.byteLength(serializeJson(smallest, pretty)) <= maxOutputBytes ? smallest : {}
 }
 
 export type SearchLikeToolFactory = {
@@ -428,13 +514,15 @@ export async function executeSearchLikeTool(input: {
       } : {}),
     }
     if (rawResult.command === "literal") {
-      payload = projectLiteralResponse(rawResult, resolveJsonProjection(jsonDetail, input.flags.diagnostic === true))
+      payload = projectLiteralResponse(measuredResult, resolveJsonProjection(jsonDetail, input.flags.diagnostic === true))
+    } else if (rawResult.command === "show" || rawResult.command === "expand") {
+      payload = projectShowResponse(rawResult, resolveJsonProjection(jsonDetail, input.flags.diagnostic === true), includeRendered)
     } else if (jsonDetail === "summary" || jsonDetail === "representatives") {
       const { output: _output, ...compact } = res
       payload = includeRendered ? { ...compact, output: res.output } : compact
     } else if (["search", "context", "audit"].includes(String(rawResult.command ?? ""))) {
       const detail = resolveJsonProjection(jsonDetail, input.flags.diagnostic === true)
-      payload = projectSearchResponse(measuredResult, detail, includeRendered)
+      payload = projectSearchResponse(measuredResult, detail, includeRendered, input.params.explainFilters === true)
     } else if (includeRendered || jsonDetail === "full") {
       payload = rawResult
     } else {

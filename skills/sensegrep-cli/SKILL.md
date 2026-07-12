@@ -53,6 +53,8 @@ Start with these defaults and adjust based on what you find:
 
 > **JSON output:** JSON is minified and `minimal` by default: envelope, sufficiency, `resultId`, location, `score`, and `rankScore`. Use `--json-detail content` for code, `--diagnostic` for distances/ranking/timings/freshness, `--json-detail full` for internals, and `--pretty` only for human reading. `compact` remains a compatibility alias for `minimal`.
 
+> **Agent contract:** Always retain and inspect `retrieval.actualMode`, `retrieval.universe`, `index`, `budget`, and warnings. Invalid JSON-mode arguments return `status: "error"` with structured `errorInfo` and exit code 2. `--max-output-bytes` bounds the final serialized JSON, not only evidence text.
+
 > **Profiles:** Use `--profile <name>` when comparing embedding models/settings. Profiles have independent indexes. Sensegrep validates a non-secret endpoint/model fingerprint before searching.
 
 ## Commands
@@ -108,6 +110,10 @@ sensegrep literal "retry|backoff" --regex --ignore-case
 sensegrep literal "TODO:" --filesystem --max-output-bytes 50000 --json
 ```
 
+`--filesystem` is a direct ripgrep fast path: it does not load the semantic index or
+embedding configuration. Very small output budgets can force an emergency envelope;
+check `status` and `truncated` before assuming exhaustive evidence.
+
 ### `sensegrep context` — Build an agent context pack
 
 Use this when the next model/agent call has a context budget. It enables hybrid retrieval, reranking, diversification, and tree-shaking, then stops before the estimated token cap.
@@ -144,6 +150,8 @@ sensegrep survey "authentication login token" \
 ```
 
 Returns grouped, tree-shaken reading domains such as `middleware / guards`, `stores / state`, `services / api`, and `types / contracts`.
+JSON and MCP calls default to `summary`; request `--json-detail representatives` only
+when representative cards are needed.
 
 ### `sensegrep cluster` — Break a broad topic into subthemes
 
@@ -159,6 +167,8 @@ sensegrep cluster "price list commission ncm uf packaging" \
 ```
 
 Returns cluster headings plus representative tree-shaken snippets, using embeddings + AST metadata + path/import signals.
+JSON and MCP calls default to `summary`. A provider failure must produce both
+`retrieval.actualMode: lexical-fallback` and a warning.
 
 ### Symbol graph — References, impact, and trace
 
@@ -170,6 +180,10 @@ sensegrep impact loadUser --depth 3 --limit 100 --json
 sensegrep trace handleRequest loadUser --depth 6 --json
 sensegrep references --id "src/auth.ts:20:45:loadUser" --json
 ```
+
+The graph snapshot is persisted beside the index and reused across CLI invocations until
+the index `updatedAt` changes. `show` is target-local and reports `index.targetFresh`;
+use `verify --strict` when global freshness is required.
 
 - `references` lists definitions and indexed reference sites.
 - `impact` walks resolved reverse call edges and returns canonical locations. Ambiguous same-name targets are intentionally omitted instead of guessed.

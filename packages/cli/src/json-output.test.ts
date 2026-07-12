@@ -211,4 +211,24 @@ describe("CLI JSON stdout contract", () => {
       stderr: expect.stringContaining("--scope must contain only function, method, or all"),
     })
   })
+
+  itIfBuilt("returns structured JSON errors and exit code 2 for invalid agent arguments", async () => {
+    await expect(runCli(["search", "x", "--json", "--unknown-agent-flag"])).rejects.toMatchObject({
+      code: 2,
+      stderr: "",
+      stdout: expect.stringContaining('"code":"UNKNOWN_OPTION"'),
+    })
+
+    try {
+      await runCli(["literal", "[", "--regex", "--filesystem", "--json"])
+      throw new Error("expected invalid regex to fail")
+    } catch (error: any) {
+      expect(error.code).toBe(2)
+      expect(error.stderr).toBe("")
+      expect(JSON.parse(error.stdout)).toMatchObject({
+        status: "error",
+        errorInfo: { code: "INVALID_REGEX", phase: "arguments", retryable: false },
+      })
+    }
+  })
 })

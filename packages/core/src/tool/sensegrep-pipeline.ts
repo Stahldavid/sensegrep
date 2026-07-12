@@ -1315,6 +1315,7 @@ export async function collectWorkingResults(
 export async function hydrateResultsWithVectors(
   collection: Awaited<ReturnType<typeof VectorStore.getCollectionUnsafe>>,
   results: WorkingResult[],
+  availableFields?: string[],
 ): Promise<WorkingResult[]> {
   const ids = [...new Set(results.map((result) => result.id).filter((value): value is string => Boolean(value)))]
   if (ids.length === 0) return results
@@ -1323,27 +1324,31 @@ export async function hydrateResultsWithVectors(
   const chunkSize = 100
   for (let index = 0; index < ids.length; index += chunkSize) {
     const chunk = ids.slice(index, index + chunkSize)
+    const requestedColumns = [
+      "id",
+      "vector",
+      "imports",
+      "parentScope",
+      "semanticKind",
+      "framework",
+      "language",
+      "symbolName",
+      "symbolType",
+      "variant",
+      "fileKind",
+      "fileRole",
+      "file",
+      "startLine",
+      "endLine",
+    ]
+    const columns = availableFields?.length
+      ? requestedColumns.filter((field) => availableFields.includes(field))
+      : requestedColumns
     const docs = await VectorStore.listDocuments(collection, {
       filters: {
         all: [{ key: "id", operator: "in", value: chunk }],
       },
-      columns: [
-        "id",
-        "vector",
-        "imports",
-        "parentScope",
-        "semanticKind",
-        "framework",
-        "language",
-        "symbolName",
-        "symbolType",
-        "variant",
-        "fileKind",
-        "fileRole",
-        "file",
-        "startLine",
-        "endLine",
-      ],
+      columns,
     })
 
     for (const doc of docs) {
@@ -1865,6 +1870,7 @@ export async function runGroupedSearch<TGroup>(input: {
         freshness: resources.freshness,
         index: { fresh: !resources.freshness.isStale, schemaCompatible: resources.schema.schemaCompatible, snapshotId: `${resources.schema.tableName}:${resources.meta.updatedAt}` },
         retrieval: collected.retrieval,
+        warnings: collected.warnings,
         output: prependFreshnessWarning("No matching results found for your query.", resources.freshness),
       }
     }
@@ -1911,6 +1917,7 @@ export async function runGroupedSearch<TGroup>(input: {
       freshness: resources.freshness,
       index: { fresh: !resources.freshness.isStale, schemaCompatible: resources.schema.schemaCompatible, snapshotId: `${resources.schema.tableName}:${resources.meta.updatedAt}` },
       retrieval: collected.retrieval,
+      warnings: collected.warnings,
       budget: { tokensRequested: input.params.maxTokens, tokensUsed: estimatedTokens },
       [input.resultKey]: groups.map(input.mapGroup),
       output: prependFreshnessWarning(outputLines.join("\n"), resources.freshness),

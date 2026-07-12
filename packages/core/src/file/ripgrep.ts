@@ -377,9 +377,17 @@ export namespace Ripgrep {
     return lines.join("\n")
   }
 
-  export async function search(input: { cwd: string; pattern: string; glob?: string[]; limit?: number }) {
+  export async function search(input: {
+    cwd: string
+    pattern: string
+    glob?: string[]
+    limit?: number
+    fixedStrings?: boolean
+    caseSensitive?: boolean
+    signal?: AbortSignal
+  }) {
     const rgPath = await filepath()
-    const args = ["--json", "--hidden", "--glob=!.git/*"]
+    const args = ["--json", "--follow", "--hidden", "--glob=!.git/*"]
 
     if (input.glob) {
       for (const g of input.glob) {
@@ -391,18 +399,23 @@ export namespace Ripgrep {
       args.push(`--max-count=${input.limit}`)
     }
 
+    if (input.fixedStrings) args.push("--fixed-strings")
+    if (input.caseSensitive === false) args.push("--ignore-case")
+
     args.push("--")
     args.push(input.pattern)
 
     const proc = spawn(rgPath, args, {
       cwd: input.cwd,
       stdio: ["ignore", "pipe", "pipe"],
+      signal: input.signal,
     })
-    const stdout = await streamToString(proc.stdout)
+    const stdoutPromise = streamToString(proc.stdout)
+    const stderrPromise = streamToString(proc.stderr)
     const [code] = (await once(proc, "close")) as [number]
-    if (code !== 0) {
-      return []
-    }
+    const [stdout, stderr] = await Promise.all([stdoutPromise, stderrPromise])
+    if (code === 1) return []
+    if (code !== 0) throw new Error(`ripgrep failed with code ${code}: ${stderr.trim()}`)
 
     const lines = stdout.trim().split("\n").filter(Boolean)
     // Parse JSON lines from ripgrep output

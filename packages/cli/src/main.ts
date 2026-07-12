@@ -11,9 +11,11 @@ import { runEval, runInvestigate } from "./agent-commands.js"
 import {
   assignNumberParam,
   buildCommonSearchParams,
+  enforceActualOutputBudget,
   executeSearchLikeTool,
   getSearchQuery,
   projectDuplicateResponse,
+  projectLiteralResponse,
   resolveJsonProjection,
   toBool,
   type Flags,
@@ -299,8 +301,69 @@ async function run() {
 
   const unknownFlag = validateKnownFlags(command, flags)
   if (unknownFlag) {
-    writeStderrLine(`Unknown option for "${command}": --${unknownFlag}`)
-    process.exitCode = 1
+    throw new CliUsageError(`Unknown option for "${command}": --${unknownFlag}`, { code: "UNKNOWN_OPTION" })
+  }
+
+  if (command === "literal" && flags.filesystem === true) {
+    const query = getSearchQuery(flags, positional)
+    if (!query) throw new CliUsageError("literal requires <text-or-regex>")
+    const parsePositiveInteger = (value: unknown, name: string) => {
+      if (value === undefined) return undefined
+      const parsed = Number(value)
+      if (!Number.isInteger(parsed) || parsed <= 0) throw new CliUsageError(`--${name} must be a positive integer`)
+      return parsed
+    }
+    const limit = parsePositiveInteger(flags.limit, "limit")
+    const maxOutputBytes = parsePositiveInteger(flags["max-output-bytes"] ?? flags.maxOutputBytes, "max-output-bytes")
+    if (flags["dry-run"] === true) {
+      writeJson({ schemaVersion: 1, command, status: "planned", plan: { embeddingCalls: 0, maxOutputBytes, limit } })
+      return
+    }
+    const { runFilesystemLiteral } = await import("@sensegrep/core/filesystem-literal")
+    const result = await runFilesystemLiteral({
+      rootDir: (flags.root as string | undefined) || process.cwd(),
+      query,
+      regex: flags.regex === true,
+      caseSensitive: flags["ignore-case"] === undefined && flags.ignoreCase === undefined,
+      include: typeof flags.include === "string" ? flags.include : undefined,
+      exclude: typeof flags.exclude === "string" ? flags.exclude : undefined,
+      limit,
+      maxOutputBytes,
+    })
+    if (flags.json === true) {
+      const detail = resolveJsonProjection(flags["json-detail"] ?? flags.jsonDetail, flags.diagnostic === true)
+      writeJson(enforceActualOutputBudget(projectLiteralResponse(result, detail)))
+    } else {
+      writeStdoutLine(result.output)
+    }
+    return
+  }
+
+  if (command === "show") {
+    const resultId = positional[0]
+    if (!resultId) throw new CliUsageError("show requires <result-id>")
+    const parseNonNegativeInteger = (value: unknown, name: string) => {
+      if (value === undefined) return 0
+      const parsed = Number(value)
+      if (!Number.isInteger(parsed) || parsed < 0) throw new CliUsageError(`--${name} must be a non-negative integer`)
+      return parsed
+    }
+    const before = parseNonNegativeInteger(flags.before, "before")
+    const after = parseNonNegativeInteger(flags.after, "after")
+    const { runShowResult } = await import("@sensegrep/core/show")
+    const result = await runShowResult({
+      rootDir: (flags.root as string | undefined) || process.cwd(),
+      resultId,
+      before,
+      after,
+    })
+    if (flags.json === true) {
+      const detail = resolveJsonProjection(flags["json-detail"] ?? flags.jsonDetail, flags.diagnostic === true)
+      const { projectShowResponse } = await import("./search-commands.js")
+      writeJson(projectShowResponse(result, detail, flags["include-rendered-output"] === true))
+    } else {
+      writeStdoutLine(result.output)
+    }
     return
   }
 
@@ -650,18 +713,14 @@ async function run() {
 
   if (command === "survey") {
     const query = getSearchQuery(flags, positional)
-    if (!query) {
-      writeStderrLine("Missing query")
-      usage()
-      process.exitCode = 1
-      return
-    }
+    if (!query) throw new CliUsageError("survey requires <query>")
 
     const params = buildCommonSearchParams(query, flags, { shake: true })
     assignNumberParam(params, flags, "rawLimit", ["raw-limit", "rawLimit"])
     assignNumberParam(params, flags, "perGroup", ["per-group", "perGroup"])
     const surveyJsonDetail = flags["json-detail"] ?? flags.jsonDetail
     if (typeof surveyJsonDetail === "string") params.jsonDetail = surveyJsonDetail
+    else if (flags.json === true) params.jsonDetail = "summary"
     if (flags["dry-run"] === true) { writeQueryDryRun(command, query, params, Embeddings); return }
 
     await ensureFreshIfRequested(flags, rootDir, Instance, Indexer)
@@ -671,12 +730,7 @@ async function run() {
 
   if (command === "cluster") {
     const query = getSearchQuery(flags, positional)
-    if (!query) {
-      writeStderrLine("Missing query")
-      usage()
-      process.exitCode = 1
-      return
-    }
+    if (!query) throw new CliUsageError("cluster requires <query>")
 
     const params = buildCommonSearchParams(query, flags, { shake: true })
     assignNumberParam(params, flags, "rawLimit", ["raw-limit", "rawLimit"])
@@ -685,6 +739,7 @@ async function run() {
     assignNumberParam(params, flags, "minClusterSize", ["min-cluster-size", "minClusterSize"])
     const clusterJsonDetail = flags["json-detail"] ?? flags.jsonDetail
     if (typeof clusterJsonDetail === "string") params.jsonDetail = clusterJsonDetail
+    else if (flags.json === true) params.jsonDetail = "summary"
     if (flags["dry-run"] === true) { writeQueryDryRun(command, query, params, Embeddings); return }
 
     await ensureFreshIfRequested(flags, rootDir, Instance, Indexer)
@@ -934,9 +989,7 @@ async function run() {
     return
   }
 
-  writeStderrLine(`Unknown command: ${command}`)
-  usage()
-  process.exitCode = 1
+  throw new CliUsageError(`Unknown command: ${command}`, { code: "UNKNOWN_COMMAND" })
 }
 
 async function runLanguagesCommand(flags: Flags, rootDir: string) {
@@ -1203,10 +1256,40 @@ async function runSemanticKindsCommand(flags: Flags) {
 }
 
 run().catch((error) => {
-  if (error instanceof CliUsageError) {
-    writeStderrLine(error.message)
+  const argv = process.argv.slice(2)
+  const jsonRequested = argv.some((value) => value === "--json" || value.startsWith("--json="))
+  const message = error instanceof Error ? error.message : String(error)
+  const invalidRegex = /regex parse error|invalid regular expression/i.test(message)
+  const invalidArguments = error instanceof CliUsageError || invalidRegex || /tool was called with invalid arguments/i.test(message)
+  const code = error instanceof CliUsageError
+    ? error.code
+    : invalidRegex
+      ? "INVALID_REGEX"
+      : invalidArguments
+        ? "INVALID_ARGUMENT"
+        : "EXECUTION_FAILED"
+  const phase = error instanceof CliUsageError ? error.phase : invalidArguments ? "arguments" : "execution"
+  const exitCode = invalidArguments ? 2 : 1
+  const issues = Array.isArray((error as any)?.cause?.issues)
+    ? (error as any).cause.issues.map((issue: any) => ({
+        code: String(issue.code ?? "invalid"),
+        path: Array.isArray(issue.path) ? issue.path.map(String) : [],
+        message: String(issue.message ?? "Invalid value"),
+      }))
+    : undefined
+  const publicMessage = issues?.length
+    ? `Invalid arguments for ${argv[0] ?? "command"}.`
+    : message
+
+  if (jsonRequested) {
+    writeJson({
+      schemaVersion: 1,
+      command: argv[0] ?? null,
+      status: "error",
+      errorInfo: { code, phase, retryable: false, message: publicMessage, ...(issues ? { issues } : {}) },
+    })
   } else {
-    writeStderrLine(error instanceof Error ? error.stack ?? error.message : String(error))
+    writeStderrLine(message)
   }
-  process.exitCode = 1
+  process.exitCode = exitCode
 })

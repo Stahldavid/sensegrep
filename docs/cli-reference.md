@@ -74,6 +74,10 @@ JSON is minified by default; use `--pretty` for human-readable indentation. Outp
 `--json-detail diagnostic`. New indexes use cosine distance explicitly; distance diagnostics
 are emitted once requested rather than repeated in ordinary cards.
 
+Minimal agent output retains `retrieval.actualMode`, `retrieval.universe`, `index`,
+`budget`, and warnings. With `--explain-filters`, `whyMatched` and `filterMatches`
+remain present even in `minimal` cards.
+
 **Symbol filters:**
 
 | Flag | Description |
@@ -127,6 +131,9 @@ sensegrep literal "retry|backoff" --regex --ignore-case --limit 200
 ```
 
 JSON reports `totalMatches`, `returnedMatches`, `truncated`, and `exhaustive`. Omitting `--limit` returns every occurrence. Use `--pattern` to anchor semantic candidates; use `literal` when every occurrence matters.
+`literal --filesystem` executes a direct ripgrep fast path and does not resolve the
+semantic index or embedding configuration. `--max-output-bytes` limits the complete
+serialized JSON payload, including envelope and escaping, rather than only match text.
 
 ### `sensegrep audit`
 
@@ -188,6 +195,23 @@ Minimal search cards use canonical location fields while diagnostic-only metadat
 
 Unknown flags are rejected per subcommand. This prevents accidental no-op options
 in automated agent workflows.
+
+With `--json`, argument failures are also emitted as a single JSON object on stdout
+with `status: "error"`, `errorInfo.code`, `phase`, and `retryable`; invalid arguments
+exit with code 2. Stderr remains empty unless non-JSON logging was explicitly requested.
+
+### `sensegrep survey` and `sensegrep cluster`
+
+JSON CLI and MCP calls default to `summary`, avoiding representative source payloads.
+Use `--json-detail representatives` when sample cards are needed, or `full` for
+diagnostics. Semantic-provider fallback is always reflected by
+`retrieval.actualMode: "lexical-fallback"` and a warning.
+
+### `sensegrep show`
+
+`show` reads the selected source location directly and does not open the vector table.
+Its freshness is explicitly target-scoped as `index.targetFresh`; it does not claim
+that the entire index is fresh. `expand` additionally loads graph evidence.
 
 ### `sensegrep verify`
 
