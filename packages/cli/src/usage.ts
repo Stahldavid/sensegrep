@@ -18,7 +18,7 @@ Usage:
   sensegrep selftest [--root <dir>] [--strict] [--deep] [--json]
   sensegrep investigate <query...> [--dry-run] [--max-tokens <n>]
   sensegrep eval <cases.yaml|cases.json> [--limit <n>]
-  sensegrep daemon start|status|stop|endpoint
+  sensegrep daemon start|status|stop|endpoint [--watch]
   sensegrep daemon call --tool search --arguments '{"query":"auth flow"}'
 
 Search options:
@@ -50,6 +50,7 @@ Search options:
   --no-rerank               Disable reranking
   --hybrid <true|false>     Fuse lexical and vector retrieval (default: true)
   --no-hybrid               Disable lexical/vector fusion
+  --hybrid-mode <mode>      adaptive (default) or parallel
   --max-tokens <n>          Limit estimated output tokens (context default: 12000)
   --embedding-timeout <ms>  Query embedding deadline (legacy: --latency-budget)
   --purpose <mode>          understand|implement|review|test ranking preset

@@ -1249,6 +1249,7 @@ export namespace VectorStore {
       filters?: SearchFilters // New structured filters
       signal?: AbortSignal
       retryDeadlineMs?: number
+      metrics?: Record<string, number>
     } = {},
   ): Promise<
     {
@@ -1267,6 +1268,9 @@ export namespace VectorStore {
       signal,
       operation: "query",
       retryDeadlineMs: deadlineMs,
+      onQueryCacheStatus: (hit) => {
+        if (options.metrics) options.metrics.queryEmbeddingCacheHit = hit ? 1 : 0
+      },
     })
     signal.throwIfAborted()
 

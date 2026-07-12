@@ -132,6 +132,12 @@ Variables below are supported by the current runtime.
 | `SENSEGREP_EMBED_MODEL` | Provider-dependent | Embedding model name override |
 | `SENSEGREP_EMBED_DIM` | Provider-dependent | Embedding dimension override |
 | `SENSEGREP_OPENAI_BATCH_SIZE` | `96` for OpenRouter Qwen3 embeddings, otherwise `64` | OpenAI-compatible embeddings request batch size |
+| `SENSEGREP_OPENAI_CONCURRENCY` | `1` | Concurrent OpenAI-compatible requests; benchmark before increasing |
+| `SENSEGREP_QUERY_CACHE` | `true` | Cache deterministic query vectors by opaque hash; set `false` to disable |
+| `SENSEGREP_QUERY_CACHE_TTL_MS` | 30 days | Query-vector cache lifetime |
+| `SENSEGREP_QUERY_CACHE_MAX_ENTRIES` | `2000` | Maximum persistent query-vector entries |
+| `SENSEGREP_ADAPTIVE_HYBRID_DELAY_MS` | `75` | Delay lexical work briefly so strong cached semantic evidence can skip it |
+| `SENSEGREP_ADAPTIVE_HYBRID_MIN_SCORE` | `0.72` | Minimum top semantic score for adaptive lexical cancellation |
 | `SENSEGREP_BEDROCK_REGION` | - | Amazon Bedrock region override |
 
 ### API Keys and Endpoints

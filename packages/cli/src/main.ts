@@ -288,6 +288,7 @@ async function run() {
   const { flags, positional } = parseArgs(argv.slice(1))
   configureJsonOutput({ pretty: flags.pretty === true })
   if (typeof flags.profile === "string") process.env.SENSEGREP_PROFILE = flags.profile
+  const rootDir = (flags.root as string | undefined) || process.cwd()
 
   if (!command || command === "--help" || command === "-h" || flags.help || flags.h) {
     usage()
@@ -302,6 +303,11 @@ async function run() {
   const unknownFlag = validateKnownFlags(command, flags)
   if (unknownFlag) {
     throw new CliUsageError(`Unknown option for "${command}": --${unknownFlag}`, { code: "UNKNOWN_OPTION" })
+  }
+
+  if (command === "daemon") {
+    await runDaemonCommand(positional[0], flags, rootDir)
+    return
   }
 
   if (command === "literal" && flags.filesystem === true) {
@@ -386,11 +392,6 @@ async function run() {
   const logLevel = toBool(flags.verbose) ? "INFO" : "WARN"
   await Log.init({ print: flags["log-format"] !== "none", level: logLevel as any })
 
-  const rootDir = (flags.root as string | undefined) || process.cwd()
-  if (command === "daemon") {
-    await runDaemonCommand(positional[0], flags, rootDir)
-    return
-  }
   applyEmbeddingOverrides(flags, Embeddings)
   if (command === "investigate") {
     const query = getSearchQuery(flags, positional)
@@ -1179,7 +1180,7 @@ async function runSelftestCommand(
         directory: rootDir,
         fn: () =>
           tool.execute(
-            { query: "code search", limit: 1, hybrid: true, rerank: false, shake: true, purpose: "understand", resultDetail: "compact" },
+            { query: "code search", limit: 1, hybrid: true, hybridMode: "adaptive", rerank: false, shake: true, purpose: "understand", resultDetail: "compact" },
             {
               sessionID: "cli-selftest",
               messageID: "cli-selftest",

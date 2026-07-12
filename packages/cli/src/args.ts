@@ -36,7 +36,7 @@ const SEARCH_FILTER_FLAGS = new Set([
   "maxPerFile", "max-per-symbol", "maxPerSymbol", "has-docs", "hasDocs", "language", "parent",
   "parentScope", "imports", "rerank", "no-rerank", "semantic-kind", "semanticKind", "explain-filters",
   "explainFilters", "strict-parent", "strictParent", "strict-imports", "strictImports", "ensure-fresh",
-  "ensureFresh", "no-shake", "hybrid", "no-hybrid", "max-tokens", "maxTokens", "changed", "base",
+  "ensureFresh", "no-shake", "hybrid", "no-hybrid", "hybrid-mode", "hybridMode", "max-tokens", "maxTokens", "changed", "base",
   "embedding-timeout", "embeddingTimeout", "latency-budget", "latencyBudget",
   "purpose", "prefer-role", "preferRole", "include-role", "includeRole", "exclude-role", "excludeRole",
   "json-detail", "jsonDetail", "include-rendered-output", "includeRenderedOutput",
@@ -88,7 +88,7 @@ const ALLOWED_FLAGS_BY_COMMAND: Record<string, Set<string>> = {
   show: new Set([...GLOBAL_FLAGS, "before", "after", "include-rendered-output"]),
   expand: new Set([...GLOBAL_FLAGS, "before", "after", "max-nodes", "include-rendered-output"]),
   profiles: new Set(GLOBAL_FLAGS),
-  daemon: new Set([...GLOBAL_FLAGS, "tool", "arguments"]),
+  daemon: new Set([...GLOBAL_FLAGS, "tool", "arguments", "watch"]),
   investigate: new Set([...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, "query", "max-tokens", "dry-run"]),
   eval: new Set([...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, "limit"]),
 }

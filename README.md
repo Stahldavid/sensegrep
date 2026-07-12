@@ -380,6 +380,9 @@ Common environment variables:
 - `SENSEGREP_OPENAI_BATCH_SIZE` (OpenAI-compatible request batch size)
 - `SENSEGREP_OPENAI_CONCURRENCY` / `SENSEGREP_EMBED_CONCURRENCY` (provider request concurrency)
 - `SENSEGREP_INDEX_EMBED_CONCURRENCY` (concurrent index embedding batches)
+- `SENSEGREP_QUERY_CACHE` (`true` by default; set `false` for controlled benchmarks or sensitive environments)
+- `SENSEGREP_QUERY_CACHE_TTL_MS` / `SENSEGREP_QUERY_CACHE_MAX_ENTRIES` (persistent query-vector cache bounds)
+- `SENSEGREP_ADAPTIVE_HYBRID_DELAY_MS` / `SENSEGREP_ADAPTIVE_HYBRID_MIN_SCORE` (adaptive hybrid tuning)
 - `SENSEGREP_ANN_MIN_CHUNKS` (automatic ANN threshold; `0` disables)
 - `SENSEGREP_PROFILE` (named side-by-side index profile)
 - `SENSEGREP_LANGUAGE_PLUGINS` (comma-separated ESM language plugins)
@@ -390,6 +393,10 @@ Common environment variables:
 - `SENSEGREP_WATCH` (MCP watcher toggle)
 
 For the complete and official runtime variable list, see `docs/mcp-setup.md`.
+
+OpenRouter Qwen embeddings use one provider request at a time by default. Benchmarking on
+high-latency endpoints commonly shows that additional concurrent requests reduce throughput;
+use `sensegrep benchmark --concurrency 1,2,4 --json` before overriding the default.
 
 ### Index compatibility
 

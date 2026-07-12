@@ -34,6 +34,12 @@ sensegrep semantic-kinds --json
 `--json` writes parseable JSON to stdout; progress and warnings are written to stderr.
 Argument errors under `--json` also use stdout JSON and exit code 2. `--max-output-bytes`
 is enforced against the complete serialized payload.
+Hybrid retrieval runs semantic and lexical work concurrently and uses one batched index read
+for lexical matches. `--hybrid-mode adaptive` is the default; `--no-hybrid` is available for
+latency-sensitive semantic-only discovery. Deterministic query embeddings are cached locally
+by opaque hash unless `SENSEGREP_QUERY_CACHE=false`.
+The daemon is query-only by default; `daemon start --watch` explicitly enables background
+incremental indexing.
 Use `--log-format none` when a JSON command must suppress all non-fatal logs entirely.
 If an `--include`/`--exclude` scope matches no indexed files, JSON output includes a
 structured warning instead of failing silently.

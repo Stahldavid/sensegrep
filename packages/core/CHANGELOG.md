@@ -1,5 +1,11 @@
 # @sensegrep/core
 
+## 1.13.0
+
+### Minor Changes
+
+- Accelerate repeated and hybrid searches with a persistent query-embedding cache, concurrent semantic and lexical retrieval, adaptive lexical skipping, batched lexical index reads, lazy Bedrock loading, and a lighter query-only daemon with opt-in watching.
+
 ## 1.12.0
 
 ### Minor Changes

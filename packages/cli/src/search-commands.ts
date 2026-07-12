@@ -462,6 +462,7 @@ export function buildCommonSearchParams(query: string, flags: Flags, defaults: O
   assignNumberParam(params, flags, "maxTokens", ["max-tokens", "maxTokens"])
   if (flags.hybrid !== undefined) params.hybrid = toBool(flags.hybrid) ?? true
   if (flags["no-hybrid"] !== undefined) params.hybrid = false
+  assignStringParam(params, flags, "hybridMode", ["hybrid-mode", "hybridMode"])
   if (flags.changed !== undefined) params.gitChanged = true
   assignStringParam(params, flags, "gitBase", ["base"])
   assignNumberParam(params, flags, "embeddingTimeoutMs", ["embedding-timeout", "embeddingTimeout"])

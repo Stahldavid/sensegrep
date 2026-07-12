@@ -60,6 +60,7 @@ sensegrep search <query> [options]
 | `--json` | Output as JSON |
 | `--embedding-timeout <ms>` | Query embedding deadline before lexical fallback; does not cap total process time |
 | `--latency-budget <ms>` | Deprecated alias for `--embedding-timeout` |
+| `--hybrid-mode <mode>` | `adaptive` (default) or `parallel`; adaptive may skip lexical work for strong semantic evidence |
 
 JSON is minified by default; use `--pretty` for human-readable indentation. Output projections:
 
@@ -77,6 +78,11 @@ are emitted once requested rather than repeated in ordinary cards.
 Minimal agent output retains `retrieval.actualMode`, `retrieval.universe`, `index`,
 `budget`, and warnings. With `--explain-filters`, `whyMatched` and `filterMatches`
 remain present even in `minimal` cards.
+
+Semantic and lexical retrieval run concurrently. Lexical matches are mapped to indexed chunks
+with one batched LanceDB read rather than one query per file. Query embeddings are cached
+persistently by an opaque provider/model/dimension/task/query hash; diagnostic metrics expose
+`queryEmbeddingCacheHit` and `adaptiveLexicalSkipped`.
 
 **Symbol filters:**
 

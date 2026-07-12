@@ -6,6 +6,7 @@ import {
   annotateWorkingResults,
   fuseHybridResults,
   getDominantSymbolPhrases,
+  hasStrongSemanticEvidence,
   matchesStrictStructuralFilters,
   parseRequestedImportModules,
   rerankWorkingResults,
@@ -116,6 +117,12 @@ describe("hybrid retrieval ranking", () => {
     expect(fused).toHaveLength(2)
     expect(fused[0].file).toBe("src/auth.ts")
     expect(fused[0].whyMatched).toEqual(expect.arrayContaining(["semantic similarity", "lexical retrieval: token"]))
+  })
+
+  it("skips lexical work only when the top semantic evidence is consistently strong", () => {
+    expect(hasStrongSemanticEvidence([{ distance: 0.1 }, { distance: 0.2 }, { distance: 0.25 }], "cosine")).toBe(true)
+    expect(hasStrongSemanticEvidence([{ distance: 0.35 }, { distance: 0.4 }, { distance: 0.45 }], "cosine")).toBe(false)
+    expect(hasStrongSemanticEvidence([{ distance: 0.1 }, { distance: 0.2 }], "cosine")).toBe(false)
   })
 
   it("reranks with lexical and structural signals", () => {

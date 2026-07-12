@@ -84,6 +84,7 @@ sensegrep search "error handling and retry logic" \
   --max-per-file 2         # dedup per file (default: 2)
   --max-per-symbol 2       # dedup per symbol (default: 2)
   --hybrid true            # fuse lexical + vector retrieval (default: true)
+  --hybrid-mode adaptive   # skip lexical work only when semantic evidence is already strong
   --rerank true            # deterministic second-stage reranking
   --max-tokens 8000        # cap estimated output tokens
   --changed --base origin/main # restrict to Git-changed files
@@ -98,7 +99,12 @@ sensegrep search "error handling and retry logic" \
 
 `--parent` matches parent/class scope by containment, so partial class names are acceptable. `--imports` tries package-name variants (`@scope/pkg`, `scope/pkg`, `pkg`) to reduce false misses in scoped packages.
 
-Hybrid retrieval is the default: lexical and vector ranks are fused before structural filtering. If optional ripgrep execution is unavailable, natural-language search safely falls back to vector results. Use `--no-hybrid` only for controlled comparisons.
+Hybrid retrieval is the default: lexical and vector retrieval run concurrently, then ranks are fused before structural filtering. Adaptive mode delays lexical work briefly and cancels it only when strong semantic evidence arrives first. If optional ripgrep execution is unavailable, natural-language search safely falls back to vector results. Use `--no-hybrid` for latency-sensitive semantic-only discovery, and `--exact` for identifiers.
+
+Repeated queries reuse a persistent query-vector cache keyed by an opaque embedding identity;
+diagnostic output reports `metrics.queryEmbeddingCacheHit`. Set
+`SENSEGREP_QUERY_CACHE=false` only for controlled provider benchmarks or environments that
+forbid local vector caching.
 
 ### `sensegrep literal` — Exhaustive text evidence
 
@@ -253,6 +259,12 @@ sensegrep index migrate --no-watch # atomic rebuild when schemaCompatible=false
 sensegrep verify --strict        # non-zero exit unless index is fresh and internally consistent
 sensegrep selftest --strict      # CLI/core health check without remote embedding calls
 ```
+
+For repeated agent searches, prefer the MCP server or the daemon. `daemon call/status/stop`
+use a lightweight client path and do not load the search core in the caller process; the first
+tool call warms the server, and subsequent calls reuse its loaded runtime and index handles.
+The daemon does not watch or reindex by default; pass `daemon start --watch` only when automatic
+incremental indexing is explicitly desired.
 
 Search scores are metric-aware. New indexes use cosine distance explicitly and JSON results
 include `score`, `rawDistance`, and `distanceMetric`. After upgrading across scoring/index

@@ -92,6 +92,7 @@ export type CommonSensegrepParams = {
   shake?: boolean
   exact?: boolean
   hybrid?: boolean
+  hybridMode?: "adaptive" | "parallel"
   rerank?: boolean
   maxTokens?: number
   gitChanged?: boolean
@@ -557,11 +558,11 @@ export async function collectLexicalQueryResults(
     byFile.set(file, lines)
   }
 
+  const documentsByFile = await loadDocumentsByFile(collection, filters, byFile.keys())
   const found = new Map<string, WorkingResult>()
   for (const [file, lines] of byFile) {
-    const documents = await VectorStore.listDocuments(collection, {
-      filters: buildFiltersWithFileVariants(filters, file),
-    })
+    options.signal?.throwIfAborted()
+    const documents = documentsByFile.get(file) ?? []
     for (const line of lines) {
       const selected = pickBestLiteralDocument(documents, line)
       if (!selected) continue
@@ -615,6 +616,16 @@ export function fuseHybridResults(semantic: WorkingResult[], lexical: WorkingRes
       : Math.min(1, result.semanticScore * 0.65 + rrf * 0.35)
     return { ...result, semanticScore: score }
   }).sort((a, b) => b.semanticScore - a.semanticScore)
+}
+
+export function hasStrongSemanticEvidence(
+  results: Array<{ distance: number }>,
+  metric: VectorStore.DistanceMetric,
+  threshold = 0.72,
+): boolean {
+  if (results.length < 3) return false
+  const scores = results.slice(0, 3).map((result) => VectorStore.distanceToSimilarity(result.distance, metric))
+  return scores[0] >= threshold && scores[2] >= threshold - 0.12
 }
 
 export function rerankWorkingResults(query: string, results: WorkingResult[]): WorkingResult[] {
@@ -892,11 +903,29 @@ function isCodeFile(filePath: string): boolean {
   return CODE_EXTENSIONS.has(path.extname(filePath).toLowerCase())
 }
 
-function buildFiltersWithFileVariants(filters: VectorStore.SearchFilters, filePath: string): VectorStore.SearchFilters {
-  return {
-    ...filters,
-    all: [...(filters.all ?? []), { key: "file", operator: "in", value: expandFilePathVariants(filePath) }],
+async function loadDocumentsByFile(
+  collection: Awaited<ReturnType<typeof VectorStore.getCollectionUnsafe>>,
+  filters: VectorStore.SearchFilters,
+  files: Iterable<string>,
+): Promise<Map<string, Awaited<ReturnType<typeof VectorStore.listDocuments>>>> {
+  const canonicalFiles = [...new Set([...files].map(canonicalizeProjectFilePath).filter(Boolean))]
+  if (canonicalFiles.length === 0) return new Map()
+  const variants = [...new Set(canonicalFiles.flatMap(expandFilePathVariants))]
+  const documents = await VectorStore.listDocuments(collection, {
+    filters: {
+      ...filters,
+      all: [...(filters.all ?? []), { key: "file", operator: "in", value: variants }],
+    },
+  })
+  const byFile = new Map<string, typeof documents>()
+  for (const document of documents) {
+    const file = canonicalizeProjectFilePath(String(document.metadata.file ?? ""))
+    if (!file) continue
+    const entries = byFile.get(file) ?? []
+    entries.push(document)
+    byFile.set(file, entries)
   }
+  return byFile
 }
 
 export function pickBestLiteralDocument(
@@ -948,11 +977,10 @@ export async function collectRipgrepFallbackResults(
     byFile.set(canonicalFile, list)
   }
 
+  const documentsByFile = await loadDocumentsByFile(collection, filters, byFile.keys())
   const results = new Map<string, WorkingResult>()
   for (const [file, fileMatches] of byFile.entries()) {
-    const documents = await VectorStore.listDocuments(collection, {
-      filters: buildFiltersWithFileVariants(filters, file),
-    })
+    const documents = documentsByFile.get(file) ?? []
 
     for (const fileMatch of fileMatches) {
       const selected = pickBestLiteralDocument(documents, fileMatch.line)
@@ -1158,43 +1186,86 @@ export async function collectWorkingResults(
     : []
   metrics.exactSymbolLookupMs = Date.now() - exactStartedAt
 
-  const hybridLexicalStartedAt = Date.now()
-  const hybridLexicalResults = params.hybrid !== false && !params.pattern && params.exact !== true && !shouldRunLiteralFallback && !exactSymbolQuery
-    ? await collectLexicalQueryResults(
-        params.query,
-        lexicalCandidateFiles,
-        resources.collection,
-        filters,
-        { signal: options.signal, limit: options.rawLimit },
-      ).catch((error) => {
-        if (options.signal?.aborted) throw error
-        warnings.push(`Lexical retrieval unavailable; using semantic results only: ${error instanceof Error ? error.message : String(error)}`)
-        return []
-      })
-    : []
-  metrics.lexicalSearchMs = Date.now() - hybridLexicalStartedAt
-
   const lexicalOnly =
     !params.pattern &&
     (exactSymbolResults.length > 0 || literalFallbackResults.length > 0) &&
     (params.exact === true || Boolean(params.symbol ?? params.name) || (simpleIdentifierQuery && exactSymbolResults.length > 0))
 
-  let semanticResults: Awaited<ReturnType<typeof VectorStore.search>> = []
-  let semanticFailed = false
-  if (!lexicalOnly) {
+  const adaptiveHybrid = params.hybridMode !== "parallel"
+  const adaptiveLexicalController = new AbortController()
+  const lexicalSignal = options.signal
+    ? AbortSignal.any([options.signal, adaptiveLexicalController.signal])
+    : adaptiveLexicalController.signal
+  let adaptiveLexicalSkipped = false
+
+  const hybridLexicalTask = async () => {
+    const startedAt = Date.now()
+    if (params.hybrid === false || params.pattern || params.exact === true || shouldRunLiteralFallback || exactSymbolQuery) {
+      metrics.lexicalSearchMs = 0
+      return []
+    }
+    if (adaptiveHybrid) {
+      const delayMs = Math.max(0, Number(process.env.SENSEGREP_ADAPTIVE_HYBRID_DELAY_MS ?? 75))
+      if (delayMs > 0) {
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, delayMs)
+          lexicalSignal.addEventListener("abort", () => { clearTimeout(timer); resolve() }, { once: true })
+        })
+      }
+      if (adaptiveLexicalController.signal.aborted) {
+        metrics.lexicalSearchMs = Date.now() - startedAt
+        metrics.adaptiveLexicalSkipped = 1
+        return []
+      }
+    }
+    const results = await collectLexicalQueryResults(
+      params.query,
+      lexicalCandidateFiles,
+      resources.collection,
+      filters,
+      { signal: lexicalSignal, limit: options.rawLimit },
+    ).catch((error) => {
+      if (adaptiveLexicalSkipped && adaptiveLexicalController.signal.aborted) return []
+      if (options.signal?.aborted) throw error
+      warnings.push(`Lexical retrieval unavailable; using semantic results only: ${error instanceof Error ? error.message : String(error)}`)
+      return []
+    })
+    metrics.lexicalSearchMs = Date.now() - startedAt
+    return results
+  }
+
+  const semanticTask = async () => {
+    if (lexicalOnly) return { results: [] as Awaited<ReturnType<typeof VectorStore.search>>, failed: false }
     const semanticStartedAt = Date.now()
-    semanticResults = await VectorStore.search(resources.collection, params.query, {
+    let failed = false
+    const results = await VectorStore.search(resources.collection, params.query, {
       ...searchOptions,
       signal: options.signal,
       retryDeadlineMs: params.embeddingTimeoutMs ?? params.latencyBudgetMs,
+      metrics,
     }).catch((error) => {
       if (options.signal?.aborted) throw error
-      semanticFailed = true
+      failed = true
       warnings.push(`Semantic provider unavailable within the embedding timeout; returning exact/lexical results only: ${error instanceof Error ? error.message : String(error)}`)
       return []
     })
     metrics.semanticSearchMs = Date.now() - semanticStartedAt
+    const adaptiveThreshold = Number(process.env.SENSEGREP_ADAPTIVE_HYBRID_MIN_SCORE ?? 0.72)
+    if (!failed && adaptiveHybrid && hasStrongSemanticEvidence(results, VectorStore.getDistanceMetric(resources.meta), adaptiveThreshold)) {
+      adaptiveLexicalSkipped = true
+      adaptiveLexicalController.abort()
+    }
+    return { results, failed }
+  }
 
+  const [hybridLexicalResults, semanticOutcome] = await Promise.all([
+    hybridLexicalTask(),
+    semanticTask(),
+  ])
+  let semanticResults = semanticOutcome.results
+  const semanticFailed = semanticOutcome.failed
+
+  if (!lexicalOnly) {
     if (fileFiltering.includeMatcher) {
       semanticResults = semanticResults.filter((result) =>
         matchesScopedGlob(result.metadata.file as string, fileFiltering.includeMatcher, resources.subdirPrefix),

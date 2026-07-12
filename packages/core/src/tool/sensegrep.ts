@@ -118,7 +118,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     })
     if ("output" in collected) return collected
     Object.assign(metrics, collected.metrics)
-    metrics.embeddingRequests = collected.retrieval.vectorUsed ? 1 : 0
+    metrics.embeddingRequests = collected.retrieval.vectorUsed && metrics.queryEmbeddingCacheHit !== 1 ? 1 : 0
     metrics.estimatedInputTokens = Math.max(1, Math.ceil(params.query.length / 4))
     warnings.push(...collected.warnings)
     const useLexicalOnly = collected.lexicalOnly

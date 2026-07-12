@@ -1,4 +1,4 @@
-import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime"
+import type { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime"
 import { Log } from "../util/log.js"
 import {
   getEmbeddingConfig,
@@ -8,6 +8,7 @@ import {
   type EmbeddingOverrides,
 } from "./embedding-config.js"
 import { getEmbeddingModelMaxTokens } from "./chunk-limits.js"
+import { QueryEmbeddingCache } from "./query-embedding-cache.js"
 
 const log = Log.create({ service: "semantic.embeddings-remote" })
 
@@ -402,7 +403,7 @@ function getOpenAiEmbeddingConcurrency(config: EmbeddingConfig, baseUrl: string,
     readPositiveIntegerEnv("SENSEGREP_EMBED_CONCURRENCY")
   if (envConcurrency) return envConcurrency
 
-  return isOpenRouterBaseUrl(baseUrl) && isQwen3EmbeddingModel(model) ? 2 : 1
+  return 1
 }
 
 function getOpenAiEmbeddingHeaders(apiKey: string, config: EmbeddingConfig, baseUrl: string): Record<string, string> {
@@ -421,6 +422,7 @@ function getOpenAiEmbeddingHeaders(apiKey: string, config: EmbeddingConfig, base
 
 export namespace EmbeddingsRemote {
   const bedrockClients = new Map<string, BedrockRuntimeClient>()
+  let bedrockModulePromise: Promise<typeof import("@aws-sdk/client-bedrock-runtime")> | undefined
 
   type TaskType =
     | "DEFAULT"
@@ -440,6 +442,7 @@ export namespace EmbeddingsRemote {
     signal?: AbortSignal
     operation?: "query" | "index" | "benchmark"
     retryDeadlineMs?: number
+    onQueryCacheStatus?: (hit: boolean) => void
   }
 
   let queryCircuit: { openUntil: number; reason: string } | undefined
@@ -460,11 +463,29 @@ export namespace EmbeddingsRemote {
     const input = Array.isArray(texts) ? texts : [texts]
     if (input.length === 0) return []
 
+    const config = getEmbeddingConfig()
+    const queryCacheIdentity = options?.operation === "query" && input.length === 1
+      ? {
+          text: input[0],
+          taskType: options.taskType,
+          outputDimensionality: options.outputDimensionality,
+          config,
+        }
+      : undefined
+    if (queryCacheIdentity) {
+      const cached = await QueryEmbeddingCache.get(queryCacheIdentity)
+      if (cached) {
+        options?.onQueryCacheStatus?.(true)
+        queryCircuit = undefined
+        return [cached]
+      }
+      options?.onQueryCacheStatus?.(false)
+    }
+
     if (options?.operation === "query" && queryCircuit && queryCircuit.openUntil > Date.now()) {
       throw new Error(`Embedding query circuit is open: ${queryCircuit.reason}`)
     }
 
-    const config = getEmbeddingConfig()
     try {
       const result = config.provider === "gemini"
         ? await embedGemini(input, options, config)
@@ -474,6 +495,7 @@ export namespace EmbeddingsRemote {
             ? await embedOllama(input, options, config)
             : await embedOpenAI(input, options, config)
       if (options?.operation === "query") queryCircuit = undefined
+      if (queryCacheIdentity && result[0]) await QueryEmbeddingCache.set(queryCacheIdentity, result[0])
       return result
     } catch (error) {
       if (options?.operation === "query") {
@@ -486,11 +508,13 @@ export namespace EmbeddingsRemote {
     }
   }
 
-  function getBedrockClient(config: EmbeddingConfig): BedrockRuntimeClient {
+  async function getBedrockClient(config: EmbeddingConfig): Promise<BedrockRuntimeClient> {
     const key = `${config.region || "__default__"}:${config.apiKey || "__no_token__"}`
     const existing = bedrockClients.get(key)
     if (existing) return existing
 
+    bedrockModulePromise ??= import("@aws-sdk/client-bedrock-runtime")
+    const { BedrockRuntimeClient } = await bedrockModulePromise
     const clientConfig: ConstructorParameters<typeof BedrockRuntimeClient>[0] = {}
     if (config.region) clientConfig.region = config.region
     if (config.apiKey) {
@@ -583,7 +607,8 @@ export namespace EmbeddingsRemote {
     const allVectors: number[][] = []
     const limiter = getLimiter(config)
     const { maxRetries, retryBaseDelayMs, retryDeadlineMs } = getRetryPolicy(config, options)
-    const client = getBedrockClient(config)
+    const client = await getBedrockClient(config)
+    const { InvokeModelCommand } = await bedrockModulePromise!
     const inputType = getBedrockInputType(options?.taskType)
 
     for (const batch of batches) {

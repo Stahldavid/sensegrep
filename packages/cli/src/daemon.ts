@@ -93,10 +93,16 @@ async function send(port: number, method: string, pathname: string, body?: unkno
   })
 }
 
-async function runServer(root: string, profile?: string): Promise<void> {
-  const core = await import("@sensegrep/core")
-  await core.Log.init({ print: true, level: "WARN" })
-  const watcher = await core.IndexWatcher.start({ rootDir: root, entrypoint: "daemon", intervalMs: 60_000 }).catch(() => null)
+async function runServer(root: string, profile?: string, watch = false): Promise<void> {
+  let corePromise: Promise<Core> | undefined
+  const loadCore = () => {
+    corePromise ??= import("@sensegrep/core").then(async (core) => {
+      await core.Log.init({ print: true, level: "WARN" })
+      return core
+    })
+    return corePromise
+  }
+  let watcherPromise: Promise<{ stop: () => Promise<void> } | null> | undefined
   const startedAt = Date.now()
   const server = createServer(async (req, res) => {
     res.setHeader("content-type", "application/json")
@@ -106,7 +112,11 @@ async function runServer(root: string, profile?: string): Promise<void> {
     }
     if (req.method === "POST" && req.url === "/shutdown") {
       res.end(JSON.stringify({ ok: true }))
-      setTimeout(async () => { await watcher?.stop(); server.close(() => process.exit(0)) }, 10).unref()
+      setTimeout(async () => {
+        const watcher = await watcherPromise?.catch(() => null)
+        await watcher?.stop()
+        server.close(() => process.exit(0))
+      }, 10).unref()
       return
     }
     if (req.method === "POST" && req.url === "/v1/tool") {
@@ -114,6 +124,7 @@ async function runServer(root: string, profile?: string): Promise<void> {
       for await (const chunk of req) raw += chunk
       try {
         const payload = JSON.parse(raw || "{}")
+        const core = await loadCore()
         const result = await invokeTool(core, root, payload.profile ?? profile, String(payload.tool ?? ""), payload.arguments ?? {})
         res.end(JSON.stringify({ ok: true, result }))
       } catch (error) {
@@ -126,25 +137,38 @@ async function runServer(root: string, profile?: string): Promise<void> {
     res.end(JSON.stringify({ ok: false, error: "Not found" }))
   })
   await new Promise<void>((resolve, reject) => server.listen(daemonPort(root), "127.0.0.1", resolve).once("error", reject))
+  if (watch) {
+    watcherPromise = loadCore()
+      .then((core) => core.IndexWatcher.start({ rootDir: root, entrypoint: "daemon", intervalMs: 60_000 }))
+      .catch(() => null)
+  }
 }
 
 export async function runDaemonCommand(action: string | undefined, flags: Flags, root: string): Promise<void> {
   root = path.resolve(root)
   const port = daemonPort(root)
-  if (action === "run") return runServer(root, typeof flags.profile === "string" ? flags.profile : undefined)
+  if (action === "run") return runServer(root, typeof flags.profile === "string" ? flags.profile : undefined, flags.watch === true)
   if (action === "start") {
     try {
       const health = await send(port, "GET", "/health")
       if (health.ok && health.root === root) { writeJson(health); return }
       if (health.ok) throw new Error(`Daemon port collision with root "${health.root}".`)
     } catch {}
-    const child = spawn(process.execPath, [process.argv[1], "daemon", "run", "--root", root, ...(typeof flags.profile === "string" ? ["--profile", flags.profile] : [])], {
+    const child = spawn(process.execPath, [
+      process.argv[1],
+      "daemon",
+      "run",
+      "--root",
+      root,
+      ...(typeof flags.profile === "string" ? ["--profile", flags.profile] : []),
+      ...(flags.watch === true ? ["--watch"] : []),
+    ], {
       detached: true,
       stdio: "ignore",
       windowsHide: true,
     })
     child.unref()
-    for (let attempt = 0; attempt < 40; attempt++) {
+    for (let attempt = 0; attempt < 100; attempt++) {
       await new Promise((resolve) => setTimeout(resolve, 100))
       try {
         const health = await send(port, "GET", "/health")

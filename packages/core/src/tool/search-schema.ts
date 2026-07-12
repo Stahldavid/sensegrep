@@ -14,6 +14,7 @@ export const CommonSearchShape = {
   name: z.string().optional().describe("Alias for symbol"),
   exact: z.boolean().optional().describe("Prefer exact symbol-name lookup"),
   hybrid: z.boolean().default(true).describe("Fuse vector and lexical retrieval"),
+  hybridMode: z.enum(["adaptive", "parallel"]).optional().describe("Adaptive (default) may skip lexical retrieval when semantic evidence is already strong"),
   rerank: z.boolean().default(false).describe("Apply deterministic second-stage reranking"),
   symbolType: SymbolTypeSchema.optional().describe("Filter by semantic symbol type"),
   variant: z.string().optional().describe("Filter by language-specific variant"),
