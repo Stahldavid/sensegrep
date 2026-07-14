@@ -12,6 +12,7 @@ import { Ripgrep } from "../file/ripgrep.js"
 import { TreeShaker } from "../semantic/tree-shaker.js"
 import { expandSemanticKindFilter } from "../semantic/language/index.js"
 import { fileRoleBoost, type FileRole, type SearchPurpose } from "../semantic/file-role.js"
+import { createResultId, decodeResultId } from "./result-id.js"
 
 export type ResultMetadata = Record<string, string | number | boolean | string[] | undefined>
 
@@ -19,6 +20,7 @@ export type WorkingResult = {
   id?: string
   file: string
   content: string
+  contentTruncated?: boolean
   startLine: number
   endLine: number
   semanticScore: number
@@ -57,6 +59,7 @@ export type StructuredSearchResult = {
   whyMatched: string[]
   filterMatches?: Record<string, unknown>
   content: string
+  contentTruncated?: boolean
   metadata: ResultMetadata
   estimatedTokens: number
   chunksMatched: number
@@ -290,6 +293,9 @@ export async function withIndexedSearchResources<T extends ToolLikeResult>(
   const resolved = await VectorStore.resolveIndexedProject(Instance.directory)
   if (!resolved?.meta.embeddings) {
     return {
+      schemaVersion: 1,
+      command: "search",
+      status: "index-required",
       title: query,
       metadata: { matches: 0, indexed: false },
       output:
@@ -679,9 +685,28 @@ export function selectWithinTokenBudget(results: WorkingResult[], maxTokens?: nu
   const selected: WorkingResult[] = []
   let estimatedTokens = 0
   for (const result of results) {
-    const tokens = estimateResultTokens(result)
+    let selectedResult = result
+    let tokens = estimateResultTokens(selectedResult)
+    if (selected.length === 0 && tokens > maxTokens) {
+      const metadataOverhead = selectedResult.file.length + String(selectedResult.metadata.symbolName ?? "").length + 80
+      const maxContentCharacters = Math.max(0, maxTokens * 4 - metadataOverhead)
+      let content = selectedResult.content.slice(0, maxContentCharacters)
+      const newline = content.lastIndexOf("\n")
+      if (newline >= Math.floor(maxContentCharacters / 2)) content = content.slice(0, newline)
+      selectedResult = {
+        ...selectedResult,
+        content,
+        contentTruncated: content.length < selectedResult.content.length,
+        metadata: {
+          ...selectedResult.metadata,
+          snippetIntegrity: "partial",
+          contentTruncated: true,
+        },
+      }
+      tokens = estimateResultTokens(selectedResult)
+    }
     if (selected.length > 0 && estimatedTokens + tokens > maxTokens) continue
-    selected.push(result)
+    selected.push(selectedResult)
     estimatedTokens += tokens
     if (estimatedTokens >= maxTokens) break
   }
@@ -841,6 +866,9 @@ function resolveFileFiltering(
 
     const warning = `No indexed files matched the file filters${filterLabel ? ` (${filterLabel})` : ""}.`
     return {
+      schemaVersion: 1,
+      command: "search",
+      status: "empty-scope",
       title: params.query,
       metadata: { matches: 0, indexed: true, warnings: [warning] },
       warnings: [warning],
@@ -1132,6 +1160,9 @@ export async function collectWorkingResults(
   if (!resources.schema.schemaCompatible) warnings.push(`Index schema migration recommended; missing fields: ${resources.schema.missingFields.join(", ")}.`)
   if (resources.schema.missingFields.includes("fileRole") && (params.includeRole || params.excludeRole)) {
     return {
+      schemaVersion: 1,
+      command: "search",
+      status: "migration-required",
       title: params.query,
       metadata: { matches: 0, indexed: true, schemaCompatible: false },
       output: "File-role filters require a migrated index. Run `sensegrep index --full --no-watch`.",
@@ -1929,7 +1960,15 @@ export async function runGroupedSearch<TGroup>(input: {
       signal: input.signal,
     })
 
-    if ("output" in collected) return collected
+    if ("output" in collected) {
+      return {
+        ...collected,
+        schemaVersion: 1,
+        command: input.resultKey === "groups" ? "survey" : "cluster",
+        status: (collected as any).status ?? "complete",
+        [input.resultKey]: [],
+      }
+    }
     const rawResults = collected.results.slice(0, rawLimit)
     if (rawResults.length === 0) {
       return {
@@ -1996,24 +2035,7 @@ export async function runGroupedSearch<TGroup>(input: {
   })
 }
 
-function resultIdentity(file: string, startLine: number, endLine: number, symbol?: string): string {
-  const payload = JSON.stringify({ file: canonicalizeProjectFilePath(file), startLine, endLine, symbol: symbol || undefined })
-  return `symbol:${Buffer.from(payload).toString("base64url")}`
-}
-
-export function decodeResultId(resultId: string): { file: string; startLine: number; endLine: number; symbol?: string } {
-  if (!resultId.startsWith("symbol:")) throw new Error(`Invalid result ID "${resultId}".`)
-  const parsed = JSON.parse(Buffer.from(resultId.slice("symbol:".length), "base64url").toString("utf8")) as Record<string, unknown>
-  if (typeof parsed.file !== "string" || !Number.isInteger(parsed.startLine) || !Number.isInteger(parsed.endLine)) {
-    throw new Error(`Invalid result ID "${resultId}".`)
-  }
-  return {
-    file: parsed.file,
-    startLine: Number(parsed.startLine),
-    endLine: Number(parsed.endLine),
-    ...(typeof parsed.symbol === "string" ? { symbol: parsed.symbol } : {}),
-  }
-}
+export { decodeResultId }
 
 export async function reconstructSymbolResults(
   projectDirectory: string,
@@ -2090,7 +2112,12 @@ export async function reconstructSymbolResults(
 export function toStructuredSearchResult(result: WorkingResult): StructuredSearchResult {
   const metadata = result.metadata
   return {
-    resultId: resultIdentity(result.file, result.startLine, result.endLine, typeof metadata.symbolName === "string" ? metadata.symbolName : undefined),
+    resultId: createResultId({
+      file: canonicalizeProjectFilePath(result.file),
+      startLine: result.startLine,
+      endLine: result.endLine,
+      symbol: typeof metadata.symbolName === "string" ? metadata.symbolName : undefined,
+    }),
     file: result.file,
     startLine: result.startLine,
     endLine: result.endLine,
@@ -2112,6 +2139,7 @@ export function toStructuredSearchResult(result: WorkingResult): StructuredSearc
     whyMatched: result.whyMatched ?? [],
     filterMatches: result.filterMatches,
     content: result.content,
+    contentTruncated: result.contentTruncated === true || metadata.contentTruncated === true,
     metadata,
     estimatedTokens: estimateResultTokens(result),
     chunksMatched: Number(metadata.chunksMatched ?? 1),

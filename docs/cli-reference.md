@@ -66,18 +66,19 @@ JSON is minified by default; use `--pretty` for human-readable indentation. Outp
 
 | Detail | Contents |
 |---|---|
-| `minimal` | Envelope, sufficiency, locations, `score`, `rankScore`, and `resultId` |
+| `minimal` | Schema v2 envelope, sufficiency, and canonical `id/file/lines/symbol/kind/rank/relevance` cards |
 | `content` | Minimal plus code content |
-| `diagnostic` | Ranking explanations, distances, timings, freshness, and index details |
+| `diagnostic` | Minimal plus ranking explanations, distances, timings, freshness, and index details; code remains excluded |
 | `full` | Internal structures and rendered output when requested |
 
-`compact` remains an alias for `minimal`. Use `--diagnostic` as shorthand for
-`--json-detail diagnostic`. New indexes use cosine distance explicitly; distance diagnostics
+`compact` remains an alias for `minimal`. Use `--diagnostic` to add ranking and retrieval
+diagnostics without implicitly adding code; it can be combined with content detail. New indexes use cosine distance explicitly; distance diagnostics
 are emitted once requested rather than repeated in ordinary cards.
 
-Minimal agent output retains `retrieval.actualMode`, `retrieval.universe`, `index`,
-`budget`, and warnings. With `--explain-filters`, `whyMatched` and `filterMatches`
-remain present even in `minimal` cards.
+Minimal agent output retains `retrieval.mode`, `retrieval.universe`, compact `index.status`,
+and structured warnings. `budget` is emitted when a limit applies; it uses `maxBytes`,
+`usedBytes`, `maxTokens`, and `usedTokens` without legacy aliases. With
+`--explain-filters`, `why` and `filterMatches` remain present in minimal cards.
 
 Semantic and lexical retrieval run concurrently. Lexical matches are mapped to indexed chunks
 with one batched LanceDB read rather than one query per file. Query embeddings are cached
@@ -136,7 +137,10 @@ sensegrep literal "X-Goog-Message-Number" --include "src/**" --json
 sensegrep literal "retry|backoff" --regex --ignore-case --limit 200
 ```
 
-JSON reports `totalMatches`, `returnedMatches`, `truncated`, and `exhaustive`. Omitting `--limit` returns every occurrence. Use `--pattern` to anchor semantic candidates; use `literal` when every occurrence matters.
+JSON reports `summary.total`, `summary.returned`, `summary.truncated`, and
+`summary.exhaustive`. Omitting `--limit` returns every occurrence. Indexed matches include
+an `id` that can be passed to `sensegrep show`. Use `--pattern` to anchor semantic
+candidates; use `literal` when every occurrence matters.
 `literal --filesystem` executes a direct ripgrep fast path and does not resolve the
 semantic index or embedding configuration. `--max-output-bytes` limits the complete
 serialized JSON payload, including envelope and escaping, rather than only match text.
@@ -144,7 +148,7 @@ serialized JSON payload, including envelope and escaping, rather than only match
 ### `sensegrep audit`
 
 Build changed-file evidence under one global budget. Continuation batches contain compact,
-deduplicated `resultId` cards; expand only selected cards with `sensegrep show`.
+deduplicated IDs; expand only selected cards with `sensegrep show`.
 
 ```bash
 sensegrep audit "security regressions" --base origin/main \
@@ -154,9 +158,12 @@ sensegrep audit "security regressions" --base origin/main \
 
 `--batch-tokens` is a strict per-batch ceiling; large files are split into stable line/offset cards.
 Each batch exposes those ranges directly through `ranges`, in addition to `resultIds`.
-`budget` reports `retrievalTokens`, `contextTokens`, `attemptedTokens`, and
-`actualEmittedTokens` separately. `attemptedOutputBytes` describes the pre-serialization
-evidence while `actualOutputBytes` is measured from the final CLI JSON.
+The projected `budget` reports final `usedBytes`/`usedTokens` and configured maxima.
+Internal retrieval and pre-projection measurements are available only in diagnostic mode.
+When a full snippet cannot fit, Sensegrep emits a partial first card with
+`contentTruncated: true` instead of returning an empty evidence list. The canonical `lines`
+and `id` continue to identify the complete source range; `contentLines` identifies only the
+portion included in the response, so `show <id>` can still recover the complete range.
 When a limit prevents complete changed-file coverage, `status` is `incomplete` and
 `coverage.truncationReasons` identifies the global limit that was reached.
 
@@ -210,14 +217,16 @@ exit with code 2. Stderr remains empty unless non-JSON logging was explicitly re
 
 JSON CLI and MCP calls default to `summary`, avoiding representative source payloads.
 Use `--json-detail representatives` when sample cards are needed, or `full` for
-diagnostics. Semantic-provider fallback is always reflected by
-`retrieval.actualMode: "lexical-fallback"` and a warning.
+internals. Summary groups expose `representativeIds`, so agents can expand selected evidence
+without requesting all snippets. Semantic-provider fallback is reflected by
+`retrieval.mode: "lexical-fallback"` and a structured warning.
 
 ### `sensegrep show`
 
-`show` reads the selected source location directly and does not open the vector table.
-Its freshness is explicitly target-scoped as `index.targetFresh`; it does not claim
-that the entire index is fresh. `expand` additionally loads graph evidence.
+`show` reads the selected source location directly and accepts both compact `r:` IDs and
+legacy `symbol:` IDs. Its freshness is explicitly target-scoped as
+`index: { status, scope: "target-location" }`; it does not claim that the entire index is
+fresh. `expand` additionally loads graph evidence.
 
 ### `sensegrep verify`
 

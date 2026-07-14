@@ -94,197 +94,34 @@ async function loadShowTool() {
   return { core, tool: await showToolPromise };
 }
 
-function compactSearchResponse(res: any, includeContent = false) {
-  const retrieval = res.retrieval ? {
-    actualMode: res.retrieval.actualMode ?? res.retrieval.requestedMode,
-    exhaustive: res.retrieval.exhaustive === true,
-    truncated: res.status === "incomplete" || res.coverage?.truncated === true,
-    universe: res.retrieval.universe,
-  } : undefined;
-  return {
-    schemaVersion: res.schemaVersion ?? 1,
-    command: res.command,
-    status: res.status,
-    ...(Array.isArray(res.warnings) && res.warnings.length > 0 ? { warnings: res.warnings } : {}),
-    ...(retrieval ? { retrieval } : {}),
-    ...(res.index ? { index: res.index } : {}),
-    ...(res.coverage ? {
-      coverage: {
-        changedFiles: res.coverage.changedFiles,
-        semanticRepresentedFiles: res.coverage.semantic?.representedFiles ?? res.coverage.semanticRepresentedFiles ?? res.coverage.representedFiles,
-        textualRepresentedFiles: res.coverage.textual?.representedFiles,
-        exhaustive: res.coverage.exhaustive,
-        truncated: res.coverage.truncated,
-        truncationReasons: res.coverage.truncationReasons,
-      },
-      coverageSatisfied: res.coverageSatisfied,
-    } : {}),
-    ...(res.batches ? { batches: res.batches } : {}),
-    ...(res.budget ? { budget: {
-      contextTokens: res.budget.contextTokens ?? res.budget.tokensUsed,
-      maxTotalTokens: res.budget.maxTotalTokens ?? res.budget.tokensRequested,
-      maxOutputBytes: res.budget.maxOutputBytes,
-      attemptedOutputBytes: res.budget.attemptedOutputBytes,
-      attemptedTokens: res.budget.attemptedTokens,
-    } } : {}),
-    results: Array.isArray(res.results) ? res.results.map((entry: any) => ({
-      resultId: entry.resultId,
-      file: entry.file,
-      startLine: entry.startLine,
-      endLine: entry.endLine,
-      symbolName: entry.symbolName,
-      symbolType: entry.symbolType,
-      score: entry.score,
-      rankScore: entry.rankScore,
-      ...(includeContent ? { content: entry.content } : {}),
-    })) : res.results,
-  };
+function projectStructuredResponse(core: any, res: any, options: Record<string, unknown>) {
+  const projected = core.projectAgentResponse(res, options);
+  return core.enforceAgentOutputBudget(projected, { trailingNewline: false });
 }
 
-function enforceStructuredBudget(payload: any) {
-  const maxOutputBytes = Number(payload?.budget?.maxOutputBytes ?? 0);
-  if (!payload?.budget) return payload;
-  const measure = (value: any) => {
-    let bytes = 0;
-    let measured = value;
-    for (let iteration = 0; iteration < 10; iteration++) {
-      const attemptedOutputBytes = Math.max(
-        bytes,
-        Number(value.budget?.attemptedOutputBytes || value.budget?.outputBytes || 0),
-      );
-      measured = {
-        ...value,
-        budget: {
-          ...value.budget,
-          attemptedOutputBytes,
-          attemptedTokens: Math.max(Math.ceil(attemptedOutputBytes / 4), Number(value.budget?.attemptedTokens || 0)),
-          actualOutputBytes: bytes,
-          actualEmittedTokens: Math.ceil(bytes / 4),
-        },
-      };
-      const next = Buffer.byteLength(JSON.stringify(measured));
-      if (next === bytes) return measured;
-      bytes = next;
-    }
-    return measured;
-  };
-  let projected = measure(payload);
-  if (!maxOutputBytes || projected.budget.actualOutputBytes <= maxOutputBytes) return projected;
-  projected = measure({
-    ...projected,
-    status: "incomplete",
-    truncated: true,
-    coverageSatisfied: projected.coverage ? false : projected.coverageSatisfied,
-    retrieval: projected.retrieval ? { ...projected.retrieval, exhaustive: false, truncated: true } : projected.retrieval,
-  });
-  for (const key of ["results", "matches", "groups", "clusters", "references", "impacted", "batches"]) {
-    if (!Array.isArray(projected[key]) || projected[key].length === 0) continue;
-    const original = [...projected[key]];
-    let low = 0;
-    let high = original.length;
-    let best: any;
-    while (low <= high) {
-      const count = Math.floor((low + high) / 2);
-      const replacement = {
-        ...projected,
-        [key]: original.slice(0, count),
-        ...(key === "matches" ? { returnedMatches: count, exhaustive: false } : {}),
-      };
-      const candidate = measure(replacement);
-      if (candidate.budget.actualOutputBytes <= maxOutputBytes) {
-        best = candidate;
-        low = count + 1;
-      } else high = count - 1;
-    }
-    if (best) return best;
-    projected = measure({
-      ...projected,
-      [key]: [],
-      ...(key === "matches" ? { returnedMatches: 0, exhaustive: false } : {}),
-    });
+function structuredToolResponse(structuredContent: any, fullText?: string) {
+  if (fullText !== undefined) {
+    return { content: [{ type: "text" as const, text: fullText }], structuredContent };
   }
-  const compact = measure({
-    schemaVersion: projected.schemaVersion ?? 1,
-    command: projected.command,
-    status: "incomplete",
-    truncated: true,
-    budget: { maxOutputBytes, attemptedOutputBytes: projected.budget.attemptedOutputBytes },
-  });
-  if (Buffer.byteLength(JSON.stringify(compact)) <= maxOutputBytes) return compact;
-  const emergency = { command: projected.command, status: "incomplete", truncated: true };
-  return Buffer.byteLength(JSON.stringify(emergency)) <= maxOutputBytes ? emergency : {};
-}
-
-function projectStructuredSearchResponse(res: any, detail: string) {
-  if (detail === "full") return res;
-  if (detail === "diagnostic") {
-    const { output: _output, title: _title, metadata: _metadata, ...diagnostic } = res;
-    const distanceMetric = res.results?.find((entry: any) => entry.distanceMetric)?.distanceMetric;
-    return {
-      ...diagnostic,
-      distanceMetric,
-      results: Array.isArray(res.results) ? res.results.map(({ metadata: _resultMetadata, distanceMetric: _distanceMetric, ...entry }: any) => entry) : res.results,
-    };
-  }
-  return compactSearchResponse(res, detail === "content");
-}
-
-function projectLiteralStructuredResponse(res: any, detail: string) {
-  if (detail === "full") return res;
-  if (detail === "diagnostic") {
-    const { output: _output, title: _title, metadata: _metadata, ...diagnostic } = res;
-    return diagnostic;
-  }
-  return {
-    schemaVersion: res.schemaVersion ?? 1,
-    command: "literal",
-    status: res.status,
-    totalMatches: res.metadata?.totalMatches ?? 0,
-    returnedMatches: res.metadata?.returnedMatches ?? 0,
-    truncated: res.metadata?.truncated ?? false,
-    exhaustive: res.retrieval?.exhaustive ?? false,
-    retrieval: res.retrieval ? {
-      actualMode: res.retrieval.actualMode,
-      exhaustive: res.retrieval.exhaustive,
-      exhaustiveWithin: res.retrieval.exhaustiveWithin,
-      universe: res.retrieval.universe,
-    } : undefined,
-    index: res.index,
-    budget: res.budget,
-    matches: (res.matches ?? []).map((match: any) => ({ file: match.file, line: match.line, text: match.text })),
+  const count = Array.isArray(structuredContent.results)
+    ? structuredContent.results.length
+    : Array.isArray(structuredContent.matches)
+      ? structuredContent.matches.length
+      : Array.isArray(structuredContent.groups)
+        ? structuredContent.groups.length
+        : Array.isArray(structuredContent.clusters)
+          ? structuredContent.clusters.length
+          : Array.isArray(structuredContent.duplicates)
+            ? structuredContent.duplicates.length
+            : undefined;
+  const summary = {
+    schemaVersion: structuredContent.schemaVersion,
+    command: structuredContent.command,
+    status: structuredContent.status,
+    ...(count !== undefined ? { returned: count } : {}),
+    structured: true,
   };
-}
-
-function projectDuplicateStructuredResponse(res: any, detail: string, includeCode: boolean) {
-  const diagnostic = detail === "diagnostic" || detail === "full";
-  return {
-    schemaVersion: res.schemaVersion ?? 1,
-    command: "detect-duplicates",
-    status: res.status,
-    summary: diagnostic ? res.summary : {
-      totalDuplicates: res.summary?.totalDuplicates,
-      returnedDuplicates: res.summary?.returnedDuplicates,
-      processedCandidates: res.summary?.processedCandidates,
-      truncated: res.summary?.truncated,
-      timedOut: res.summary?.timedOut,
-      resumeCursor: res.summary?.resumeCursor,
-      elapsedMs: res.summary?.elapsedMs,
-    },
-    duplicates: (res.duplicates ?? []).map((group: any) => ({
-      level: group.level,
-      similarity: group.similarity,
-      impact: diagnostic ? group.impact : { estimatedSavings: group.impact?.estimatedSavings, score: group.impact?.score },
-      instances: (group.instances ?? []).map((instance: any) => ({
-        resultId: `symbol:${Buffer.from(JSON.stringify({ file: instance.file, startLine: instance.startLine, endLine: instance.endLine, symbol: instance.symbol })).toString("base64url")}`,
-        file: instance.file,
-        startLine: instance.startLine,
-        endLine: instance.endLine,
-        symbolName: instance.symbol,
-        complexity: instance.complexity,
-        ...(includeCode ? { content: instance.content } : {}),
-      })),
-    })),
-  };
+  return { content: [{ type: "text" as const, text: JSON.stringify(summary) }], structuredContent };
 }
 
 type IndexResult = {
@@ -558,8 +395,8 @@ async function generateTools(): Promise<Tool[]> {
   ];
 
   cachedTools[0].inputSchema = toRootedInputSchema(core.SenseGrepParametersSchema) as Tool["inputSchema"];
-  cachedTools[1].inputSchema = toRootedInputSchema(core.SurveyParametersSchema) as Tool["inputSchema"];
-  cachedTools[2].inputSchema = toRootedInputSchema(core.ClusterParametersSchema) as Tool["inputSchema"];
+  cachedTools[1].inputSchema = toRootedInputSchema(core.SurveyParametersSchema, ["resultDetail"]) as Tool["inputSchema"];
+  cachedTools[2].inputSchema = toRootedInputSchema(core.ClusterParametersSchema, ["resultDetail"]) as Tool["inputSchema"];
   cachedTools.splice(1, 0, {
     name: TOOL_NAMES.context,
     description: "Build a diversified, tree-shaken context pack constrained by a token budget.",
@@ -575,6 +412,11 @@ async function generateTools(): Promise<Tool[]> {
     description: "Exhaustive deterministic literal or regex search without embedding calls.",
     inputSchema: toRootedInputSchema(core.SenseGrepLiteralParametersSchema) as Tool["inputSchema"],
   });
+  for (const tool of cachedTools) {
+    if (tool.name !== TOOL_NAMES.index) {
+      tool.outputSchema = core.AgentOutputJsonSchema as Tool["outputSchema"];
+    }
+  }
 
   return cachedTools;
 }
@@ -582,7 +424,7 @@ async function generateTools(): Promise<Tool[]> {
 const server = new Server(
   {
     name: "sensegrep",
-    version: "1.13.0",
+    version: "1.14.0",
   },
   {
     capabilities: {
@@ -618,8 +460,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
           metadata(_input: unknown) {},
         }),
       });
-      const { output: _output, ...structuredContent } = res;
-      return { content: [{ type: "text", text: res.output }], structuredContent };
+      const structuredContent = projectStructuredResponse(core, res, { detail: "content" });
+      return structuredToolResponse(structuredContent);
     }
 
     if (matchesToolName(name, TOOL_NAMES.literal, "sensegrep.literal")) {
@@ -637,8 +479,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
           metadata(_input: unknown) {},
         }),
       });
-      const structuredContent = enforceStructuredBudget(projectLiteralStructuredResponse(res, toolArgs.resultDetail ?? "minimal"));
-      return { content: [{ type: "text", text: JSON.stringify(structuredContent) }], structuredContent };
+      const detail = toolArgs.resultDetail ?? "minimal";
+      const structuredContent = projectStructuredResponse(core, res, { detail, diagnostics: detail === "diagnostic" });
+      return structuredToolResponse(structuredContent, detail === "full" ? res.output : undefined);
     }
 
     if (matchesToolName(name, TOOL_NAMES.context, "sensegrep.context")) {
@@ -657,8 +500,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
         }),
       });
       const detail = toolArgs.resultDetail ?? "content";
-      const structuredContent = enforceStructuredBudget(projectStructuredSearchResponse(res, detail));
-      return { content: [{ type: "text", text: detail === "full" ? res.output : JSON.stringify(structuredContent) }], structuredContent };
+      const structuredContent = projectStructuredResponse(core, res, { detail, diagnostics: detail === "diagnostic" });
+      return structuredToolResponse(structuredContent, detail === "full" ? res.output : undefined);
     }
 
     if (matchesToolName(name, TOOL_NAMES.search, "sensegrep.search")) {
@@ -679,11 +522,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
           }),
       });
       const detail = toolArgs.resultDetail ?? "minimal";
-      const structuredContent = enforceStructuredBudget(projectStructuredSearchResponse(res, detail));
-      const text = detail === "minimal" || detail === "compact"
-        ? JSON.stringify(structuredContent)
-        : res.output;
-      return { content: [{ type: "text", text }], structuredContent };
+      const structuredContent = projectStructuredResponse(core, res, {
+        detail,
+        diagnostics: detail === "diagnostic",
+        includeFilterExplanations: toolArgs.explainFilters === true,
+      });
+      return structuredToolResponse(structuredContent, detail === "full" ? res.output : undefined);
     }
 
     if (matchesToolName(name, TOOL_NAMES.survey, "sensegrep.survey")) {
@@ -703,12 +547,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
             metadata(_input: { title?: string; metadata?: unknown }) {},
           }),
       });
-      const { output: _output, ...compact } = res;
-      const structuredContent = groupedArgs.jsonDetail === "full" ? { ...res, output: res.output } : compact;
-      return {
-        content: [{ type: "text", text: groupedArgs.jsonDetail === "summary" ? JSON.stringify(structuredContent) : res.output }],
-        structuredContent,
-      };
+      const structuredContent = projectStructuredResponse(core, res, { groupedDetail: groupedArgs.jsonDetail });
+      return structuredToolResponse(structuredContent, groupedArgs.jsonDetail === "full" ? res.output : undefined);
     }
 
     if (matchesToolName(name, TOOL_NAMES.cluster, "sensegrep.cluster")) {
@@ -728,12 +568,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
             metadata(_input: { title?: string; metadata?: unknown }) {},
           }),
       });
-      const { output: _output, ...compact } = res;
-      const structuredContent = groupedArgs.jsonDetail === "full" ? { ...res, output: res.output } : compact;
-      return {
-        content: [{ type: "text", text: groupedArgs.jsonDetail === "summary" ? JSON.stringify(structuredContent) : res.output }],
-        structuredContent,
-      };
+      const structuredContent = projectStructuredResponse(core, res, { groupedDetail: groupedArgs.jsonDetail });
+      return structuredToolResponse(structuredContent, groupedArgs.jsonDetail === "full" ? res.output : undefined);
     }
 
     const isLegacyStatsTool = matchesToolName(name, "sensegrep_stats", "sensegrep.stats");
@@ -811,7 +647,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
     }
 
     if (matchesToolName(name, TOOL_NAMES.graph, "sensegrep.graph")) {
-      const { CodeGraph, Instance } = await loadCore();
+      const core = await loadCore();
+      const { CodeGraph, Instance } = core;
       const graphArgs = GraphToolArgsSchema.parse(args);
       const result = await Instance.provide({
         directory: rootDir,
@@ -822,10 +659,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
             ? CodeGraph.impact(graphArgs.symbol ?? graphArgs.id!.split(":").at(-1)!, graphArgs)
             : CodeGraph.trace(graphArgs.from ?? graphArgs.fromId!.split(":").at(-1)!, graphArgs.to ?? graphArgs.toId!.split(":").at(-1)!, graphArgs),
       });
-      return {
-        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-        structuredContent: { action: graphArgs.action, rootDir, result },
-      };
+      const structuredContent = projectStructuredResponse(core, {
+        ...result,
+        command: graphArgs.action,
+        status: (result as any).status ?? "complete",
+      }, { detail: graphArgs.resultDetail, diagnostics: graphArgs.resultDetail === "diagnostic" });
+      return structuredToolResponse(structuredContent, graphArgs.resultDetail === "full" ? JSON.stringify(result) : undefined);
     }
 
     if (
@@ -896,13 +735,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
         profile,
         fn: () => DuplicateDetector.detect(options),
       });
-      const projectedResult = projectDuplicateStructuredResponse(result, duplicateArgs.resultDetail, showCode);
+      const projectedResult = projectStructuredResponse(core, {
+        ...result,
+        command: "detect-duplicates",
+        status: result.summary?.truncated ? "incomplete" : "complete",
+      }, {
+        detail: duplicateArgs.resultDetail,
+        diagnostics: duplicateArgs.resultDetail === "diagnostic",
+        includeCode: showCode,
+      });
 
       if (duplicateArgs.json) {
-        return {
-          content: [{ type: "text", text: JSON.stringify(projectedResult) }],
-          structuredContent: projectedResult,
-        };
+        return structuredToolResponse(projectedResult);
       }
 
       const lines: string[] = [];
@@ -963,22 +807,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
         lines.push("✅ No significant duplicates found!");
         return {
           content: [{ type: "text", text: lines.join("\n") }],
-          structuredContent: {
-            rootDir,
-            summary: projectedResult.summary,
-            duplicates: [],
-          },
+          structuredContent: projectedResult,
         };
       }
 
       if (quiet) {
         return {
           content: [{ type: "text", text: lines.join("\n") }],
-          structuredContent: {
-            rootDir,
-            summary: projectedResult.summary,
-            duplicates: projectedResult.duplicates.slice(0, limit),
-          },
+          structuredContent: { ...projectedResult, duplicates: projectedResult.duplicates.slice(0, limit) },
         };
       }
 
@@ -1052,11 +888,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
 
       return {
         content: [{ type: "text", text: lines.join("\n") }],
-        structuredContent: {
-          rootDir,
-          summary: projectedResult.summary,
-          duplicates: projectedResult.duplicates.slice(0, limit),
-        },
+        structuredContent: { ...projectedResult, duplicates: projectedResult.duplicates.slice(0, limit) },
       };
     }
 
@@ -1066,7 +898,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
     return {
       content: [{ type: "text", text: `Error: ${message}` }],
       structuredContent: {
-        error: message,
+        schemaVersion: 2,
+        command: name,
+        status: "error",
+        errorInfo: { code: "MCP_TOOL_ERROR", phase: "execution", retryable: false, message },
       },
       isError: true,
     };

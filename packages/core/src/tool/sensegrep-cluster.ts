@@ -320,7 +320,9 @@ async function runCluster(params: ClusterParams, ctx?: Tool.Context) {
     buildGroups: (results) => buildClusterGroups(results as ClusterNode[], params.query, clusterThreshold, minClusterSize),
     formatGroup: (resources, group) => formatClusterGroup(resources, group, perCluster, params.shake !== false),
     metadata: () => ({ clusterThreshold }),
-    mapGroup: (group) => ({
+    mapGroup: (group) => {
+      const representativeResults = group.members.slice(0, perCluster).map(toStructuredSearchResult)
+      return {
         title: group.title,
         score: Number(group.score.toFixed(6)),
         matches: group.members.length,
@@ -337,10 +339,12 @@ async function runCluster(params: ClusterParams, ctx?: Tool.Context) {
         },
         returnedResults: params.jsonDetail === "full" ? group.members.length : params.jsonDetail === "summary" ? 0 : Math.min(perCluster, group.members.length),
         omittedResults: params.jsonDetail === "full" ? 0 : params.jsonDetail === "summary" ? group.members.length : Math.max(0, group.members.length - perCluster),
+        representativeIds: representativeResults.map((result) => result.resultId),
         ...(params.jsonDetail === "summary" ? {} : {
-          results: (params.jsonDetail === "full" ? group.members : group.members.slice(0, perCluster)).map(toStructuredSearchResult),
+          results: params.jsonDetail === "full" ? group.members.map(toStructuredSearchResult) : representativeResults,
         }),
-      }),
+      }
+    },
   })
 }
 

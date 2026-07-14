@@ -75,14 +75,31 @@ export function toInputSchema(schema: z.ZodType): Record<string, unknown> {
   return z.toJSONSchema(schema, { target: "draft-7" }) as Record<string, unknown>
 }
 
-export function toRootedInputSchema(schema: z.ZodType): Record<string, unknown> {
+export function toRootedInputSchema(
+  schema: z.ZodType,
+  omittedProperties: readonly string[] = [],
+): Record<string, unknown> {
   const json = toInputSchema(schema)
+  const properties = {
+    ...((json.properties as Record<string, unknown> | undefined) ?? {}),
+  }
+  for (const property of ["commandName", ...omittedProperties]) delete properties[property]
+
+  const required = Array.isArray(json.required)
+    ? json.required.filter((property): property is string => (
+        typeof property === "string"
+        && property !== "commandName"
+        && !omittedProperties.includes(property)
+      ))
+    : undefined
+
   return {
     ...json,
     properties: {
-      ...((json.properties as Record<string, unknown> | undefined) ?? {}),
+      ...properties,
       rootDir: { type: "string", minLength: 1, description: "Project root directory (default: cwd)" },
       profile: { type: "string", minLength: 1, description: "Optional named index profile" },
     },
+    ...(required ? { required } : {}),
   }
 }

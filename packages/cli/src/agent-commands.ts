@@ -59,30 +59,25 @@ export async function runInvestigate(input: { query: string; flags: Flags; root:
     directory: input.root,
     fn: () => contextTool.execute({ query: input.query, maxTokens, limit: 50, rerank: true, resultDetail: "content" } as any, context()),
   })
-  const { output: _searchOutput, ...searchData } = search as any
-  const { output: _literalOutput, ...literalData } = (literal ?? {}) as any
+  const discovery = input.core.projectAgentResponse(search, { detail: "minimal" })
+  const literalEvidence = literal ? input.core.projectAgentResponse(literal, { detail: "minimal" }) : undefined
+  const contextEvidence = input.core.enforceAgentOutputBudget(
+    input.core.projectAgentResponse(evidence, { detail: "content" }),
+    { trailingNewline: true },
+  )
   const payload = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     command: "investigate",
     status: "complete",
-    query: input.query,
     plan,
-    discovery: {
-      ...searchData,
-      results: (searchData.results ?? []).map((entry: any) => ({
-        resultId: entry.resultId,
-        file: entry.file,
-        symbol: entry.symbolName,
-        lines: [entry.startLine, entry.endLine],
-        kind: entry.semanticKind ?? entry.symbolType,
-        score: entry.score,
-        why: entry.whyMatched,
-        estimatedTokens: entry.estimatedTokens,
-      })),
-    },
-    graph,
-    literal: literal ? literalData : undefined,
-    evidence,
+    discovery,
+    graph: graph.map((entry) => ({
+      symbol: entry.symbol,
+      references: input.core.projectAgentResponse({ ...entry.references, command: "references" }, { detail: "minimal" }),
+      impact: input.core.projectAgentResponse({ ...entry.impact, command: "impact" }, { detail: "minimal" }),
+    })),
+    literal: literalEvidence,
+    evidence: contextEvidence,
   }
   if (input.flags.json) writeJson(payload)
   else writeStdoutLine((evidence as any).output)

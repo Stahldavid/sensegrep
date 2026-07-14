@@ -58,7 +58,7 @@ Search options:
   --include-role <role>     Include only one file role
   --exclude-role <role>     Exclude one file role
   --json-detail <mode>      minimal|content|diagnostic|full (compact aliases minimal)
-  --diagnostic              Alias for --json-detail diagnostic
+  --diagnostic              Add diagnostics without implicitly adding code
   --pretty                  Pretty-print JSON (default: minified)
   --include-rendered-output Include rendered Markdown in JSON
   --dry-run                 Plan indexing and estimate embedding work without API calls

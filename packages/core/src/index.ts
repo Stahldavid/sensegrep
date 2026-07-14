@@ -8,6 +8,26 @@ export { ClusterParametersSchema } from "./tool/sensegrep-cluster.js"
 export { SenseGrepSurveyTool } from "./tool/sensegrep-survey.js"
 export { SenseGrepClusterTool } from "./tool/sensegrep-cluster.js"
 export { Tool } from "./tool/tool.js"
+export { createResultId, decodeResultId, type ResultLocation } from "./tool/result-id.js"
+export {
+  AGENT_SCHEMA_VERSION,
+  AgentOutputJsonSchema,
+  enforceAgentOutputBudget,
+  projectAgentResponse,
+  projectAgentResult,
+  projectDuplicateAgentResponse,
+  projectGraphAgentResponse,
+  projectGroupedAgentResponse,
+  projectLiteralAgentResponse,
+  projectSearchAgentResponse,
+  projectShowAgentResponse,
+  resolveAgentDetail,
+  withAgentOutputMetrics,
+  type AgentBudgetOptions,
+  type AgentDetail,
+  type AgentProjectionOptions,
+  type GroupedAgentDetail,
+} from "./tool/agent-output.js"
 export { Indexer } from "./semantic/indexer.js"
 export { IndexWatcher } from "./semantic/index-watcher.js"
 export { VectorStore } from "./semantic/lancedb.js"

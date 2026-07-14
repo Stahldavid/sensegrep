@@ -6,6 +6,7 @@ import { GitScope } from "../project/git.js"
 import { Instance } from "../project/instance.js"
 import fs from "node:fs/promises"
 import path from "node:path"
+import { createResultId } from "./result-id.js"
 
 type AuditSegment = {
   content: string
@@ -146,13 +147,11 @@ export const SenseGrepContextTool = Tool.define("sensegrep-context", {
         for (const segment of segments) {
           const rangeKey = `${file}:${segment.startOffset}:${segment.endOffset}`
           if (representedRanges.has(rangeKey)) continue
-          const resultId = `symbol:${Buffer.from(JSON.stringify({
+          const resultId = createResultId({
             file,
             startLine: segment.startLine,
             endLine: segment.endLine,
-            startOffset: segment.startOffset,
-            endOffset: segment.endOffset,
-          })).toString("base64url")}`
+          })
           const card: Record<string, unknown> = {
             resultId,
             file,

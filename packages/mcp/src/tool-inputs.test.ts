@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { DuplicateToolArgsSchema, IndexToolArgsSchema } from "./tool-inputs.js"
+import z from "zod"
+import { DuplicateToolArgsSchema, IndexToolArgsSchema, toRootedInputSchema } from "./tool-inputs.js"
 
 describe("MCP tool input schemas", () => {
   it("rejects invalid duplicate detector ranges and scopes", () => {
@@ -16,5 +17,18 @@ describe("MCP tool input schemas", () => {
   it("applies operational defaults", () => {
     expect(IndexToolArgsSchema.parse({})).toMatchObject({ action: "index", mode: "incremental" })
     expect(DuplicateToolArgsSchema.parse({})).toMatchObject({ threshold: 0.85, limit: 10 })
+  })
+
+  it("omits internal and command-specific duplicate fields from public schemas", () => {
+    const schema = toRootedInputSchema(z.object({
+      query: z.string(),
+      commandName: z.string(),
+      resultDetail: z.string(),
+    }), ["resultDetail"])
+
+    expect(schema.properties).toMatchObject({ query: { type: "string" } })
+    expect(schema.properties).not.toHaveProperty("commandName")
+    expect(schema.properties).not.toHaveProperty("resultDetail")
+    expect(schema.required).toEqual(["query"])
   })
 })

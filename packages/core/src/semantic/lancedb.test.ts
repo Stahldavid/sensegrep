@@ -3,6 +3,7 @@ import { VectorStore } from "./lancedb.js"
 import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
+import { Instance } from "../project/instance.js"
 
 describe("VectorStore distance scoring", () => {
   it("converts l2 distance between normalized vectors back to cosine similarity", () => {
@@ -22,8 +23,12 @@ describe("VectorStore distance scoring", () => {
     const subdir = path.join(root, "apps", "web")
     await fs.mkdir(subdir, { recursive: true })
 
-    try {
-      await VectorStore.writeIndexMeta(root, {
+    await Instance.provide({
+      directory: root,
+      profile: "default",
+      fn: async () => {
+        try {
+          await VectorStore.writeIndexMeta(root, {
         version: 1,
         root,
         embeddings: { provider: "openai", model: "ok", dimension: 3, distanceMetric: "cosine" },
@@ -32,7 +37,7 @@ describe("VectorStore distance scoring", () => {
         },
         updatedAt: 2,
       })
-      await VectorStore.writeIndexMeta(subdir, {
+          await VectorStore.writeIndexMeta(subdir, {
         version: 1,
         root: subdir,
         embeddings: { provider: "local" as any, model: "old", dimension: 384 },
@@ -42,17 +47,19 @@ describe("VectorStore distance scoring", () => {
         updatedAt: 3,
       })
 
-      const resolved = await VectorStore.resolveIndexedProject(subdir)
-      const canonicalRoot = await fs.realpath(root)
+          const resolved = await VectorStore.resolveIndexedProject(subdir)
+          const canonicalRoot = await fs.realpath(root)
 
-      expect(resolved?.root).toBe(canonicalRoot)
-      expect(resolved?.subdirPrefix).toBe("apps/web")
-      expect(resolved?.meta.embeddings.provider).toBe("openai")
-    } finally {
-      await VectorStore.deleteCollection(root).catch(() => {})
-      await VectorStore.deleteCollection(subdir).catch(() => {})
-      await fs.rm(root, { recursive: true, force: true })
-    }
+          expect(resolved?.root).toBe(canonicalRoot)
+          expect(resolved?.subdirPrefix).toBe("apps/web")
+          expect(resolved?.meta.embeddings.provider).toBe("openai")
+        } finally {
+          await VectorStore.deleteCollection(root).catch(() => {})
+          await VectorStore.deleteCollection(subdir).catch(() => {})
+          await fs.rm(root, { recursive: true, force: true })
+        }
+      },
+    })
   })
 
   it("inspects a missing collection without creating a table", async () => {

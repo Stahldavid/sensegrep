@@ -1,5 +1,18 @@
 # @sensegrep/core
 
+## 1.14.0
+
+### Minor Changes
+
+- Unify agent-facing output around a compact schema v2 across the core, CLI, daemon, and MCP transports.
+
+  - standardize minimal result cards on `id`, `file`, `lines`, `symbol`, `kind`, `rank`, and `relevance`
+  - add compact, deterministic result IDs while preserving support for legacy IDs
+  - enforce token and byte limits against the final serialized payload, retaining partial evidence when complete code does not fit
+  - separate content, diagnostics, and internal full output while removing duplicated metadata and source code
+  - make survey and cluster summaries directly expandable through representative IDs
+  - expose shared MCP output schemas and avoid duplicating structured payloads in textual responses
+
 ## 1.13.0
 
 ### Minor Changes

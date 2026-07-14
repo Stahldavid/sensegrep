@@ -9,6 +9,16 @@ import { writeJson, writeStdoutLine } from "./output.js"
 type Core = typeof import("@sensegrep/core")
 const toolCache = new Map<string, Promise<any>>()
 
+function agentDetail(value: unknown, fallback: "minimal" | "content" = "minimal") {
+  return value === "compact" || value === "content" || value === "diagnostic" || value === "full" || value === "minimal"
+    ? value
+    : fallback
+}
+
+function groupedDetail(value: unknown) {
+  return value === "representatives" || value === "full" ? value : "summary"
+}
+
 function daemonPort(root: string): number {
   const hash = Number.parseInt(crypto.createHash("sha1").update(root.toLowerCase()).digest("hex").slice(0, 6), 16)
   return 40_000 + (hash % 20_000)
@@ -26,7 +36,7 @@ async function invokeTool(core: Core, root: string, profile: string | undefined,
   }
   if (toolName === "status") return core.Instance.provide({ directory: root, profile, fn: () => core.Indexer.getStats() })
   if (["references", "impact", "trace"].includes(toolName)) {
-    return core.Instance.provide({
+    const result = await core.Instance.provide({
       directory: root,
       profile,
       fn: async (): Promise<any> => toolName === "references"
@@ -35,16 +45,23 @@ async function invokeTool(core: Core, root: string, profile: string | undefined,
           ? core.CodeGraph.impact(String(args.symbol ?? ""), args)
           : core.CodeGraph.trace(String(args.from ?? ""), String(args.to ?? ""), args),
     })
+    return core.projectAgentResponse({ ...result, command: toolName, status: result.status ?? "complete" }, {
+      detail: agentDetail(args.resultDetail),
+      diagnostics: args.resultDetail === "diagnostic",
+    })
   }
   const factory = factories[toolName]
   if (!factory) throw new Error(`Unsupported daemon tool "${toolName}".`)
   const cacheKey = toolName === "expand" ? "show" : toolName
   if (!toolCache.has(cacheKey)) toolCache.set(cacheKey, factory.init())
   const tool = await toolCache.get(cacheKey)!
+  const executionArgs = toolName === "survey" || toolName === "cluster"
+    ? { ...args, jsonDetail: args.jsonDetail ?? "summary" }
+    : args
   const result = await core.Instance.provide({
     directory: root,
     profile,
-    fn: () => tool.execute({ ...args, ...(toolName === "expand" ? { expand: true } : {}) }, {
+    fn: () => tool.execute({ ...executionArgs, ...(toolName === "expand" ? { expand: true } : {}) }, {
       sessionID: "daemon",
       messageID: crypto.randomUUID(),
       agent: "sensegrep-daemon",
@@ -52,30 +69,14 @@ async function invokeTool(core: Core, root: string, profile: string | undefined,
       metadata(_input: unknown) {},
     }),
   })
-  if (toolName === "search" && (args.resultDetail ?? "compact") === "compact") {
-    const { output: _output, results, ...rest } = result as any
-    return {
-      ...rest,
-      results: Array.isArray(results) ? results.map((entry: any) => ({
-        resultId: entry.resultId,
-        file: entry.file,
-        symbol: entry.symbolName,
-        lines: [entry.startLine, entry.endLine],
-        kind: entry.semanticKind ?? entry.symbolType ?? entry.type,
-        score: entry.score,
-        why: entry.whyMatched,
-        estimatedTokens: entry.estimatedTokens,
-        chunksMatched: entry.chunksMatched,
-        snippetIntegrity: entry.snippetIntegrity,
-        fileRole: entry.metadata?.fileRole,
-      })) : results,
-    }
-  }
-  if ((args.resultDetail ?? (toolName === "context" ? "content" : undefined)) !== "full") {
-    const { output: _output, ...rest } = result as any
-    return rest
-  }
-  return result
+  const detail = agentDetail(executionArgs.resultDetail, toolName === "context" || toolName === "show" || toolName === "expand" ? "content" : "minimal")
+  const projected = core.projectAgentResponse(result, {
+    detail,
+    groupedDetail: groupedDetail(executionArgs.jsonDetail),
+    diagnostics: detail === "diagnostic",
+    includeFilterExplanations: executionArgs.explainFilters === true,
+  })
+  return core.enforceAgentOutputBudget(projected, { trailingNewline: false })
 }
 
 async function send(port: number, method: string, pathname: string, body?: unknown): Promise<any> {

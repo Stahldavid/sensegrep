@@ -2,7 +2,7 @@ import z from "zod"
 import { Instance } from "../project/instance.js"
 import { CodeGraph } from "../semantic/code-graph.js"
 import { Tool } from "./tool.js"
-import { decodeResultId } from "./sensegrep-pipeline.js"
+import { decodeResultId } from "./result-id.js"
 import { runShowResult } from "./show-result.js"
 
 export const SenseGrepShowParametersSchema = z.object({

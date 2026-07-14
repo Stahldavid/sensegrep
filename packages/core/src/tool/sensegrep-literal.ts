@@ -14,6 +14,7 @@ import {
   runRipgrepOnFiles,
 } from "./sensegrep-pipeline.js"
 import { runFilesystemLiteral } from "./filesystem-literal.js"
+import { createResultId } from "./result-id.js"
 
 export const SenseGrepLiteralParametersSchema = z.object({
   query: z.string().min(1).describe("Literal string or regular expression"),
@@ -47,6 +48,9 @@ export const SenseGrepLiteralTool = Tool.define("sensegrep-literal", {
     const resolved = await VectorStore.resolveIndexedProject(Instance.directory)
     if (!resolved?.meta && !params.filesystem) {
       return {
+        schemaVersion: 1,
+        command: "literal",
+        status: "index-required",
         title: params.query,
         metadata: { indexed: false, totalMatches: 0, returnedMatches: 0, exhaustive: true },
         matches: [],
@@ -111,6 +115,12 @@ export const SenseGrepLiteralTool = Tool.define("sensegrep-literal", {
         line: match.line,
         text: match.text,
         ...(document ? {
+          resultId: createResultId({
+            file,
+            startLine: Number(document.metadata.startLine),
+            endLine: Number(document.metadata.endLine),
+            symbol: typeof document.metadata.symbolName === "string" ? document.metadata.symbolName : undefined,
+          }),
           chunkStartLine: Number(document.metadata.startLine),
           chunkEndLine: Number(document.metadata.endLine),
           symbolName: document.metadata.symbolName,

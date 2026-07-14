@@ -51,9 +51,9 @@ Start with these defaults and adjust based on what you find:
 
 > **Subdirectory roots:** If the repo root was indexed and you run `sensegrep` with `--root` pointing at a subdirectory, Sensegrep reuses the nearest indexed parent and scopes the query to that subdirectory. You no longer need to reindex every subfolder separately.
 
-> **JSON output:** JSON is minified and `minimal` by default: envelope, sufficiency, `resultId`, location, `score`, and `rankScore`. Use `--json-detail content` for code, `--diagnostic` for distances/ranking/timings/freshness, `--json-detail full` for internals, and `--pretty` only for human reading. `compact` remains a compatibility alias for `minimal`.
+> **JSON output:** JSON is minified schema v2 and `minimal` by default: envelope, sufficiency, and canonical `id/file/lines/symbol/kind/rank/relevance` cards. Pass a selected `id` directly to `sensegrep show`. Use `--json-detail content` for code, `--diagnostic` for distances/ranking/timings/freshness without code, `--json-detail full` for internals, and `--pretty` only for human reading. `compact` remains a compatibility alias for `minimal`.
 
-> **Agent contract:** Always retain and inspect `retrieval.actualMode`, `retrieval.universe`, `index`, `budget`, and warnings. Invalid JSON-mode arguments return `status: "error"` with structured `errorInfo` and exit code 2. `--max-output-bytes` bounds the final serialized JSON, not only evidence text.
+> **Agent contract:** Always retain and inspect `retrieval.mode`, `retrieval.universe`, `index`, applicable `budget`, and structured warnings. Invalid JSON-mode arguments return `status: "error"` with structured `errorInfo` and exit code 2. `--max-output-bytes` bounds the final serialized JSON, not only evidence text.
 
 > **Profiles:** Use `--profile <name>` when comparing embedding models/settings. Profiles have independent indexes. Sensegrep validates a non-secret endpoint/model fingerprint before searching.
 
@@ -140,8 +140,10 @@ sensegrep search "affected retry logic" --changed --base HEAD~1 --json
 ```
 
 `--batch-tokens` is strict. Sensegrep splits large changed files into stable range cards so
-no batch exceeds the requested ceiling; read each batch's `ranges` directly. For CLI JSON, compare `attemptedOutputBytes` with
-`actualOutputBytes` and `attemptedTokens` with `actualEmittedTokens`.
+no batch exceeds the requested ceiling; read each batch's `ranges` directly. Projected
+budgets report final `usedBytes`/`usedTokens` and configured maxima. If a complete first
+snippet does not fit, inspect the partial card's `contentTruncated` and `contentLines` fields.
+The card's canonical `lines` and `id` still identify the complete source range for `show`.
 
 ### `sensegrep survey` — Reading map for a theme
 
@@ -157,7 +159,8 @@ sensegrep survey "authentication login token" \
 
 Returns grouped, tree-shaken reading domains such as `middleware / guards`, `stores / state`, `services / api`, and `types / contracts`.
 JSON and MCP calls default to `summary`; request `--json-detail representatives` only
-when representative cards are needed.
+when representative cards are needed. Summary groups already expose `representativeIds`
+that can be expanded with `sensegrep show`.
 
 ### `sensegrep cluster` — Break a broad topic into subthemes
 
@@ -174,7 +177,7 @@ sensegrep cluster "price list commission ncm uf packaging" \
 
 Returns cluster headings plus representative tree-shaken snippets, using embeddings + AST metadata + path/import signals.
 JSON and MCP calls default to `summary`. A provider failure must produce both
-`retrieval.actualMode: lexical-fallback` and a warning.
+`retrieval.mode: lexical-fallback` and a structured warning.
 
 ### Symbol graph — References, impact, and trace
 

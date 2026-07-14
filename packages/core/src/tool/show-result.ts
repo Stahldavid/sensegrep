@@ -1,5 +1,5 @@
 import fs from "node:fs/promises"
-import path from "node:path"
+import { decodeResultId, resolveResultPath, type ResultLocation } from "./result-id.js"
 
 export type ShowResultOptions = {
   rootDir: string
@@ -8,30 +8,8 @@ export type ShowResultOptions = {
   after?: number
 }
 
-function decodeResultId(resultId: string): { file: string; startLine: number; endLine: number; symbol?: string } {
-  if (!resultId.startsWith("symbol:")) throw new Error(`Invalid result ID "${resultId}".`)
-  let parsed: Record<string, unknown>
-  try {
-    parsed = JSON.parse(Buffer.from(resultId.slice("symbol:".length), "base64url").toString("utf8"))
-  } catch {
-    throw new Error(`Invalid result ID "${resultId}".`)
-  }
-  if (typeof parsed.file !== "string" || !Number.isInteger(parsed.startLine) || !Number.isInteger(parsed.endLine)) {
-    throw new Error(`Invalid result ID "${resultId}".`)
-  }
-  return {
-    file: parsed.file,
-    startLine: Number(parsed.startLine),
-    endLine: Number(parsed.endLine),
-    ...(typeof parsed.symbol === "string" ? { symbol: parsed.symbol } : {}),
-  }
-}
-
-export async function runShowResult(options: ShowResultOptions) {
-  const target = decodeResultId(options.resultId)
-  const absolute = path.resolve(options.rootDir, target.file)
-  const relative = path.relative(options.rootDir, absolute)
-  if (relative.startsWith("..") || path.isAbsolute(relative)) throw new Error("Result ID points outside the project root.")
+export async function runShowResult(options: ShowResultOptions, target: ResultLocation = decodeResultId(options.resultId)) {
+  const absolute = resolveResultPath(options.rootDir, target)
   const source = await fs.readFile(absolute, "utf8")
   const lines = source.split(/\r?\n/)
   const startLine = Math.max(1, target.startLine - (options.before ?? 0))

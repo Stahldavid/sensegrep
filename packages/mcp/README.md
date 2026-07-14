@@ -51,7 +51,11 @@ Canonical tool names:
 - `sensegrep_index`
 - `sensegrep_detect_duplicates`
 
-Search returns compact result cards by default. Call `sensegrep_show` with a selected `resultId`, or set `resultDetail` to `content`/`full`, to expand only the evidence an agent needs. Results report the requested and actual retrieval mode, evidence universe, index snapshot, budgets, and warnings.
+Search returns schema v2 compact cards by default. Call `sensegrep_show` with a selected
+card `id`, or set `resultDetail` to `content`/`full`, to expand only the evidence an agent
+needs. MCP publishes an output schema and returns the complete payload once in
+`structuredContent`; textual content is only a short transport summary. Results report
+retrieval sufficiency, compact index state, applicable budgets, and structured warnings.
 
 Legacy aliases are still accepted for compatibility:
 

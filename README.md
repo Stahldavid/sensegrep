@@ -97,9 +97,12 @@ sensegrep detect-duplicates --threshold 0.85 --timeout 30s --resume-cursor 0 --j
 
 Agent-facing JSON is minified and `minimal` by default. Opt into `--json-detail content`,
 `--diagnostic`, `--json-detail full`, or `--pretty` only when that additional payload is needed.
-Minimal output keeps retrieval mode/universe, index state, budgets, and warnings. Physical
-output budgets apply to the final serialized JSON. Duplicate JSON excludes source code
-unless `--show-code` is supplied. Survey and cluster JSON default to summary mode.
+Schema v2 uses one card vocabulary across transports: `id`, `file`, `lines`, `symbol`,
+`kind`, `rank`, and `relevance`. Minimal output keeps retrieval sufficiency, compact index
+state, and structured warnings; budgets appear only when constrained. Physical output
+budgets apply to the final serialized JSON and retain a partial evidence card when possible.
+Duplicate JSON excludes source code unless `--show-code` is supplied. Survey and cluster
+JSON default to actionable summary mode with representative IDs.
 
 ### Cursor Plugin
 
