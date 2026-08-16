@@ -19,14 +19,16 @@ const cliPkgPath = "packages/cli/package.json";
 const mcpPkgPath = "packages/mcp/package.json";
 const vscodePkgPath = "packages/vscode/package.json";
 const serverMetaPath = "server.json";
-const mcpRuntimePath = "packages/mcp/src/server.ts";
+const mcpRuntimePaths = [
+  "packages/mcp/src/server.ts",
+  "packages/mcp/src/http-server.ts",
+];
 
 const corePkg = readJson(corePkgPath);
 const cliPkg = readJson(cliPkgPath);
 const mcpPkg = readJson(mcpPkgPath);
 const vscodePkg = readJson(vscodePkgPath);
 const serverMeta = readJson(serverMetaPath);
-const mcpRuntime = fs.readFileSync(path.join(root, mcpRuntimePath), "utf8");
 
 const expectedVersion = mcpPkg.version;
 
@@ -65,11 +67,14 @@ if (!mcpPackageEntry) {
   fail(`${serverMetaPath} packages[@sensegrep/mcp].version (${mcpPackageEntry.version}) != expected (${expectedVersion})`);
 }
 
-const runtimeVersionMatch = mcpRuntime.match(/version:\s*"([^"]+)"/);
-if (!runtimeVersionMatch) {
-  fail(`${mcpRuntimePath} runtime version field not found`);
-} else if (runtimeVersionMatch[1] !== expectedVersion) {
-  fail(`${mcpRuntimePath} runtime version (${runtimeVersionMatch[1]}) != expected (${expectedVersion})`);
+for (const runtimePath of mcpRuntimePaths) {
+  const runtime = fs.readFileSync(path.join(root, runtimePath), "utf8");
+  const runtimeVersionMatch = runtime.match(/version:\s*"([^"]+)"/);
+  if (!runtimeVersionMatch) {
+    fail(`${runtimePath} runtime version field not found`);
+  } else if (runtimeVersionMatch[1] !== expectedVersion) {
+    fail(`${runtimePath} runtime version (${runtimeVersionMatch[1]}) != expected (${expectedVersion})`);
+  }
 }
 
 if (process.exitCode === 1) {

@@ -1,5 +1,5 @@
 ---
-description: Prefer sensegrep over grep/ripgrep for all code exploration. Use grep only for exact string literals.
+description: Use sensegrep_search by default for code discovery. Reserve sensegrep_literal for known exact text, regexes, or exhaustive verification.
 alwaysApply: true
 ---
 
@@ -15,14 +15,17 @@ When exploring code, searching for functions, classes, patterns, or understandin
 - Multi-criteria searches with structural filters
 - Finding refactoring candidates or duplicates
 
-## When grep is acceptable (5%)
+## When literal search is appropriate (5%)
 
-- Exact string literals: "TODO:", "FIXME:", specific variable names
-- Simple text in documentation or config files
+- A known exact string or regex: "TODO:", "FIXME:", a specific error, or a specific identifier
+- An exhaustive occurrence audit or verification/refinement after semantic discovery
+
+Use `sensegrep_literal` for those cases. Use raw grep only if Sensegrep is unavailable or different filesystem semantics are required. If the request could mean behavior rather than exact text, start with `sensegrep_search`.
 
 ## Available sensegrep tools
 
 - `sensegrep_search` — Semantic + structural code search (primary tool)
+- `sensegrep_literal` — Exact-string/regex verification and exhaustive occurrence checks after discovery
 - `sensegrep_survey` — Group a theme into reading domains
 - `sensegrep_cluster` — Break a broad topic into coherent subthemes
 - `sensegrep_detect_duplicates` — Find logical code duplicates across files

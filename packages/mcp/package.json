@@ -1,11 +1,12 @@
 {
   "name": "@sensegrep/mcp",
   "mcpName": "io.github.Stahldavid/sensegrep",
-  "version": "1.14.0",
+  "version": "1.15.0",
   "type": "module",
   "main": "./dist/server.js",
   "bin": {
-    "sensegrep-mcp": "dist/server.js"
+    "sensegrep-mcp": "dist/server.js",
+    "sensegrep-mcp-http": "dist/http-server.js"
   },
   "types": "./dist/server.d.ts",
   "files": [
@@ -21,15 +22,18 @@
     "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
     "build": "npm run clean && tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
+    "start:http": "node dist/http-server.js",
     "prepublishOnly": "npm run build",
-    "postbuild": "node -e \"const fs = require('fs'); const p='dist/server.js'; const s='#!/usr/bin/env node\\n'; const c=fs.readFileSync(p,'utf8'); if (c.startsWith('#!')) { fs.writeFileSync(p, s + c.split(/\\r?\\n/).slice(1).join('\\n')); } else { fs.writeFileSync(p, s + c); }\""
+    "postbuild": "node -e \"const fs = require('fs'); for (const p of ['dist/server.js','dist/http-server.js']) { const s='#!/usr/bin/env node\\n'; const c=fs.readFileSync(p,'utf8'); if (c.startsWith('#!')) { fs.writeFileSync(p, s + c.split(/\\r?\\n/).slice(1).join('\\n')); } else { fs.writeFileSync(p, s + c); } }\""
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
+    "@modelcontextprotocol/node": "^2.0.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@sensegrep/core": "^1.14.0",
+    "@modelcontextprotocol/server": "^2.0.0",
+    "@sensegrep/core": "^1.15.0",
     "zod": "^4.4.3"
   },
   "publishConfig": {

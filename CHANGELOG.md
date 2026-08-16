@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 ## Unreleased
 
 ### Changed
+- Made semantic search the default agent discovery path while reserving literal search for exact, exhaustive, and verification workflows.
+- Added an experimental local, stateless, query-only MCP 2026-07-28 HTTP entrypoint while preserving the stdio server.
 - Added hybrid lexical/vector fusion, deterministic reranking, token-budgeted context packs, and Git-changed audit scope.
 - Added resumable full indexing, chunk-vector reuse, dry-run estimates, provider benchmarks, named profiles, and automatic large-index ANN optimization.
 - Added local symbol references/impact/trace analysis, extensible language plugins, and VS Code multi-root indexing/watchers.

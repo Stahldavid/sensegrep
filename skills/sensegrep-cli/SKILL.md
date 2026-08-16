@@ -1,6 +1,6 @@
 ---
 name: sensegrep-cli
-description: "Semantic, structural, and exhaustive literal code evidence via the sensegrep CLI. Use for code exploration, exact text proof, token-bounded context, audits, graphs, duplicates, and agent investigations. Prefer sensegrep search for meaning and sensegrep literal for exact strings; use raw grep only when Sensegrep is unavailable or the filesystem semantics must differ."
+description: "Semantic-first code discovery via the sensegrep CLI. Default to sensegrep search for behavior, concepts, structure, and exploration; reserve sensegrep literal for known exact strings, regexes, exhaustive occurrence audits, or verification after discovery."
 ---
 
 # sensegrep (CLI) — Semantic Code Search
@@ -32,6 +32,8 @@ Use `sensegrep --version` to confirm the installed CLI version.
 - **sensegrep search**: Finding functions/classes by behavior, exploring structure, semantic queries, multi-criteria searches
 - **sensegrep literal**: Exact strings and regex proof; add `--filesystem` when the evidence universe must not depend on the index
 - **grep/ripgrep**: Fallback only when Sensegrep is unavailable or custom raw filesystem behavior is required
+
+**Routing rule:** Start with `sensegrep search` whenever the task asks where or how behavior is implemented, even if the request contains candidate keywords. Use `sensegrep literal` only when the text or regex is already known, every textual occurrence is required, or you are verifying/refining a semantic result. If unsure, choose `sensegrep search`.
 
 ## Recommended Defaults
 

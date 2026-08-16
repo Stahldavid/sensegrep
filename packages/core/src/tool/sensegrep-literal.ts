@@ -29,7 +29,7 @@ export const SenseGrepLiteralParametersSchema = z.object({
 })
 
 export const SenseGrepLiteralTool = Tool.define("sensegrep-literal", {
-  description: "Exhaustive deterministic code search backed by ripgrep, with optional indexed symbol mapping.",
+  description: "Exact-text verification for a known string or regex, exhaustive occurrence checks, and refinement after semantic discovery. Do not use for concepts, behavior, or initial codebase exploration; start with semantic search.",
   parameters: SenseGrepLiteralParametersSchema,
   async execute(params, ctx): Promise<Tool.Result<Record<string, unknown>>> {
     if (params.filesystem) {

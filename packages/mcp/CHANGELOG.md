@@ -1,5 +1,25 @@
 # @sensegrep/mcp
 
+## 1.15.0
+
+### Minor Changes
+
+- Make semantic search the default agent discovery path and add an experimental
+  local MCP 2026-07-28 Streamable HTTP entrypoint.
+
+  - steer agents toward semantic search for behavior and concepts while keeping
+    literal search available for exact, exhaustive, and verification workflows
+  - preserve the existing stdio MCP server and its watcher/indexing behavior
+  - add a stateless, query-only HTTP server with one MCP server per request,
+    localhost Host/Origin validation, a fixed project root, and no index tool
+  - publish the HTTP executable as `sensegrep-mcp-http` and verify its release
+    artifacts alongside the existing stdio executable
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @sensegrep/core@1.15.0
+
 ## 1.14.0
 
 ### Minor Changes

@@ -9,6 +9,7 @@ import {
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { DuplicateToolArgsSchema, GraphToolArgsSchema, IndexToolArgsSchema, toInputSchema, toRootedInputSchema } from "./tool-inputs.js";
+import { LITERAL_TOOL_DESCRIPTION, SEARCH_TOOL_DESCRIPTION } from "./tool-descriptions.js";
 
 let corePromise: Promise<any> | null = null;
 let searchToolPromise: Promise<any> | null = null;
@@ -32,6 +33,15 @@ const TOOL_NAMES = {
   index: "sensegrep_index",
   graph: "sensegrep_graph",
 } as const;
+
+export type SensegrepServerMode = "stdio" | "http-query-only";
+
+export type SensegrepCallContext = {
+  signal: AbortSignal;
+  mode?: SensegrepServerMode;
+  fixedRootDir?: string;
+  requestId?: string | number;
+};
 
 function matchesToolName(name: string, canonical: string, ...legacy: string[]): boolean {
   return name === canonical || legacy.includes(name);
@@ -201,7 +211,7 @@ async function generateTools(): Promise<Tool[]> {
   cachedTools = [
     {
       name: TOOL_NAMES.search,
-      description: `Semantic + structural code search. Languages: ${caps.languages.join(", ")}`,
+      description: `${SEARCH_TOOL_DESCRIPTION} Languages: ${caps.languages.join(", ")}.`,
       inputSchema: {
         type: "object",
         properties: {
@@ -409,7 +419,7 @@ async function generateTools(): Promise<Tool[]> {
   });
   cachedTools.splice(1, 0, {
     name: TOOL_NAMES.literal,
-    description: "Exhaustive deterministic literal or regex search without embedding calls.",
+    description: LITERAL_TOOL_DESCRIPTION,
     inputSchema: toRootedInputSchema(core.SenseGrepLiteralParametersSchema) as Tool["inputSchema"],
   });
   for (const tool of cachedTools) {
@@ -421,34 +431,51 @@ async function generateTools(): Promise<Tool[]> {
   return cachedTools;
 }
 
-const server = new Server(
-  {
-    name: "sensegrep",
-    version: "1.14.0",
-  },
-  {
-    capabilities: {
-      tools: {},
+function withoutRemoteRootDir(tool: Tool): Tool {
+  const properties = tool.inputSchema.properties;
+  if (!properties || typeof properties !== "object") return { ...tool };
+  const { rootDir: _rootDir, ...safeProperties } = properties as Record<string, object>;
+  return {
+    ...tool,
+    inputSchema: {
+      ...tool.inputSchema,
+      properties: safeProperties,
     },
-  }
-);
+  };
+}
 
-server.setRequestHandler(ListToolsRequestSchema, async () => {
+export async function listSensegrepTools(
+  mode: SensegrepServerMode = "stdio",
+): Promise<Tool[]> {
   const tools = await generateTools();
-  return { tools };
-});
+  if (mode === "stdio") return tools;
+  return tools
+    .filter((tool) => tool.name !== TOOL_NAMES.index)
+    .map(withoutRemoteRootDir);
+}
 
-server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) => {
-  const { name } = request.params;
-  const args = ((request.params.arguments ?? {}) as Record<string, unknown>) as any;
+export async function callSensegrepTool(
+  name: string,
+  rawArgs: Record<string, unknown> | undefined,
+  callContext: SensegrepCallContext,
+) {
+  const args = ((rawArgs ?? {}) as Record<string, unknown>) as any;
+  const mode = callContext.mode ?? "stdio";
   const rootDirArg = args.rootDir;
-  const rootDir =
-    typeof rootDirArg === "string" && rootDirArg.length > 0
+  const rootDir = callContext.fixedRootDir ?? (
+    mode === "stdio" && typeof rootDirArg === "string" && rootDirArg.length > 0
       ? rootDirArg
-      : process.env.SENSEGREP_ROOT || process.cwd();
+      : process.env.SENSEGREP_ROOT || process.cwd()
+  );
   const profile = typeof args.profile === "string" ? args.profile : undefined;
+  const requestId = String(callContext.requestId ?? "mcp");
+  const requestContext = { signal: callContext.signal };
 
   try {
+    if (mode === "http-query-only" && matchesToolName(name, TOOL_NAMES.index, "sensegrep.index")) {
+      throw new Error("sensegrep_index is unavailable on the query-only HTTP endpoint");
+    }
+
     if (matchesToolName(name, TOOL_NAMES.show, "sensegrep.show")) {
       const { core, tool } = await loadShowTool();
       const { rootDir: _root, profile: _profile, ...toolArgs } = args as any;
@@ -456,7 +483,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
         directory: rootDir,
         profile,
         fn: () => tool.execute(toolArgs, {
-          sessionID: "mcp", messageID: "mcp", agent: "sensegrep-mcp", abort: requestContext.signal,
+          sessionID: requestId, messageID: requestId, agent: "sensegrep-mcp", abort: requestContext.signal,
           metadata(_input: unknown) {},
         }),
       });
@@ -472,8 +499,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
         directory: rootDir,
         profile,
         fn: () => tool.execute(toolArgs, {
-          sessionID: "mcp",
-          messageID: "mcp",
+          sessionID: requestId,
+          messageID: requestId,
           agent: "sensegrep-mcp",
           abort: requestContext.signal,
           metadata(_input: unknown) {},
@@ -492,8 +519,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
         directory: rootDir,
         profile,
         fn: () => tool.execute(toolArgs, {
-          sessionID: "mcp",
-          messageID: "mcp",
+          sessionID: requestId,
+          messageID: requestId,
           agent: "sensegrep-mcp",
           abort: requestContext.signal,
           metadata(_input: unknown) {},
@@ -514,8 +541,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
         profile,
         fn: () =>
           tool.execute(toolArgs, {
-            sessionID: "mcp",
-            messageID: "mcp",
+            sessionID: requestId,
+            messageID: requestId,
             agent: "sensegrep-mcp",
             abort: requestContext.signal,
             metadata(_input: { title?: string; metadata?: unknown }) {},
@@ -540,8 +567,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
         profile,
         fn: () =>
           tool.execute(groupedArgs, {
-            sessionID: "mcp",
-            messageID: "mcp",
+            sessionID: requestId,
+            messageID: requestId,
             agent: "sensegrep-mcp",
             abort: requestContext.signal,
             metadata(_input: { title?: string; metadata?: unknown }) {},
@@ -561,8 +588,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
         profile,
         fn: () =>
           tool.execute(groupedArgs, {
-            sessionID: "mcp",
-            messageID: "mcp",
+            sessionID: requestId,
+            messageID: requestId,
             agent: "sensegrep-mcp",
             abort: requestContext.signal,
             metadata(_input: { title?: string; metadata?: unknown }) {},
@@ -906,9 +933,37 @@ server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) 
       isError: true,
     };
   }
-});
+}
+
+export function createStdioMcpServer(): Server {
+  const server = new Server(
+    {
+      name: "sensegrep",
+      version: "1.15.0",
+    },
+    {
+      capabilities: {
+        tools: {},
+      },
+    },
+  );
+
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: await listSensegrepTools("stdio"),
+  }));
+  server.setRequestHandler(CallToolRequestSchema, async (request, requestContext) =>
+    callSensegrepTool(
+      request.params.name,
+      request.params.arguments as Record<string, unknown> | undefined,
+      { signal: requestContext.signal, mode: "stdio" },
+    ),
+  );
+
+  return server;
+}
 
 async function main() {
+  const server = createStdioMcpServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
   void startWatch();
@@ -923,7 +978,10 @@ async function main() {
   process.on("SIGTERM", cleanup);
 }
 
-main().catch((error) => {
-  console.error("Server error:", error);
-  process.exit(1);
-});
+const entrypoint = process.argv[1] ? path.resolve(process.argv[1]) : undefined;
+if (entrypoint === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error("Server error:", error);
+    process.exit(1);
+  });
+}
