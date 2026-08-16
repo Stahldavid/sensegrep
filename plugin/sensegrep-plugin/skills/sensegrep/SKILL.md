@@ -1,6 +1,6 @@
 ---
 name: sensegrep
-description: "Semantic, structural, and exhaustive literal code evidence via MCP. Use sensegrep_search for meaning and sensegrep_literal for exact strings; use raw grep only when Sensegrep is unavailable or different filesystem semantics are required."
+description: "Semantic-first code discovery via MCP. Default to sensegrep_search for behavior, concepts, structure, and exploration; reserve sensegrep_literal for known exact strings, regexes, exhaustive occurrence audits, or verification after discovery."
 ---
 
 # sensegrep — Semantic Code Search
@@ -12,6 +12,8 @@ Search code by meaning, not text patterns. Uses AI embeddings + tree-sitter AST 
 - **sensegrep_search**: behavior, structure, semantic queries, and multi-criteria discovery
 - **sensegrep_literal**: exact strings and regex proof; set `filesystem: true` for the ripgrep-visible filesystem universe
 - **grep/ripgrep**: fallback when Sensegrep is unavailable or different raw filesystem behavior is required
+
+**Routing rule:** Start with `sensegrep_search` whenever the task asks where or how behavior is implemented, even if the request contains candidate keywords. Use `sensegrep_literal` only when the text or regex is already known, every textual occurrence is required, or you are verifying/refining a semantic result. If unsure, choose `sensegrep_search`.
 
 ## Recommended Defaults
 

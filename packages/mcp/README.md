@@ -37,6 +37,17 @@ npm install -g @sensegrep/mcp
 }
 ```
 
+## Experimental local HTTP
+
+For local MCP 2026-07-28 experiments, run `sensegrep-mcp-http` with
+`SENSEGREP_ROOT` pointing at an already indexed checkout. It binds to
+`127.0.0.1:7337/mcp`, creates a fresh server per request, disables the watcher,
+and exposes query tools without `sensegrep_index` or caller-controlled
+`rootDir`. This entrypoint is not production-ready: remote deployment still
+requires authentication, authorized workspace IDs, persistent index storage,
+and a separate indexing worker. The existing `sensegrep-mcp` stdio entrypoint
+remains the supported local/indexing path.
+
 ## Tools
 
 Canonical tool names:

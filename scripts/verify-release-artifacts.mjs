@@ -30,10 +30,13 @@ const packages = [
     workspace: "@sensegrep/mcp",
     dir: "packages/mcp",
     requiredFiles: [
+      "dist/http-server.js",
+      "dist/http-server.d.ts",
       "dist/server.js",
       "dist/server.d.ts",
     ],
     bins: [
+      "dist/http-server.js",
       "dist/server.js",
     ],
   },

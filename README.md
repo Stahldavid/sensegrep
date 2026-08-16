@@ -10,6 +10,8 @@ sensegrep understands your code semantically. Instead of matching text patterns,
 
 AI agents should not read more code, they should read the right code. sensegrep combines semantic search, exact matching, and AST-aware structural retrieval to deliver smaller, more relevant context.
 
+For agent routing, `search` is the default for discovery: questions about behavior, concepts, structure, or where/how something is implemented. Use `literal` only for a known exact string or regex, an exhaustive occurrence audit, or verification/refinement after semantic discovery. If the intent is ambiguous, start with `search`.
+
 ![Sensegrep time-to-value demo](assets/time-to-value.gif)
 
 MP4 fallback: [assets/time-to-value.mp4](assets/time-to-value.mp4)
@@ -71,7 +73,7 @@ sensegrep index --root .
 # Search by meaning
 sensegrep search "error handling and retry logic" --type function --exported --exclude "*.md"
 
-# Deterministic and exhaustive: no embedding call
+# Known exact text, deterministic and exhaustive: no embedding call
 sensegrep literal "X-Goog-Message-Number" --include "src/**"
 
 # Compact evidence cards, followed by deterministic expansion

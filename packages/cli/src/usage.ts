@@ -65,7 +65,7 @@ Search options:
   --no-resume               Discard interrupted full-index staging data
   benchmark                 Measure embedding throughput and recommend concurrency
   audit <query>             Build review context restricted to Git changes
-  literal <text|regex>      Exhaustive deterministic search without embeddings
+  literal <text|regex>      Exact-text/regex verification when every occurrence matters; not conceptual discovery
   references <symbol>       Find indexed references to a symbol
   impact <symbol>           Traverse reverse references for change impact
   trace <from> <to>         Find a symbol-reference path

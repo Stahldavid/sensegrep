@@ -42,7 +42,7 @@ active, so stdout remains parseable.
 
 ### `sensegrep search`
 
-Semantic + structural code search.
+Primary discovery command for questions about behavior, concepts, structure, or where/how code is implemented. When the intent is ambiguous, start here instead of `literal`.
 
 ```bash
 sensegrep search <query> [options]
@@ -130,7 +130,7 @@ Changing provider, model, base URL, embedding dimension, local server pooling be
 
 ### `sensegrep literal`
 
-Deterministic exhaustive search over indexed project files. It does not call the embedding provider.
+Exact-string or regex verification over indexed project files. Use it when every textual occurrence matters or to verify/refine a semantic result, not for initial conceptual discovery. It is deterministic and does not call the embedding provider.
 
 ```bash
 sensegrep literal "X-Goog-Message-Number" --include "src/**" --json

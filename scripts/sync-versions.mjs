@@ -34,17 +34,23 @@ if (mcpEntry) mcpEntry.version = version
 writeJson("server.json", serverJson)
 console.log(`sync-versions: server.json → ${version}`)
 
-// ── packages/mcp/src/server.ts ───────────────────────────────────────────────
-const serverTsPath = path.join(root, "packages/mcp/src/server.ts")
-const original = fs.readFileSync(serverTsPath, "utf8")
+// ── MCP runtime entrypoints ──────────────────────────────────────────────────
 const versionPattern = /(?<=new Server\(\s*\{[^}]*version:\s*")[^"]+(?=")/s
+const runtimeVersionTargets = [
+  "packages/mcp/src/server.ts",
+  "packages/mcp/src/http-server.ts",
+]
 
-if (!versionPattern.test(original)) {
-  console.warn("sync-versions: packages/mcp/src/server.ts — no version field found in Server constructor, skipping")
-} else {
+for (const rel of runtimeVersionTargets) {
+  const targetPath = path.join(root, rel)
+  const original = fs.readFileSync(targetPath, "utf8")
+  if (!versionPattern.test(original)) {
+    console.warn(`sync-versions: ${rel} — no version field found in Server constructor, skipping`)
+    continue
+  }
   const updated = original.replace(versionPattern, version)
-  fs.writeFileSync(serverTsPath, updated)
-  console.log(`sync-versions: packages/mcp/src/server.ts → ${version}`)
+  fs.writeFileSync(targetPath, updated)
+  console.log(`sync-versions: ${rel} → ${version}`)
 }
 
 // ── plugin/package manifests ────────────────────────────────────────────────

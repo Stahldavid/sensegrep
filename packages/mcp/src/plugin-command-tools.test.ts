@@ -8,6 +8,12 @@ const COMMANDS = [
   "plugin/sensegrep-plugin/commands/sensegrep-duplicates.md",
   "plugin/sensegrep-plugin/commands/sensegrep-health.md",
 ];
+const AGENT_GUIDANCE = [
+  "plugin/sensegrep-plugin/skills/sensegrep/SKILL.md",
+  "plugin/sensegrep-cursor/skills/sensegrep/SKILL.md",
+  "plugins/sensegrep/skills/sensegrep/SKILL.md",
+  "skills/sensegrep-cli/SKILL.md",
+];
 
 function extractPluginMcpTools(markdown: string): string[] {
   const matches = markdown.matchAll(/mcp__plugin_sensegrep_sensegrep__(sensegrep_[a-z_-]+)/g);
@@ -35,6 +41,16 @@ describe("Claude plugin command MCP tool references", () => {
       for (const tool of referencedTools) {
         expect(allowed, `${command} references ${tool}`).toContain(tool);
       }
+    }
+  });
+
+  it("routes ambiguous code discovery to semantic search before literal search", async () => {
+    for (const guidance of AGENT_GUIDANCE) {
+      const markdown = await readFile(path.join(ROOT, guidance), "utf8");
+      expect(markdown, guidance).toMatch(/start with `sensegrep(?:_search| search)`/i);
+      expect(markdown, guidance).toMatch(/if unsure, choose `sensegrep(?:_search| search)`/i);
+      expect(markdown, guidance).toMatch(/every textual occurrence is required/i);
+      expect(markdown, guidance).toMatch(/verifying\/refining a semantic result/i);
     }
   });
 });

@@ -113,6 +113,26 @@ Or run directly:
 node node_modules/@sensegrep/mcp/dist/server.js
 ```
 
+### Experimental local stateless HTTP
+
+The package also includes a query-only Streamable HTTP entrypoint for local
+experiments with MCP 2026-07-28:
+
+```bash
+SENSEGREP_ROOT=/path/to/an/indexed/project sensegrep-mcp-http
+```
+
+It listens only on `127.0.0.1:7337/mcp` by default. Set
+`SENSEGREP_MCP_HTTP_PORT` to choose another local port. Each HTTP request gets
+a fresh MCP server instance, the file watcher is not started, and
+`sensegrep_index` is not exposed. The caller also cannot select an arbitrary
+`rootDir`; the endpoint uses the fixed `SENSEGREP_ROOT` (or its startup cwd).
+
+This is not a production remote-data design. A production deployment still
+needs authentication, an authorized `workspaceId`-to-index resolver, durable
+index storage, and a separate indexing job/worker. Keep using `sensegrep-mcp`
+over stdio for normal local integrations and indexing.
+
 ## Environment Variables
 
 Variables below are supported by the current runtime.
@@ -123,6 +143,7 @@ Variables below are supported by the current runtime.
 |----------|---------|-------------|
 | `SENSEGREP_ROOT` | `cwd` | Root directory to index and search |
 | `SENSEGREP_WATCH` | `1` | Enable file watching (`0`, `false`, `off`, `no` to disable) |
+| `SENSEGREP_MCP_HTTP_PORT` | `7337` | Local experimental HTTP MCP port (HTTP entrypoint only) |
 
 ### Embeddings (Primary)
 
@@ -182,9 +203,11 @@ For default local Ollama, run `ollama pull qwen3-embedding:0.6b` and leave provi
 
 ## Available Tools
 
+Use `sensegrep_search` as the default discovery tool for questions about behavior, concepts, structure, or where/how code is implemented. Reserve `sensegrep_literal` for a known exact string or regex, exhaustive occurrence checks, or verification/refinement after semantic discovery. When the intent is ambiguous, start with semantic search.
+
 ### `sensegrep.search`
 
-Semantic + structural code search.
+Primary semantic + structural discovery tool. It finds behavior and concepts even when the exact text is unknown.
 
 **Parameters:**
 - `query` (string, required): Natural language search query
@@ -193,7 +216,7 @@ Semantic + structural code search.
 - `isAsync` (boolean): Only async functions/methods
 - `language` (string): Filter by language
 - `pattern` (string): non-exhaustive regex post-filter on semantic candidates
-- `sensegrep_literal`: exhaustive literal/regex search without embedding calls
+- `sensegrep_literal`: exact-string/regex verification and exhaustive occurrence checks without embedding calls; not the initial tool for conceptual discovery
 - `limit` (number): Max results (default: 20)
 - `include` (string): File glob filter
 - `variant` (string): Language-specific variant
