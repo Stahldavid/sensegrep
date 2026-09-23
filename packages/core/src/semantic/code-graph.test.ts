@@ -25,6 +25,35 @@ function row(symbolName: string, content: string, startLine: number) {
 }
 
 describe("CodeGraph", () => {
+  it("classifies only scheduler targets, ignoring comments and strings", async () => {
+    listDocuments.mockResolvedValue([
+      row("run", 'validate(); ctx.scheduler.runAfter(0, internal.jobs.deliver, {}); // cron validate()\nconst note = "scheduler validate()";', 1),
+      row("validate", "return true", 20), row("deliver", "return true", 30),
+    ])
+    const { CodeGraph } = await import("./code-graph.js")
+    expect((await CodeGraph.findReferences("validate")).references.map((r) => r.kind)).toEqual(["call"])
+    expect((await CodeGraph.findReferences("deliver")).references.map((r) => r.kind)).toEqual(["scheduled-function"])
+  })
+
+  it("deduplicates overlapping chunks but retains genuine direct and scheduled edges", async () => {
+    const source = 'deliver(); ctx.scheduler.runAfter(0, deliver, {})'
+    listDocuments.mockResolvedValue([row("run", source, 1), row("run", source, 2), row("deliver", "return true", 30)])
+    const { CodeGraph } = await import("./code-graph.js")
+    expect((await CodeGraph.findReferences("deliver")).references.map((r) => r.kind).sort()).toEqual(["call", "scheduled-function"])
+  })
+
+  it("resolves named import aliases without binding an unrelated same-name symbol", async () => {
+    listDocuments.mockResolvedValue([
+      row("run", 'import { validate as check } from "./rules"; check()', 1),
+      { ...row("validate", "return true", 20), metadata: { ...row("validate", "", 20).metadata, file: "src/rules.ts" } },
+      { ...row("validate", "return false", 20), metadata: { ...row("validate", "", 20).metadata, file: "src/other.ts" } },
+    ])
+    const { CodeGraph } = await import("./code-graph.js")
+    const references = (await CodeGraph.findReferences("validate")).references
+    expect(references).toHaveLength(1)
+    expect(references[0].targetLocation.file).toBe("src/rules.ts")
+  })
+
   beforeEach(() => {
     listDocuments.mockResolvedValue([
       row("handleRequest", "return loadUser(id)", 1),

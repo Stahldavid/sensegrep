@@ -14,6 +14,7 @@ import {
   selectWithinTokenBudget,
   decodeResultId,
   toStructuredSearchResult,
+  deriveDomainLabel,
 } from "./sensegrep-pipeline.js"
 
 describe("sensegrep pipeline result metadata", () => {
@@ -161,6 +162,19 @@ describe("hybrid retrieval ranking", () => {
     ], 150)
     expect(selected.results).toHaveLength(1)
     expect(selected.estimatedTokens).toBeLessThanOrEqual(150)
+  })
+
+  it("keeps compact complete implementations instead of exhausting context on a large prefix", () => {
+    const selected = selectWithinTokenBudget([
+      result("large.ts", 0.95, "x".repeat(6000), "SessionProvider"),
+      result("refresh.ts", 0.85, "export function refreshToken() { return getToken({ skipCache: true }) }", "refreshToken"),
+    ], 150, "refresh token")
+    expect(selected.results.map((r) => r.file)).toEqual(["refresh.ts"])
+    expect(selected.results[0].contentTruncated).not.toBe(true)
+  })
+
+  it("does not classify executable model implementations as type contracts", () => {
+    expect(deriveDomainLabel({ ...result("convex/model/delivery.ts", 0.8, "send()"), metadata: { symbolType: "method" } })).toBe("business logic")
   })
 })
 

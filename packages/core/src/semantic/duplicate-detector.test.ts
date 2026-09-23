@@ -63,7 +63,7 @@ vi.mock("./lancedb.js", () => ({
         root,
         embeddings: { provider: "gemini", model: "gemini-embedding-001", dimension: 2 },
         files: {},
-        updatedAt: Date.now(),
+        updatedAt: 1,
       },
     })),
     getCollectionUnsafe: vi.fn(async () => ({})),
@@ -157,10 +157,31 @@ describe("DuplicateDetector", () => {
       (resumed.summary.candidates ?? 0) - (partial.summary.resumeCursor ?? 0),
     )
     expect(resumed.summary.resumeCursor).toBeUndefined()
+    expect(resumed.status).toBe("complete")
+    const complete = await DuplicateDetector.detect({ path: process.cwd(), minLines: 1 })
+    expect(resumed.duplicates).toEqual(complete.duplicates)
+  })
+
+  it("rejects continuation after the candidate set changes", async () => {
+    const controller = new AbortController()
+    const { DuplicateDetector } = await import("./duplicate-detector.js")
+    const partial = await DuplicateDetector.detect({ path: process.cwd(), minLines: 1, signal: controller.signal,
+      onProgress: ({ current }) => { if (current === 1) controller.abort() },
+    })
+    rows = [...baseRows, { ...baseRows[0], id: "new", metadata: { ...baseRows[0].metadata, file: "new.ts" } }]
+    await expect(DuplicateDetector.detect({ path: process.cwd(), minLines: 1, resumeCursor: partial.summary.resumeCursor })).rejects.toThrow("does not match")
+  })
+
+  it("finds exact copies even when vector similarity and the neighbor cap would hide them", async () => {
+    rows = [baseRows[0], { ...baseRows[0], id: "copy", vector: [0, 1], metadata: { ...baseRows[0].metadata, file: "copy.ts" } }]
+    const { DuplicateDetector } = await import("./duplicate-detector.js")
+    const result = await DuplicateDetector.detect({ path: process.cwd(), minLines: 1, ignoreAcceptablePatterns: true })
+    expect(result.duplicates[0].similarity).toBe(1)
   })
 
   it("returns partial state when the wall-clock timeout expires during ANN lookup", async () => {
     searchDelayMs = 10
+    rows = Array.from({ length: 513 }, (_, i) => ({ ...baseRows[0], id: `ann-${i}`, metadata: { ...baseRows[0].metadata, file: `src/ann-${i}.ts` } }))
     const { DuplicateDetector } = await import("./duplicate-detector.js")
 
     const result = await DuplicateDetector.detect({

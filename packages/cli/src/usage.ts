@@ -50,7 +50,7 @@ Search options:
   --no-rerank               Disable reranking
   --hybrid <true|false>     Fuse lexical and vector retrieval (default: true)
   --no-hybrid               Disable lexical/vector fusion
-  --hybrid-mode <mode>      adaptive (default) or parallel
+  --hybrid-mode <mode>      parallel (default) or adaptive
   --max-tokens <n>          Limit estimated output tokens (context default: 12000)
   --embedding-timeout <ms>  Query embedding deadline (legacy: --latency-budget)
   --purpose <mode>          understand|implement|review|test ranking preset

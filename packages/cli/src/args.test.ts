@@ -28,6 +28,7 @@ describe("CLI arguments", () => {
   })
 
   it("accepts embedding timeout and global audit budgets", () => {
+    expect(validateKnownFlags("context", { "max-output-bytes": "4800" })).toBeUndefined()
     expect(validateKnownFlags("search", { "embedding-timeout": "1000" })).toBeUndefined()
     expect(validateKnownFlags("audit", {
       "max-total-tokens": "8000",

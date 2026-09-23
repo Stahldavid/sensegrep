@@ -550,11 +550,13 @@ export async function collectLexicalQueryResults(
   filters: VectorStore.SearchFilters,
   options: { signal?: AbortSignal; limit?: number } = {},
 ): Promise<WorkingResult[]> {
-  const tokens = getQueryTokens(query).filter((token) => token.length >= 2).slice(0, 12)
+  const identifiers = query.match(/\b[a-z]+[A-Z][A-Za-z0-9]*\b/g) ?? []
+  const tokens = [...new Set([...identifiers.map((token) => token.toLowerCase()), ...getQueryTokens(query)])].filter((token) => token.length >= 2).slice(0, 16)
   if (tokens.length === 0 || files.length === 0) return []
   const matches = await runRipgrepOnFiles(tokens.map(escapeRegex).join("|"), files, {
     signal: options.signal,
-    maxMatches: Math.max(100, (options.limit ?? 50) * 20),
+    // Visit every eligible file. A global prefix cap lets common words in early
+    // files starve later helpers; bound ranked candidates instead of occurrences.
   })
   const byFile = new Map<string, number[]>()
   for (const match of matches) {
@@ -589,7 +591,27 @@ export async function collectLexicalQueryResults(
       found.set(key, candidate)
     }
   }
-  return [...found.values()].sort((a, b) => b.semanticScore - a.semanticScore).slice(0, options.limit ?? 50)
+  const candidates = [...found.values()]
+  const text = (candidate: WorkingResult) => {
+    const source = `${candidate.file} ${String(candidate.metadata.symbolName ?? "")} ${candidate.content}`
+    return new Set([...splitIdentifier(source), ...(source.toLowerCase().match(/[a-z][a-z0-9_]*/g) ?? [])])
+  }
+  const tokenSets = candidates.map(text)
+  const weights = tokens.map((token) => Math.log(1 + candidates.length / (1 + tokenSets.filter((set) => set.has(token)).length)))
+  const totalWeight = weights.reduce((a, b) => a + b, 0) || 1
+  candidates.forEach((candidate, i) => {
+    const coverage = tokens.reduce((sum, token, j) => sum + (tokenSets[i].has(token) ? weights[j] : 0), 0) / totalWeight
+    const symbolTokens = getSymbolTokens(candidate.metadata)
+    const symbolCoverage = tokens.filter((token) => symbolTokens.includes(token)).length / Math.max(1, tokens.length)
+    const identifierHit = identifiers.some((identifier) => candidate.content.includes(identifier))
+    candidate.semanticScore = Math.min(1, coverage * 0.65 + candidate.semanticScore * 0.2 + symbolCoverage * 0.15 + (identifierHit ? 0.15 : 0))
+  })
+  return candidates.sort(compareWorkingResults).slice(0, options.limit ?? 50)
+}
+
+export function compareWorkingResults(a: WorkingResult, b: WorkingResult): number {
+  return (b.rerankScore ?? b.semanticScore) - (a.rerankScore ?? a.semanticScore)
+    || a.file.localeCompare(b.file) || a.startLine - b.startLine || a.endLine - b.endLine
 }
 
 export function fuseHybridResults(semantic: WorkingResult[], lexical: WorkingResult[]): WorkingResult[] {
@@ -678,13 +700,28 @@ export function estimateResultTokens(result: Pick<WorkingResult, "content" | "fi
   return Math.max(1, Math.ceil((result.content.length + metadataOverhead) / 4))
 }
 
-export function selectWithinTokenBudget(results: WorkingResult[], maxTokens?: number): { results: WorkingResult[]; estimatedTokens: number } {
+export function selectWithinTokenBudget(results: WorkingResult[], maxTokens?: number, query = ""): { results: WorkingResult[]; estimatedTokens: number } {
   if (!maxTokens) {
     return { results, estimatedTokens: results.reduce((sum, result) => sum + estimateResultTokens(result), 0) }
   }
   const selected: WorkingResult[] = []
   let estimatedTokens = 0
-  for (const result of results) {
+  // Prefer useful complete evidence over a large prefix that exhausts the pack.
+  // Preserve relevance, while rewarding compact, query-specific implementations.
+  const queryTokens = getQueryTokens(query)
+  const ordered = [...results].sort((a, b) => {
+    const utility = (r: WorkingResult) => {
+      const coverage = queryTokens.length ? lexicalRelevance(queryTokens, r) : 0
+      const executableWeight = ["type", "interface", "enum"].includes(String(r.metadata.symbolType)) ? 0.75 : 1
+      return ((r.rerankScore ?? r.semanticScore) + coverage * 0.3) * executableWeight / Math.sqrt(Math.max(120, estimateResultTokens(r)))
+    }
+    return utility(b) - utility(a) || compareWorkingResults(a, b)
+  })
+  // Only truncate if no complete candidate fits. Never sacrifice complete evidence
+  // just because the first ranked symbol is larger than the entire budget.
+  const strongest = Math.max(0, ...results.map((r) => r.rerankScore ?? r.semanticScore))
+  const fitting = ordered.filter((r) => estimateResultTokens(r) <= maxTokens && (r.rerankScore ?? r.semanticScore) >= strongest * 0.7)
+  for (const result of fitting.length ? fitting : ordered.slice(0, 1)) {
     let selectedResult = result
     let tokens = estimateResultTokens(selectedResult)
     if (selected.length === 0 && tokens > maxTokens) {
@@ -921,7 +958,7 @@ export async function collectExactSymbolResults(
     content: row.content,
     startLine: Number(row.metadata.startLine),
     endLine: Number(row.metadata.endLine),
-    semanticScore: 1.08,
+    semanticScore: 1.2,
     metadata: row.metadata,
     whyMatched: [`exact symbol lookup: ${symbolName}`],
   }))
@@ -940,6 +977,7 @@ async function loadDocumentsByFile(
   if (canonicalFiles.length === 0) return new Map()
   const variants = [...new Set(canonicalFiles.flatMap(expandFilePathVariants))]
   const documents = await VectorStore.listDocuments(collection, {
+    excludeVector: true,
     filters: {
       ...filters,
       all: [...(filters.all ?? []), { key: "file", operator: "in", value: variants }],
@@ -1222,7 +1260,8 @@ export async function collectWorkingResults(
     (exactSymbolResults.length > 0 || literalFallbackResults.length > 0) &&
     (params.exact === true || Boolean(params.symbol ?? params.name) || (simpleIdentifierQuery && exactSymbolResults.length > 0))
 
-  const adaptiveHybrid = params.hybridMode !== "parallel"
+  // Adaptive skipping is opt-in: vector similarity is not evidence of lexical coverage.
+  const adaptiveHybrid = params.hybridMode === "adaptive"
   const adaptiveLexicalController = new AbortController()
   const lexicalSignal = options.signal
     ? AbortSignal.any([options.signal, adaptiveLexicalController.signal])
@@ -1358,7 +1397,7 @@ export async function collectWorkingResults(
       ? result
       : {
           ...result,
-          semanticScore: Math.max(0, Math.min(1.1, result.semanticScore + boost)),
+          semanticScore: result.semanticScore > 1 ? result.semanticScore : Math.max(0, Math.min(1, result.semanticScore + boost)),
           whyMatched: [...new Set([...(result.whyMatched ?? []), `file role: ${role}`])],
         }
   })
@@ -1742,7 +1781,8 @@ export function deriveDomainLabel(result: WorkingResult): string {
   if (hasSegment("middleware", "middlewares", "guard", "guards")) return "middleware / guards"
   if (hasSegment("store", "stores", "state") || hasImport("pinia", "vuex", "redux", "zustand")) return "stores / state"
   if (hasSegment("service", "services", "api", "client", "clients") || hasImport("axios", "fetch", "ky")) return "services / api"
-  if (hasSegment("type", "types", "model", "models", "dto", "dtos", "schema", "schemas", "entity", "entities", "contract", "contracts")) return "types / contracts"
+  if (hasSegment("type", "types", "dto", "dtos", "schema", "schemas", "entity", "entities", "contract", "contracts")) return "types / contracts"
+  if (hasSegment("model", "models") && ["function", "method", "class"].includes(symbolType)) return "business logic"
   if (hasSegment("composable", "composables", "hook", "hooks")) return "composables / hooks"
   if (hasSegment("route", "routes", "router", "controller", "controllers", "endpoint", "endpoints")) return "endpoints / routing"
   if (hasSegment("repository", "repositories", "dao", "daos", "persistence", "database", "db")) return "persistence / data"
@@ -2106,7 +2146,7 @@ export async function reconstructSymbolResults(
       })
     }
   }
-  return [...reconstructed, ...passthrough]
+  return [...reconstructed, ...passthrough].sort(compareWorkingResults)
 }
 
 export function toStructuredSearchResult(result: WorkingResult): StructuredSearchResult {

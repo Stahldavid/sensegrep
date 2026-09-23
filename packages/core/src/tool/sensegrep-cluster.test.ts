@@ -222,7 +222,7 @@ describe("SenseGrepClusterTool", () => {
 
     expect(result.output).toContain("Clusters for: price list commission ncm uf packaging")
     expect(result.output).toContain("## services / api / commission")
-    expect(result.output).toContain("## persistence / data / packaging")
+    expect(result.output).toContain("## persistence / data / ncm packaging rule repository")
     expect(result.output).toContain("PriceListCommissionService")
     expect(result.output).toContain("NcmPackagingRuleRepository")
     expect((result.clusters as any[]).every((cluster) => cluster.results.length <= 1)).toBe(true)

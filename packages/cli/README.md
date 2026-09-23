@@ -35,7 +35,7 @@ sensegrep semantic-kinds --json
 Argument errors under `--json` also use stdout JSON and exit code 2. `--max-output-bytes`
 is enforced against the complete serialized payload.
 Hybrid retrieval runs semantic and lexical work concurrently and uses one batched index read
-for lexical matches. `--hybrid-mode adaptive` is the default; `--no-hybrid` is available for
+for lexical matches. `--hybrid-mode parallel` is the default; `--no-hybrid` is available for
 latency-sensitive semantic-only discovery. Deterministic query embeddings are cached locally
 by opaque hash unless `SENSEGREP_QUERY_CACHE=false`.
 The daemon is query-only by default; `daemon start --watch` explicitly enables background

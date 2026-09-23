@@ -112,7 +112,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       freshness,
       schema,
     }, params, {
-      rawLimit: params.pattern ? limit * 3 : limit * 2,
+      rawLimit: Math.max(200, params.pattern ? limit * 3 : limit * 2),
       diversify: false,
       signal: ctx.abort,
     })
@@ -158,7 +158,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
 
     // Take top results
     const limitedResults = diversifiedResults.slice(0, limit)
-    const budgeted = selectWithinTokenBudget(limitedResults, params.maxTokens)
+    const budgeted = selectWithinTokenBudget(limitedResults, params.maxTokens, params.query)
     const finalResults = budgeted.results
     finalResults.forEach((result, index) => {
       result.rankScore = Number(((finalResults.length - index) / Math.max(1, finalResults.length)).toFixed(6))

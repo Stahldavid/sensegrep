@@ -2,6 +2,7 @@ import fs from "node:fs/promises"
 import path from "node:path"
 import { Instance } from "../project/instance.js"
 import { VectorStore } from "./lancedb.js"
+import { TreeSitterChunking } from "./chunking-treesitter.js"
 
 export namespace CodeGraph {
   export type Location = { id: string; file: string; startLine: number; endLine: number; symbol?: string }
@@ -30,7 +31,7 @@ export namespace CodeGraph {
     "if", "for", "while", "switch", "catch", "function", "return", "typeof", "new", "super", "import",
   ])
   let cached: { key: string; snapshot: Snapshot } | undefined
-  const CACHE_VERSION = 1
+  const CACHE_VERSION = 3
 
   type PersistedSnapshot = {
     version: number
@@ -126,7 +127,6 @@ export namespace CodeGraph {
 
   function classifyEdge(targetName: string, content: string): Reference["kind"] {
     if (/^(api|internal)\./.test(targetName)) return "convex-api"
-    if (/\b(scheduler|runAfter|runAt|cron)\b/.test(content)) return "scheduled-function"
     if (/^(fetch|navigate|redirect|router|push|replace)$/i.test(targetName)) return "route-invocation"
     if (/^use[A-Z0-9_]/.test(targetName)) return "hook-usage"
     if (/^[A-Z][A-Za-z0-9_$]*$/.test(targetName) && /<\s*[A-Z]/.test(content)) return "component-usage"
@@ -199,6 +199,7 @@ export namespace CodeGraph {
       }
     }
 
+    const callsByFile = new Map<string, Promise<Awaited<ReturnType<typeof TreeSitterChunking.graphCalls>> | undefined>>()
     const outgoing = new Map<string, Set<string>>()
     const references: Reference[] = []
     const seenReferences = new Set<string>()
@@ -233,15 +234,39 @@ export namespace CodeGraph {
           })()
       if (!source) continue
 
-      for (const targetName of extractPersistedCalls(row.content, row.metadata.calls, sourceName)) {
-        const targetCandidates = nodesByName.get(targetName) ?? nodesByName.get(targetName.split(".").at(-1) ?? "") ?? []
+      const file = source.location.file
+      let calls: Array<{ target: string; scheduled: boolean; module?: string }>
+      if (TreeSitterChunking.isSupported(file)) {
+        if (!callsByFile.has(file)) {
+          const absolute = path.resolve(resolved.root, file)
+          const relative = path.relative(resolved.root, absolute)
+          callsByFile.set(file, relative.startsWith("..") || path.isAbsolute(relative)
+            ? Promise.resolve(undefined)
+            : fs.readFile(absolute, "utf8").then((content) => TreeSitterChunking.graphCalls(content, file)).catch(() => undefined))
+        }
+        const fullCalls = await callsByFile.get(file)
+        calls = fullCalls
+          ? fullCalls.filter((call) => call.line >= Number(row.metadata.startLine) && call.line <= Number(row.metadata.endLine))
+          : await TreeSitterChunking.graphCalls(row.content, file)
+      } else {
+        calls = extractPersistedCalls(row.content, row.metadata.calls, sourceName).map((target) => ({ target, scheduled: false }))
+      }
+      for (const { target: targetName, scheduled, module } of calls) {
+        let targetCandidates = nodesByName.get(targetName) ?? nodesByName.get(targetName.split(".").at(-1) ?? "") ?? []
+        if (module) {
+          const modulePath = path.posix.normalize(path.posix.join(path.posix.dirname(file.replace(/\\/g, "/")), module)).replace(/\.[cm]?[jt]sx?$/, "")
+          targetCandidates = module.startsWith(".") ? targetCandidates.filter((candidate) => {
+            const targetFile = candidate.location.file.replace(/\\/g, "/").replace(/\.[cm]?[jt]sx?$/, "")
+            return targetFile === modulePath || targetFile === `${modulePath}/index`
+          }) : []
+        }
         const resolvedTarget = resolveTarget(source, targetCandidates)
         if (!resolvedTarget.target) {
           if (resolvedTarget.ambiguous) ambiguousEdges++
           else unresolvedEdges++
           continue
         }
-        addReference(source, resolvedTarget.target, classifyEdge(targetName, row.content), resolvedTarget.confidence!)
+        addReference(source, resolvedTarget.target, scheduled ? "scheduled-function" : classifyEdge(targetName, row.content), resolvedTarget.confidence!)
       }
 
       for (const match of row.content.matchAll(/\bextends\s+([A-Za-z_$][A-Za-z0-9_$]*)/g)) {
