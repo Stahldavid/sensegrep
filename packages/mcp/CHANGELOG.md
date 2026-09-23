@@ -1,5 +1,14 @@
 # @sensegrep/mcp
 
+## 1.15.1
+
+### Patch Changes
+
+- [#37](https://github.com/Stahldavid/sensegrep/pull/37) [`a297ed9`](https://github.com/Stahldavid/sensegrep/commit/a297ed922ec802dd6530611250a05901a26a6836) Thanks [@Stahldavid](https://github.com/Stahldavid)! - Refresh the lockfile to patched fast-uri, Hono, qs, js-yaml, and Vitest dependencies. Raise the Vitest development dependency and existing js-yaml override minimums to their fixed versions.
+
+- Updated dependencies [[`a297ed9`](https://github.com/Stahldavid/sensegrep/commit/a297ed922ec802dd6530611250a05901a26a6836)]:
+  - @sensegrep/core@1.15.1
+
 ## 1.15.0
 
 ### Minor Changes

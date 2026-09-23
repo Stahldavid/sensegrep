@@ -1,5 +1,13 @@
 # @sensegrep/core
 
+## 1.15.1
+
+### Patch Changes
+
+- [#37](https://github.com/Stahldavid/sensegrep/pull/37) [`a297ed9`](https://github.com/Stahldavid/sensegrep/commit/a297ed922ec802dd6530611250a05901a26a6836) Thanks [@Stahldavid](https://github.com/Stahldavid)! - Report sequential embedding benchmarks as baselines without ineffective concurrency recommendations, and avoid recommending concurrency when all inputs fit in one HTTP batch. `recommendedConcurrency` is now null when no comparison is possible.
+
+  Distinguish index batches from Ollama HTTP request estimates, including incremental file boundaries. Align reranking help and local CLI guidance with runtime behavior.
+
 ## 1.15.0
 
 ### Minor Changes
