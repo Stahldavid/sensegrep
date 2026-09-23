@@ -58,7 +58,7 @@ Start with these defaults and adjust based on what you find:
 | General exploration | 20 | 2 | Balanced — visibly better file coverage than limit=10 |
 | Broad discovery (large codebase) | 20 | 3 | Diminishing returns beyond 3; max-per-file=5 rarely adds value |
 
-> When `--pattern` is set, sensegrep internally fetches `limit × 3` candidates before filtering — so the default limit=10 is already enough. Don't inflate `--limit` when using `--pattern`; the pattern does the filtering.
+> When `--pattern` is set, sensegrep internally fetches at least 200 candidates (or `limit × 3` when larger) before filtering. Increase `--limit` when the task needs more returned evidence.
 
 > **Tip:** Use `--include "src/**/*.ts"` to focus on source folders, or add `--exclude "*.md"` / `--exclude "docs/**"` when you want to keep markdown, docs, and changelogs out of results. On Windows, prefer forward slashes in globs (`src/**/*.ts`), though backslash-based indexed paths are now normalized automatically.
 
@@ -462,6 +462,15 @@ sensegrep search "order service orchestration" --language java --type class
 sensegrep search "checkout page state and composables" --language vue --include "frontend-store/**/*.vue"
 ```
 
-## Chunk policy and Ollama context
+## Chunk policy and Ollama context (1.16+)
 
-For builds with configurable chunking, inspect `selftest --json` → `embeddings.config` → `inputPolicy`. `contextTokens` configures the Ollama runtime; `chunking.targetTokens`, `preserveTokens`, `maxTokens`, and `overlapTokens` configure indexing. Do not confuse them with `context --max-tokens` (output only). A matching local `tokenizerPath` enables actual token counting; absent it, budgets are estimates. Ollama requests disable truncation. Policy/tokenizer changes require `index --no-watch`; use separate profiles and identical environment settings for fair comparisons. See `docs/chunking.md` in the repository.
+Inspect `sensegrep selftest --json`: find the `embeddings.config` check and its `details.inputPolicy`. This is the resolved policy; environment and API overrides may differ from the global config.
+
+- `contextTokens` controls the Ollama runtime window (default 8192, capped by model capacity). It is independent of `context --max-tokens`, which limits search output.
+- `chunking.targetTokens` defaults to 2048; `preserveTokens` to 4096; `maxTokens` to 7000; `overlapTokens` to 128. Complexity no longer imposes separate 800/1200/1800-token ceilings. Larger chunks are not automatically faster or more accurate.
+- A matching local Hugging Face `tokenizer.json`, selected with `tokenizerPath` or `SENSEGREP_TOKENIZER_PATH`, enables actual token counting. There is no automatic tokenizer download. Without it, counts are estimates. Ollama requests explicitly disable truncation; overflow requires correcting the tokenizer/budget and reindexing, not enabling truncation.
+- `batchTokens` (default 16384) complements the HTTP document-count limit. Request estimates exclude retries and `/api/show` metadata discovery.
+- Policy/tokenizer changes invalidate the index signature. Run `sensegrep index --no-watch` for the authorized migration; watch refuses to mix policies. A fresh install can require a full rebuild even if the source files are unchanged.
+- `--profile` isolates indexes, not configuration. Reuse the same config/environment for both indexing and searches within a profile. Keep experimental indexes separate from the default index.
+
+Configuration belongs in `~/.config/sensegrep/config.json`. For settings and reproducible comparisons, see [chunking documentation](https://github.com/Stahldavid/sensegrep/blob/main/docs/chunking.md).
