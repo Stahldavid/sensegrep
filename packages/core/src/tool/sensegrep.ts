@@ -127,7 +127,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     // Sort by semantic score initially
     workingResults.sort((a, b) => b.semanticScore - a.semanticScore)
 
-    // Optional rerank (cross-encoder) on top-N candidates
+    // Optional deterministic lexical/structural rerank on top-N candidates
     let rankedResults = workingResults
     if (shouldRerank && workingResults.length > 1) {
       const rerankStartedAt = Date.now()

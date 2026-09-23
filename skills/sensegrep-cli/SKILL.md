@@ -35,6 +35,19 @@ Use `sensegrep --version` to confirm the installed CLI version.
 
 **Routing rule:** Start with `sensegrep search` whenever the task asks where or how behavior is implemented, even if the request contains candidate keywords. Use `sensegrep literal` only when the text or regex is already known, every textual occurrence is required, or you are verifying/refining a semantic result. If unsure, choose `sensegrep search`.
 
+## Local execution and evidence quality
+
+- On Windows PowerShell, use `sensegrep.cmd` if execution policy blocks npm's `sensegrep.ps1` wrapper. No policy change is needed.
+- For local embeddings, set `provider: "ollama"`, `embedModel: "qwen3-embedding:0.6b"`, `embedDim: 1024`, and `baseUrl: "http://127.0.0.1:11434"` in `~/.config/sensegrep/config.json`. Confirm the resolved provider with `selftest`; environment and CLI overrides can take precedence.
+- Use incremental `index --no-watch` for normal updates. A missing index warrants indexing; a known text lookup does not.
+- Start conceptual searches with a domain or framework when known (for example, "Clerk session token refresh"). If results are weak, reformulate before raising the result limit. Avoid premature kind filters: a business rule may live in a helper rather than a framework mutation.
+- Follow relevant result IDs with `show`, then verify claims in source. `confidence` is a ranking heuristic, not a calibrated probability that a result answers the question.
+- If `context` reports `status: "incomplete"` or `retrieval.truncated`, inspect selected IDs and expand missing evidence with `show`; a small token budget can omit an important file.
+- `graphCoverage` measures resolved edges divided by resolved, unresolved, and ambiguous edges considered by the graph. It is not recall against every real reference in the repository. Use compiler-aware tools before refactoring when completeness matters.
+- Report CLI wall time separately from internal search timings. Do not attribute process startup time to the embedding model.
+- `benchmark` measures provider request concurrency, not index worker concurrency or Ollama server slots. Sequential adapters (including native Ollama) report a baseline without a recommendation; an OpenAI-compatible sample fitting in one HTTP batch also cannot compare concurrency. On older versions, disregard Ollama concurrency recommendations.
+- Index plans distinguish internal `estimatedBatches`/`batchSize` from estimated HTTP requests. Ollama exposes `httpBatchSize`; request estimates exclude retries, and dry-run estimates may overstate work when vectors will be reused.
+
 ## Recommended Defaults
 
 Start with these defaults and adjust based on what you find:
@@ -284,7 +297,7 @@ Changed files reuse vectors for content-identical chunks. Full indexing checkpoi
 
 ### Benchmark and named profiles
 
-Benchmarking calls the configured provider and may incur cost. It recommends concurrency but does not rewrite saved config:
+Benchmarking calls the configured provider and may incur cost. It recommends concurrency only when the adapter supports it and the sample spans multiple HTTP batches; it does not rewrite saved config:
 
 ```bash
 sensegrep benchmark --concurrency 1,2,4 --samples 16 --json

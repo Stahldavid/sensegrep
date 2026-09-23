@@ -26,7 +26,9 @@ export namespace EmbeddingBenchmark {
     dimension: number
     sampleCount: number
     trials: Trial[]
-    recommendedConcurrency: number
+    concurrencySupported: boolean
+    warnings: string[]
+    recommendedConcurrency: number | null
     recommendedEnvironment: Record<string, string>
   }
 
@@ -54,12 +56,25 @@ export namespace EmbeddingBenchmark {
       .sort((a, b) => a - b)
     if (candidates.length === 0) throw new Error("At least one positive concurrency candidate is required.")
 
+    // Only the OpenAI-compatible adapter consumes config.concurrency. Other
+    // adapters send their HTTP batches sequentially, regardless of this setting.
+    const concurrencySupported = config.provider === "openai"
+    const requestBatchSize = Embeddings.getRequestBatchSize()
+    const canCompareConcurrency = concurrencySupported && requestBatchSize !== undefined && sampleCount > requestBatchSize
+    const warnings: string[] = []
+    if (!concurrencySupported) {
+      warnings.push(`${config.provider} sends embedding batches sequentially; measuring a baseline only. Provider concurrency is not tunable through this benchmark.`)
+    } else if (!canCompareConcurrency) {
+      warnings.push(`The sample fits in one HTTP batch (${requestBatchSize} inputs); increase --samples to compare concurrency.`)
+    }
+    const measuredCandidates = canCompareConcurrency ? candidates : [1]
+
     const samples = createSamples(sampleCount)
     options.signal?.throwIfAborted()
     await Embeddings.embed(samples.slice(0, 1), { taskType: "RETRIEVAL_DOCUMENT", signal: options.signal })
 
     const trials: Trial[] = []
-    for (const concurrency of candidates) {
+    for (const concurrency of measuredCandidates) {
       const durations: number[] = []
       let vectors: number[][] = []
       for (let repeat = 0; repeat < repeats; repeat++) {
@@ -99,8 +114,10 @@ export namespace EmbeddingBenchmark {
       dimension: config.embedDim,
       sampleCount,
       trials,
-      recommendedConcurrency: best.concurrency,
-      recommendedEnvironment: { [variable]: String(best.concurrency) },
+      concurrencySupported,
+      warnings,
+      recommendedConcurrency: canCompareConcurrency ? best.concurrency : null,
+      recommendedEnvironment: canCompareConcurrency ? { [variable]: String(best.concurrency) } : {},
     }
   }
 }

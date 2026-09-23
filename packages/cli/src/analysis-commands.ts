@@ -32,7 +32,10 @@ export async function runAnalysisCommand(input: {
       for (const trial of result.trials) {
         writeStdoutLine(`  concurrency=${trial.concurrency} ${trial.durationMs.toFixed(0)}ms ${trial.inputsPerSecond.toFixed(2)} inputs/s ${trial.tokensPerSecond.toFixed(0)} tokens/s`)
       }
-      writeStdoutLine(`Recommended: ${Object.entries(result.recommendedEnvironment).map(([key, value]) => `${key}=${value}`).join(" ")}`)
+      for (const warning of result.warnings) writeStdoutLine(`Note: ${warning}`)
+      if (result.recommendedConcurrency !== null) {
+        writeStdoutLine(`Recommended: ${Object.entries(result.recommendedEnvironment).map(([key, value]) => `${key}=${value}`).join(" ")}`)
+      }
     }
     return true
   }
