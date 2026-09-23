@@ -1123,6 +1123,7 @@ async function runSelftestCommand(
     return {
       message: `provider=${config.provider} model=${config.embedModel} dim=${config.embedDim}${endpoint}${region} ${credentialState}`,
       details: {
+        inputPolicy: Embeddings.getInputPolicy(),
         provider: config.provider,
         embedModel: config.embedModel,
         embedDim: config.embedDim,

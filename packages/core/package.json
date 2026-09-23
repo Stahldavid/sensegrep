@@ -34,6 +34,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.1084.0",
+    "@huggingface/tokenizers": "^0.2.0",
     "@lancedb/lancedb": "^0.23.0",
     "@parcel/watcher": "^2.4.1",
     "@zip.js/zip.js": "^2.8.26",

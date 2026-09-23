@@ -461,3 +461,7 @@ sensegrep search "async context manager" --variant generator --async --language 
 sensegrep search "order service orchestration" --language java --type class
 sensegrep search "checkout page state and composables" --language vue --include "frontend-store/**/*.vue"
 ```
+
+## Chunk policy and Ollama context
+
+For builds with configurable chunking, inspect `selftest --json` → `embeddings.config` → `inputPolicy`. `contextTokens` configures the Ollama runtime; `chunking.targetTokens`, `preserveTokens`, `maxTokens`, and `overlapTokens` configure indexing. Do not confuse them with `context --max-tokens` (output only). A matching local `tokenizerPath` enables actual token counting; absent it, budgets are estimates. Ollama requests disable truncation. Policy/tokenizer changes require `index --no-watch`; use separate profiles and identical environment settings for fair comparisons. See `docs/chunking.md` in the repository.

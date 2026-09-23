@@ -456,3 +456,7 @@ See [the architecture guide](docs/architecture.md) for runtime and persistence d
 ## License
 
 [Apache-2.0](LICENSE)
+
+### Configurable chunk budgets
+
+See [Token-aware chunking and local Ollama](docs/chunking.md) for the 8K runtime window, configurable symbol/target/maximum budgets, local tokenizer counting, token-bounded HTTP batches, and safe index migration. `context --max-tokens` controls output independently.

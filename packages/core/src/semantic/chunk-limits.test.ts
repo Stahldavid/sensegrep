@@ -42,7 +42,7 @@ describe("chunk limits", () => {
     vi.doUnmock("node:fs")
   })
 
-  it("keeps Qwen3 embedding chunks search-sized despite a 32k model context", async () => {
+  it("preserves complete symbols without complexity-specific caps", async () => {
     process.env.SENSEGREP_PROVIDER = "openai"
     process.env.SENSEGREP_EMBED_MODEL = "qwen/qwen3-embedding-4b"
     process.env.SENSEGREP_EMBED_DIM = "1024"
@@ -51,14 +51,14 @@ describe("chunk limits", () => {
     const limits = getTreeSitterChunkLimits()
 
     expect(limits.tokens.modelMax).toBe(32_768)
-    expect(limits.tokens.max).toBe(2_200)
-    expect(limits.max).toBe(8_800)
+    expect(limits.tokens.max).toBe(7_000)
+    expect(limits.max).toBe(28_000)
     expect(limits.config).toEqual({
-      simple: 7_200,
-      medium: 4_800,
-      complex: 3_200,
+      simple: 16_384,
+      medium: 16_384,
+      complex: 16_384,
     })
-    expect(limits.overlap).toBe(384)
+    expect(limits.overlap).toBe(512)
     expect(limits.statementOverlap).toBe(3)
   })
 
@@ -72,13 +72,13 @@ describe("chunk limits", () => {
     const limits = getTreeSitterChunkLimits()
 
     expect(limits.tokens.modelMax).toBe(2_048)
-    expect(limits.tokens.usableModel).toBe(1_740)
-    expect(limits.tokens.max).toBe(1_600)
-    expect(limits.max).toBe(6_400)
+    expect(limits.tokens.usableModel).toBe(2_007)
+    expect(limits.tokens.max).toBe(2_007)
+    expect(limits.max).toBe(8_028)
     expect(limits.config).toEqual({
-      simple: 4_800,
-      medium: 3_400,
-      complex: 2_400,
+      simple: 8_028,
+      medium: 8_028,
+      complex: 8_028,
     })
   })
 })

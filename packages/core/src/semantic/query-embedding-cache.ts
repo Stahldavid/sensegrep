@@ -4,7 +4,7 @@ import path from "node:path"
 import { Global } from "../global/index.js"
 import type { EmbeddingConfig } from "./embedding-config.js"
 
-const CACHE_VERSION = 1
+const CACHE_VERSION = 2
 const DEFAULT_TTL_MS = 30 * 24 * 60 * 60_000
 const DEFAULT_MAX_ENTRIES = 2_000
 let prunePromise: Promise<void> | undefined
@@ -47,6 +47,7 @@ function identityKey(identity: CacheIdentity): string {
     baseUrl: config.baseUrl,
     region: config.region,
     maxInputTokens: config.maxInputTokens,
+    contextTokens: config.contextTokens,
     taskType: identity.taskType,
     text: identity.text,
   })).digest("hex")

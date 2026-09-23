@@ -1,29 +1,8 @@
-import { Log } from "../util/log.js"
+import { tokenCounterIdentity } from "./token-count.js"
 import { getEmbeddingConfig, type EmbeddingConfig } from "./embedding-config.js"
 
-const log = Log.create({ service: "semantic.chunk-limits" })
-
 const CHARS_PER_TOKEN = 4
-const MODEL_SAFETY_RATIO = 0.85
-const CHUNKING_SIGNATURE_VERSION = 4
-
-const CODE_TARGET_TOKENS = {
-  simple: 1800,
-  medium: 1200,
-  complex: 800,
-  max: 2200,
-  min: 50,
-  overlap: 96,
-} as const
-
-const SMALL_MODEL_TARGET_TOKENS = {
-  simple: 1200,
-  medium: 850,
-  complex: 600,
-  max: 1600,
-  min: 50,
-  overlap: 96,
-} as const
+const CHUNKING_SIGNATURE_VERSION = 5
 
 export type GeneralChunkLimits = {
   max: number
@@ -36,6 +15,8 @@ export type GeneralChunkLimits = {
     min: number
     overlap: number
   }
+  targetTokens: number
+  preserveTokens: number
   charsPerToken: number
 }
 
@@ -67,6 +48,10 @@ export type ChunkingSignature = {
   simpleChars: number
   mediumChars: number
   complexChars: number
+  targetTokens: number
+  preserveTokens: number
+  contextTokens: number
+  tokenizer: string
 }
 
 let cachedGeneralLimits: GeneralChunkLimits | null = null
@@ -75,10 +60,6 @@ let cachedConfigKey = ""
 
 function tokensToChars(tokens: number): number {
   return Math.max(1, Math.floor(tokens * CHARS_PER_TOKEN))
-}
-
-function clampTokenTarget(target: number, usableModelTokens: number): number {
-  return Math.max(1, Math.min(target, usableModelTokens))
 }
 
 function detectModelMaxTokens(config: EmbeddingConfig): number {
@@ -91,45 +72,32 @@ function detectModelMaxTokens(config: EmbeddingConfig): number {
   if (model.includes("text-embedding-3") || model.includes("text-embedding-ada")) return 8191
   if (model.includes("cohere.embed") || model.includes("embed-v4")) return 8192
   if (config.provider === "gemini") return 2048
-  if (config.provider === "ollama") return 32_768
+  if (config.provider === "ollama") return 2048
   return 8192
+}
+
+export function getOperationalContextTokens(config: EmbeddingConfig = getEmbeddingConfig()): number {
+  const capacity = detectModelMaxTokens(config)
+  return Math.min(capacity, config.contextTokens ?? (config.provider === "ollama" ? 8192 : capacity))
 }
 
 function buildLimits(config: EmbeddingConfig): TreeSitterChunkLimits {
   const modelMax = detectModelMaxTokens(config)
-  const usableModel = Math.max(1, Math.floor(modelMax * MODEL_SAFETY_RATIO))
-  const targets = usableModel < CODE_TARGET_TOKENS.max ? SMALL_MODEL_TARGET_TOKENS : CODE_TARGET_TOKENS
-
-  const maxTokens = clampTokenTarget(targets.max, usableModel)
-  const minTokens = Math.min(targets.min, maxTokens)
-  const simpleTokens = clampTokenTarget(targets.simple, maxTokens)
-  const mediumTokens = clampTokenTarget(targets.medium, maxTokens)
-  const complexTokens = clampTokenTarget(targets.complex, maxTokens)
-  const overlapTokens = Math.max(1, Math.min(targets.overlap, Math.floor(maxTokens * 0.15)))
-
+  const context = getOperationalContextTokens(config)
+  // Reserve room for provider special tokens, including EOS; count metadata as input.
+  const usableModel = Math.max(1, context - Math.max(32, Math.ceil(context * 0.02)))
+  const maxTokens = Math.min(config.chunking?.maxTokens ?? 7000, usableModel, config.provider === "bedrock" ? 2000 : Infinity)
+  const preserveTokens = Math.min(config.chunking?.preserveTokens ?? 4096, maxTokens)
+  const targetTokens = Math.min(config.chunking?.targetTokens ?? 2048, preserveTokens)
+  const overlapTokens = Math.min(config.chunking?.overlapTokens ?? 128, Math.floor(targetTokens * 0.15))
   return {
-    max: tokensToChars(maxTokens),
-    min: tokensToChars(minTokens),
-    overlap: tokensToChars(overlapTokens),
-    statementOverlap: 3,
-    charsPerToken: CHARS_PER_TOKEN,
-    tokens: {
-      modelMax,
-      usableModel,
-      max: maxTokens,
-      min: minTokens,
-      overlap: overlapTokens,
-    },
-    config: {
-      simple: tokensToChars(simpleTokens),
-      medium: tokensToChars(mediumTokens),
-      complex: tokensToChars(complexTokens),
-    },
-    tokenConfig: {
-      simple: simpleTokens,
-      medium: mediumTokens,
-      complex: complexTokens,
-    },
+    max: tokensToChars(maxTokens), min: tokensToChars(Math.min(50, targetTokens)),
+    overlap: tokensToChars(overlapTokens), targetTokens, preserveTokens,
+    statementOverlap: 3, charsPerToken: CHARS_PER_TOKEN,
+    tokens: { modelMax, usableModel, max: maxTokens, min: Math.min(50, targetTokens), overlap: overlapTokens },
+    // Compatibility for language chunkers. Complexity no longer reduces context.
+    config: { simple: tokensToChars(preserveTokens), medium: tokensToChars(preserveTokens), complex: tokensToChars(preserveTokens) },
+    tokenConfig: { simple: preserveTokens, medium: preserveTokens, complex: preserveTokens },
   }
 }
 
@@ -139,6 +107,9 @@ function configCacheKey(config: EmbeddingConfig): string {
     config.embedModel,
     config.embedDim,
     config.maxInputTokens ?? "",
+    config.contextTokens ?? "",
+    JSON.stringify(config.chunking ?? {}),
+    tokenCounterIdentity(config),
   ].join("\0")
 }
 
@@ -157,28 +128,15 @@ function buildSignature(config: EmbeddingConfig, limits: TreeSitterChunkLimits):
     simpleChars: limits.config.simple,
     mediumChars: limits.config.medium,
     complexChars: limits.config.complex,
+    targetTokens: limits.targetTokens,
+    preserveTokens: limits.preserveTokens,
+    contextTokens: getOperationalContextTokens(config),
+    tokenizer: tokenCounterIdentity(config),
   }
 }
 
 function detectChunkLimits(config = getEmbeddingConfig()): TreeSitterChunkLimits {
-  try {
-    const limits = buildLimits(config)
-    log.info("chunk limits provider detected", {
-      provider: config.provider,
-      model: config.embedModel,
-      modelMaxTokens: limits.tokens.modelMax,
-      maxChars: limits.max,
-      envProvider: process.env.SENSEGREP_PROVIDER,
-    })
-    return limits
-  } catch (error) {
-    log.warn("failed to detect embedding chunk limits, using fallback", { error: String(error) })
-    return buildLimits({
-      provider: "openai",
-      embedModel: "text-embedding-3-small",
-      embedDim: 1536,
-    })
-  }
+  return buildLimits(config)
 }
 
 function refreshCachedLimits(config = getEmbeddingConfig()): TreeSitterChunkLimits {
@@ -191,6 +149,8 @@ function refreshCachedLimits(config = getEmbeddingConfig()): TreeSitterChunkLimi
       overlap: cachedTreeSitterLimits.overlap,
       tokens: cachedTreeSitterLimits.tokens,
       charsPerToken: cachedTreeSitterLimits.charsPerToken,
+      targetTokens: cachedTreeSitterLimits.targetTokens,
+      preserveTokens: cachedTreeSitterLimits.preserveTokens,
     }
     cachedConfigKey = key
   }

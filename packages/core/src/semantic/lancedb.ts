@@ -106,6 +106,10 @@ export namespace VectorStore {
       simpleChars: z.number(),
       mediumChars: z.number(),
       complexChars: z.number(),
+      targetTokens: z.number().optional(),
+      preserveTokens: z.number().optional(),
+      contextTokens: z.number().optional(),
+      tokenizer: z.string().optional(),
     }).optional(),
     files: z.record(z.string(), z.object({
       size: z.number(),

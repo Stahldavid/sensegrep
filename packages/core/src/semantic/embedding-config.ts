@@ -26,6 +26,17 @@ export type EmbeddingConfig = {
   batchSize?: number
   concurrency?: number
   maxInputTokens?: number
+  /** Explicit Ollama runtime context, independent of the model's advertised capacity. */
+  contextTokens?: number
+  /** Local Hugging Face tokenizer.json matching embedModel; no automatic downloads. */
+  tokenizerPath?: string
+  batchTokens?: number
+  chunking?: {
+    targetTokens?: number
+    preserveTokens?: number
+    maxTokens?: number
+    overlapTokens?: number
+  }
   openRouterReferer?: string
   openRouterTitle?: string
   rateLimit?: RateLimitConfig
@@ -41,6 +52,7 @@ export function embeddingConfigFingerprint(config: EmbeddingConfig): string {
     baseUrl: config.baseUrl ?? "",
     region: config.region ?? "",
     maxInputTokens: config.maxInputTokens ?? null,
+    contextTokens: config.contextTokens ?? null,
   })
 }
 
@@ -198,6 +210,22 @@ export function getEmbeddingConfig(overrides?: EmbeddingOverrides): EmbeddingCon
     parsePositiveEnvNumber("SENSEGREP_EMBED_MAX_TOKENS") ??
     (fileConfigApplies ? parseNumber((fileConfig as any).maxInputTokens) : undefined)
 
+  const contextTokens = mergedOverrides.contextTokens ?? parsePositiveEnvNumber("SENSEGREP_CONTEXT_TOKENS") ?? (fileConfigApplies ? fileConfig.contextTokens : undefined)
+  const tokenizerPath = mergedOverrides.tokenizerPath ?? process.env.SENSEGREP_TOKENIZER_PATH ?? (fileConfigApplies ? fileConfig.tokenizerPath : undefined)
+  const batchTokens = mergedOverrides.batchTokens ?? parsePositiveEnvNumber("SENSEGREP_BATCH_TOKENS") ?? (fileConfigApplies ? fileConfig.batchTokens : undefined)
+  const chunking = {
+    ...(fileConfigApplies ? fileConfig.chunking : {}),
+  }
+  for (const [key, env] of Object.entries({ targetTokens: "SENSEGREP_CHUNK_TARGET_TOKENS", preserveTokens: "SENSEGREP_CHUNK_PRESERVE_TOKENS", maxTokens: "SENSEGREP_CHUNK_MAX_TOKENS", overlapTokens: "SENSEGREP_CHUNK_OVERLAP_TOKENS" })) {
+    if (process.env[env] !== undefined) (chunking as Record<string, number>)[key] = parsePositiveEnvNumber(env)!
+  }
+  Object.assign(chunking, mergedOverrides.chunking)
+  for (const [key, value] of Object.entries({ contextTokens, batchTokens, maxInputTokens, ...chunking })) {
+    if (value !== undefined && (!Number.isSafeInteger(value) || value <= 0)) throw new Error(`${key} must be a positive integer`)
+  }
+
+  if (contextTokens !== undefined && contextTokens < 64) throw new Error("contextTokens must be at least 64")
+
   const openRouterReferer =
     (mergedOverrides as any).openRouterReferer ||
     process.env.SENSEGREP_OPENROUTER_REFERER ||
@@ -242,6 +270,10 @@ export function getEmbeddingConfig(overrides?: EmbeddingOverrides): EmbeddingCon
     ...(batchSize ? { batchSize } : {}),
     ...(concurrency ? { concurrency } : {}),
     ...(maxInputTokens ? { maxInputTokens } : {}),
+    ...(contextTokens ? { contextTokens } : {}),
+    ...(tokenizerPath ? { tokenizerPath } : {}),
+    ...(batchTokens ? { batchTokens } : {}),
+    ...(Object.keys(chunking).length ? { chunking } : {}),
     ...(provider === "openai" && openRouterReferer ? { openRouterReferer } : {}),
     ...(provider === "openai" && openRouterTitle ? { openRouterTitle } : {}),
     ...(Object.keys(rateLimit).length > 0 ? { rateLimit } : {}),

@@ -7,8 +7,10 @@ import {
   type EmbeddingConfig,
   type EmbeddingOverrides,
 } from "./embedding-config.js"
-import { getEmbeddingModelMaxTokens } from "./chunk-limits.js"
-import { getOllamaBatchSize } from "./ollama-batching.js"
+import { resolveOllamaContext } from "./ollama-context.js"
+import { countEmbeddingTokens } from "./token-count.js"
+import { getEmbeddingModelMaxTokens, getChunkingSignature } from "./chunk-limits.js"
+import { getOllamaBatchSize, packOllamaBatches } from "./ollama-batching.js"
 import { QueryEmbeddingCache } from "./query-embedding-cache.js"
 
 const log = Log.create({ service: "semantic.embeddings-remote" })
@@ -406,6 +408,10 @@ function getOpenAiEmbeddingHeaders(apiKey: string, config: EmbeddingConfig, base
 }
 
 export namespace EmbeddingsRemote {
+  export function getInputPolicy() {
+    return getChunkingSignature(getEmbeddingConfig())
+  }
+
   const bedrockClients = new Map<string, BedrockRuntimeClient>()
   let bedrockModulePromise: Promise<typeof import("@aws-sdk/client-bedrock-runtime")> | undefined
 
@@ -870,17 +876,22 @@ export namespace EmbeddingsRemote {
     const model = config.embedModel
     const baseUrl = config.baseUrl || "http://127.0.0.1:11434"
 
-    const validatedTexts = await prepareValidatedTexts(texts, "ollama", config, options?.skipValidation)
+    // Never truncate Ollama inputs, including when callers request skipValidation.
+    const contextTokens = await resolveOllamaContext(config, options?.signal)
+    const validatedTexts = texts
+    for (const text of texts) {
+      if (countEmbeddingTokens(text, config) > contextTokens - 32) {
+        throw new Error(`Ollama input exceeds the ${contextTokens}-token runtime window. Reindex with a smaller chunking.maxTokens or a matching tokenizerPath; no content was truncated.`)
+      }
+    }
 
-    const batchSize = getOllamaBatchSize()
     const allVectors: number[][] = []
     const limiter = getLimiter(config)
     const { maxRetries, retryBaseDelayMs, retryDeadlineMs } = getRetryPolicy(config, options)
 
-    for (let i = 0; i < validatedTexts.length; i += batchSize) {
-      const batch = validatedTexts.slice(i, i + batchSize)
+    for (const batch of packOllamaBatches(validatedTexts, config)) {
       const url = `${baseUrl.replace(/\/+$/, "")}/api/embed`
-      const estimatedTokens = batch.reduce((s, t) => s + Math.ceil(t.length / 4), 0)
+      const estimatedTokens = batch.reduce((s, t) => s + countEmbeddingTokens(t, config), 0)
       await limiter.acquire(estimatedTokens)
 
       const data = await withRetry(
@@ -890,7 +901,7 @@ export namespace EmbeddingsRemote {
             headers: {
               "Content-Type": "application/json",
             },
-            body: JSON.stringify({ model, input: batch }),
+            body: JSON.stringify({ model, input: batch, truncate: false, options: { num_ctx: contextTokens } }),
             signal: options?.signal,
           })
           return readJsonResponse(resp, "Ollama")

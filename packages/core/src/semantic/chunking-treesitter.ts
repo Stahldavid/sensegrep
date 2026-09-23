@@ -5,6 +5,7 @@ import type { Tree } from "web-tree-sitter"
 import { createRequire } from "module"
 import path from "path"
 import type { Chunking } from "./chunking.js"
+import { countEmbeddingTokens } from "./token-count.js"
 import { getTreeSitterChunkLimits } from "./chunk-limits.js"
 
 // SyntaxNode type from web-tree-sitter (not directly exported, so we define it)
@@ -28,10 +29,6 @@ type TreeCursor = {
 }
 
 const log = Log.create({ service: "semantic.chunking-treesitter" })
-
-function getChunkSizeConfig() {
-  return getTreeSitterChunkLimits().config
-}
 
 function getStatementOverlap() {
   return getTreeSitterChunkLimits().statementOverlap
@@ -668,15 +665,14 @@ export namespace TreeSitterChunking {
   }
 
   /**
-   * Get adaptive max chunk size based on node complexity
+   * Choose an AST split target while preserving complete symbols
    */
   function getMaxChunkSize(node: SyntaxNode): number {
-    const complexity = calculateComplexity(node)
-
-    const chunkSizeConfig = getChunkSizeConfig()
-    if (complexity < 5) return chunkSizeConfig.simple
-    if (complexity < 15) return chunkSizeConfig.medium
-    return chunkSizeConfig.complex
+    const limits = getTreeSitterChunkLimits()
+    const tokens = countEmbeddingTokens(node.text)
+    // Keep cohesive symbols intact; control-flow complexity does not reduce their budget.
+    if (tokens <= limits.preserveTokens) return Math.min(limits.max, Math.max(limits.preserveTokens * 4, node.text.length + 512))
+    return Math.min(limits.max, Math.max(256, Math.floor(node.text.length * limits.targetTokens / Math.max(1, tokens))))
   }
 
   /**
@@ -1376,7 +1372,12 @@ ${content}`
 
     if (summaries.length === 0) return ""
 
-    return `// ... previous:\n${summaries.map((s) => `//   ${s}`).join("\n")}\n`
+    while (summaries.length) {
+      const context = `// ... previous:\n${summaries.map((s) => `//   ${s}`).join("\n")}\n`
+      if (countEmbeddingTokens(context) <= getTreeSitterChunkLimits().tokens.overlap) return context
+      summaries.shift()
+    }
+    return ""
   }
 
   /**
@@ -1768,7 +1769,7 @@ ${content}`
         // Add context prefix
         let finalContent = addContextPrefix(extracted.content, filePath, node.type, nodeName, isExported)
 
-        // Use adaptive chunk size based on complexity
+        // Use the configured symbol-preservation and split budgets
         const adaptiveMaxSize = getMaxChunkSize(node)
 
         // If too large, split it
