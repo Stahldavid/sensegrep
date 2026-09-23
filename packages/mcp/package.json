@@ -1,7 +1,7 @@
 {
   "name": "@sensegrep/mcp",
   "mcpName": "io.github.Stahldavid/sensegrep",
-  "version": "1.15.1",
+  "version": "1.16.0",
   "type": "module",
   "main": "./dist/server.js",
   "bin": {
@@ -33,7 +33,7 @@
     "@modelcontextprotocol/node": "^2.0.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@modelcontextprotocol/server": "^2.0.0",
-    "@sensegrep/core": "^1.15.1",
+    "@sensegrep/core": "^1.16.0",
     "zod": "^4.4.3"
   },
   "publishConfig": {
