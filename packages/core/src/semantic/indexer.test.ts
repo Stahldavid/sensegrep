@@ -230,6 +230,16 @@ describe("Indexer incremental updates", () => {
     expect(writeIndexMeta).not.toHaveBeenCalled()
   })
 
+  it("plans a full rebuild when only a chunk target changes", async () => {
+    const meta = await readIndexMeta()
+    readIndexMeta.mockResolvedValue({ ...meta, chunking: { ...testChunkingSignature, targetTokens: 1024 } })
+    const { Indexer } = await import("./indexer.js")
+    const plan = await Indexer.planIndex()
+    expect(plan.mode).toBe("full")
+    expect(embedDocuments).not.toHaveBeenCalled()
+    expect(writeIndexMeta).not.toHaveBeenCalled()
+  })
+
   it("separates index batches from Ollama HTTP requests in plans and full progress", async () => {
     getConfig.mockReturnValue({ provider: "ollama", embedModel: "qwen3-embedding:0.6b", embedDim: 3 })
     readIndexMeta.mockResolvedValue(null)
