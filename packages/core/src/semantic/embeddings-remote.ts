@@ -8,6 +8,7 @@ import {
   type EmbeddingOverrides,
 } from "./embedding-config.js"
 import { getEmbeddingModelMaxTokens } from "./chunk-limits.js"
+import { getOllamaBatchSize } from "./ollama-batching.js"
 import { QueryEmbeddingCache } from "./query-embedding-cache.js"
 
 const log = Log.create({ service: "semantic.embeddings-remote" })
@@ -354,22 +355,6 @@ function batchTextsForBedrock(texts: string[]): string[][] {
 
   if (current.length > 0) batches.push(current)
   return batches.length > 0 ? batches : [[]]
-}
-
-function getLocalEmbeddingBatchSize(provider: "ollama"): number {
-  const envName = "SENSEGREP_OLLAMA_BATCH_SIZE"
-  const configured = process.env[envName] || process.env.SENSEGREP_EMBED_BATCH_SIZE
-  if (configured) {
-    const parsed = Number(configured)
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      throw new Error(`${envName}/SENSEGREP_EMBED_BATCH_SIZE must be a positive number, got "${configured}".`)
-    }
-    return Math.max(1, Math.floor(parsed))
-  }
-
-  // Local CPU servers often time out or reject large 64/256-item requests.
-  // Keep requests small by default; hosted providers keep their larger batches.
-  return 16
 }
 
 function readPositiveIntegerEnv(name: string): number | undefined {
@@ -887,7 +872,7 @@ export namespace EmbeddingsRemote {
 
     const validatedTexts = await prepareValidatedTexts(texts, "ollama", config, options?.skipValidation)
 
-    const batchSize = getLocalEmbeddingBatchSize("ollama")
+    const batchSize = getOllamaBatchSize()
     const allVectors: number[][] = []
     const limiter = getLimiter(config)
     const { maxRetries, retryBaseDelayMs, retryDeadlineMs } = getRetryPolicy(config, options)
@@ -949,6 +934,17 @@ export namespace EmbeddingsRemote {
       index,
       score: documents.length - index,
     }))
+  }
+
+  /** Input-count HTTP batch size; Bedrock also batches by payload size. */
+  export function getRequestBatchSize(): number | undefined {
+    const config = getEmbeddingConfig()
+    if (config.provider === "ollama") return getOllamaBatchSize()
+    if (config.provider === "gemini") return 64
+    if (config.provider === "openai") {
+      return getOpenAiEmbeddingBatchSize(config, config.baseUrl ?? "", config.embedModel)
+    }
+    return undefined
   }
 
   export function getDimension(): number {

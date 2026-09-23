@@ -31,7 +31,7 @@ There is **no ESLint/Prettier** at the repo root. “Lint” for this repo means
 
 ### Semantic index and search (remote embeddings)
 
-Indexing and semantic search use **remote embeddings only**. CI does **not** configure providers.
+Indexing and semantic search use embedding APIs, including a local Ollama server. With no explicit provider or hosted API credentials, the default is Ollama (`qwen3-embedding:0.6b`, 1024 dimensions). CI does **not** configure providers.
 
 #### Recommended: Cohere via Amazon Bedrock (Bedrock API key)
 
@@ -71,7 +71,7 @@ node packages/cli/dist/main.js search "embedding configuration" --limit 3 --json
 
 #### Other providers (optional)
 
-- **Gemini:** `GEMINI_API_KEY` / `GOOGLE_API_KEY` (default provider if unset and no OpenAI key)
+- **Gemini:** `GEMINI_API_KEY` / `GOOGLE_API_KEY` (selected automatically when a Gemini key is present and no provider or OpenAI-compatible key is set)
 - **OpenAI-compatible:** `SENSEGREP_OPENAI_API_KEY` / `FIREWORKS_API_KEY` with `--provider openai`
 
 Without `apiKey` (and without IAM credentials), Bedrock fails with `CredentialsProviderError`. `languages`, `status`, and MCP **initialize / tools/list** still work without indexing.

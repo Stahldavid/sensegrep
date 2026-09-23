@@ -212,6 +212,7 @@ function createIndexRunOptions(flags: Flags): {
       progress.reusedChunks !== undefined ? `reusedChunks=${progress.reusedChunks}` : undefined,
       progress.chunksPersisted !== undefined ? `chunksPersisted=${progress.chunksPersisted}` : undefined,
       progress.estimatedTokens !== undefined ? `tokens~${progress.estimatedTokens}` : undefined,
+      progress.batches !== undefined ? `batches~${progress.batches}` : undefined,
       progress.requests !== undefined ? `requests~${progress.requests}` : undefined,
       progress.etaMs !== undefined && progress.etaMs > 0 ? `eta=${Math.ceil(progress.etaMs / 1000)}s` : undefined,
       progress.skipped !== undefined ? `skipped=${progress.skipped}` : undefined,
@@ -461,7 +462,7 @@ async function run() {
         writeJson(plan)
       } else {
         writeStdoutLine(`Index plan (${plan.mode}): files=${plan.files} add=${plan.added.length} change=${plan.changed.length} remove=${plan.removed.length} unchanged=${plan.unchanged}`)
-        writeStdoutLine(`Embedding estimate: chunks=${plan.chunks} tokens~${plan.estimatedTokens} requests~${plan.estimatedRequests} batch=${plan.batchSize}`)
+        writeStdoutLine(`Embedding estimate: chunks=${plan.chunks} tokens~${plan.estimatedTokens} requests~${plan.estimatedRequests} batches~${plan.estimatedBatches} indexBatch=${plan.batchSize}${plan.httpBatchSize !== undefined ? ` httpBatch=${plan.httpBatchSize}` : ""}`)
         for (const file of plan.added) writeStdoutLine(`  + ${file}`)
         for (const file of plan.changed) writeStdoutLine(`  ~ ${file}`)
         for (const file of plan.removed) writeStdoutLine(`  - ${file}`)

@@ -235,6 +235,25 @@ describe("Indexer incremental updates", () => {
     expect(writeIndexMeta).not.toHaveBeenCalled()
   })
 
+  it("separates index batches from Ollama HTTP requests in plans and full progress", async () => {
+    getConfig.mockReturnValue({ provider: "ollama", embedModel: "qwen3-embedding:0.6b", embedDim: 3 })
+    readIndexMeta.mockResolvedValue(null)
+    const chunks = Array.from({ length: 33 }, (_, i) => ({
+      content: `export const item${i} = ${i}`,
+      startLine: i + 1,
+      endLine: i + 1,
+      type: "variable",
+    }))
+    chunkAsync.mockResolvedValue(chunks)
+    getStats.mockResolvedValue({ count: 33, name: "chunks" })
+    const { Indexer } = await import("./indexer.js")
+    const plan = await Indexer.planIndex({ full: true })
+    expect(plan).toMatchObject({ estimatedBatches: 1, estimatedRequests: 3, batchSize: 256, httpBatchSize: 16 })
+    const progress: any[] = []
+    await Indexer.indexProject({ onProgress: (event) => progress.push(event) })
+    expect(progress.some((event) => event.phase === "embed" && event.requests === 3 && event.batches === 1)).toBe(true)
+  })
+
   it("updates collapsible regions during watched file updates", async () => {
     const regions = [
       {

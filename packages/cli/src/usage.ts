@@ -46,7 +46,7 @@ Search options:
   --language <lang>         typescript|javascript|python|java|vue (comma-separated for multiple)
   --parent <name>           Parent scope/class name
   --imports <name>          Filter by imported module name
-  --rerank <true|false>     Compatibility flag; semantic ranking is kept as-is
+  --rerank <true|false>     Apply deterministic lexical/structural reranking
   --no-rerank               Disable reranking
   --hybrid <true|false>     Fuse lexical and vector retrieval (default: true)
   --no-hybrid               Disable lexical/vector fusion

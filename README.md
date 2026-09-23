@@ -401,7 +401,16 @@ For the complete and official runtime variable list, see `docs/mcp-setup.md`.
 
 OpenRouter Qwen embeddings use one provider request at a time by default. Benchmarking on
 high-latency endpoints commonly shows that additional concurrent requests reduce throughput;
-use `sensegrep benchmark --concurrency 1,2,4 --json` before overriding the default.
+use `sensegrep benchmark --concurrency 1,2,4 --samples 256 --json` before overriding the default.
+
+The benchmark varies concurrency only for the OpenAI-compatible adapter, and only
+when samples span multiple HTTP batches. Native Ollama, Gemini, and Bedrock report
+a sequential baseline with `recommendedConcurrency: null` and no environment
+recommendation. This does not tune index workers or Ollama server slots.
+Index plans report internal `estimatedBatches` separately from `estimatedRequests`;
+for Ollama, HTTP requests use `httpBatchSize` (default 16), including splits inside
+each index batch. Request estimates exclude retries; dry runs do not subtract
+vectors that will be reused. Other providers retain approximate request estimates.
 
 ### Index compatibility
 

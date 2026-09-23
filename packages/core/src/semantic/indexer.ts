@@ -5,6 +5,7 @@ import { Chunking } from "./chunking.js"
 import { VectorStore } from "./lancedb.js"
 import { Bus } from "../bus/index.js"
 import { BusEvent } from "../bus/bus-event.js"
+import { estimateOllamaRequests, getOllamaBatchSize } from "./ollama-batching.js"
 import { Embeddings } from "./embeddings.js"
 import { TreeShaker } from "./tree-shaker.js"
 import { Global } from "../global/index.js"
@@ -121,7 +122,9 @@ export namespace Indexer {
     reusedChunks?: number
     chunksPersisted?: number
     estimatedTokens?: number
+    /** Estimated HTTP requests, excluding retries. */
     requests?: number
+    batches?: number
     elapsedMs?: number
     etaMs?: number
     skipped?: number
@@ -146,6 +149,8 @@ export namespace Indexer {
     chunks: number
     estimatedTokens: number
     estimatedRequests: number
+    estimatedBatches: number
+    httpBatchSize?: number
     provider: string
     model: string
     dimension: number
@@ -416,6 +421,13 @@ export namespace Indexer {
     return Math.max(1, Math.floor(Embeddings.getConfig().batchSize ?? ADD_BATCH_SIZE))
   }
 
+  function estimateRequests(chunks: number, indexBatchSize = ADD_BATCH_SIZE): number {
+    if (Embeddings.getConfig().provider === "ollama") {
+      return estimateOllamaRequests(chunks, indexBatchSize)
+    }
+    return chunks === 0 ? 0 : Math.ceil(chunks / configBatchSize())
+  }
+
   /** Build an indexing plan using only local I/O and parsing. */
   export async function planIndex(options: IndexRunOptions & { full?: boolean } = {}): Promise<IndexPlan> {
     let files = await getFiles(options.signal)
@@ -440,6 +452,8 @@ export namespace Indexer {
     let unchanged = 0
     let chunks = 0
     let estimatedTokens = 0
+    let incrementalRequests = 0
+    let incrementalBatches = 0
 
     await mapConcurrent(files, FILE_CONCURRENCY, async (file, index) => {
       options.signal?.throwIfAborted()
@@ -464,6 +478,8 @@ export namespace Indexer {
       if (documents.length === 0) return
       if (prev) changed.push(file)
       else added.push(file)
+      incrementalRequests += estimateRequests(documents.length, documents.length)
+      incrementalBatches++
       chunks += documents.length
       estimatedTokens += documents.reduce((total, document) => total + estimateEmbeddingTokens(document.content), 0)
     })
@@ -471,7 +487,7 @@ export namespace Indexer {
     const removed = truncated ? [] : [...remaining].sort()
     added.sort()
     changed.sort()
-    const batchSize = Math.max(1, Math.floor(config.batchSize ?? ADD_BATCH_SIZE))
+    const batchSize = ADD_BATCH_SIZE
     return {
       mode,
       files: files.length,
@@ -481,7 +497,9 @@ export namespace Indexer {
       unchanged,
       chunks,
       estimatedTokens,
-      estimatedRequests: chunks === 0 ? 0 : Math.ceil(chunks / batchSize),
+      estimatedRequests: mode === "full" ? estimateRequests(chunks) : incrementalRequests,
+      estimatedBatches: mode === "full" ? Math.ceil(chunks / batchSize) : incrementalBatches,
+      ...(config.provider === "ollama" ? { httpBatchSize: getOllamaBatchSize() } : {}),
       provider: config.provider,
       model: config.embedModel,
       dimension: config.embedDim,
@@ -693,7 +711,7 @@ export namespace Indexer {
     documents: Array<{ id: string; content: string; contentRaw: string; metadata: Record<string, string | number | boolean | null> }>,
     collection: Awaited<ReturnType<typeof VectorStore.createStagingCollection>>["collection"],
     run: ReturnType<typeof createRunContext>,
-    progress: { filesParsed: number; chunksPrepared: number; estimatedTokens?: number; requests?: number; failed: number; reusedChunks?: number },
+    progress: { filesParsed: number; chunksPrepared: number; estimatedTokens?: number; requests?: number; batches?: number; failed: number; reusedChunks?: number },
   ): Promise<number> {
     const batches: typeof documents[] = []
     for (let i = 0; i < documents.length; i += ADD_BATCH_SIZE) {
@@ -967,7 +985,7 @@ export namespace Indexer {
         }
         newlyEmbeddedChunks = pendingDocs.length
         const estimatedTokens = pendingDocs.reduce((total, document) => total + estimateEmbeddingTokens(document.content), 0)
-        const estimatedRequests = pendingDocs.length === 0 ? 0 : Math.ceil(pendingDocs.length / configBatchSize())
+        const estimatedRequests = estimateRequests(pendingDocs.length)
         if (persistedIds.size > 0) {
           run.emit({
             phase: "persist",
@@ -983,6 +1001,7 @@ export namespace Indexer {
           chunksPrepared: totalChunks,
           estimatedTokens,
           requests: estimatedRequests,
+          batches: Math.ceil(pendingDocs.length / ADD_BATCH_SIZE),
           failed,
           reusedChunks,
         })
@@ -1263,6 +1282,8 @@ export namespace Indexer {
       // materialized with the old vector; only genuinely new chunks hit the provider.
       let reusedChunks = 0
       let newlyEmbeddedChunks = 0
+      let estimatedRequests = 0
+      let embeddingBatches = 0
       const preparedReplacements = await mapConcurrent(
         filesToReplace,
         EMBED_BATCH_CONCURRENCY,
@@ -1274,6 +1295,10 @@ export namespace Indexer {
           )
           reusedChunks += prepared.reused
           newlyEmbeddedChunks += prepared.embedded
+          if (prepared.embedded > 0) {
+            estimatedRequests += estimateRequests(prepared.embedded, prepared.embedded)
+            embeddingBatches++
+          }
           run.emit({
             phase: "embed",
             current: reusedChunks + newlyEmbeddedChunks,
@@ -1290,7 +1315,6 @@ export namespace Indexer {
       )
       const embeddedRows = preparedReplacements.flatMap((prepared) => prepared.rows)
       const estimatedTokens = docsToAdd.reduce((total, document) => total + estimateEmbeddingTokens(document.content), 0)
-      const estimatedRequests = newlyEmbeddedChunks === 0 ? 0 : Math.ceil(newlyEmbeddedChunks / configBatchSize())
 
       // Replace each changed file with rollback support. This keeps the previous
       // rows intact if a LanceDB append fails after deletion.
@@ -1312,6 +1336,7 @@ export namespace Indexer {
             reusedChunks,
             estimatedTokens,
             requests: estimatedRequests,
+            batches: embeddingBatches,
             chunksPersisted,
             skipped,
             failed,
@@ -1381,6 +1406,7 @@ export namespace Indexer {
         reusedChunks,
         estimatedTokens,
         requests: estimatedRequests,
+        batches: embeddingBatches,
         skipped,
         failed,
       })

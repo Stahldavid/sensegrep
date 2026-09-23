@@ -124,7 +124,7 @@ persistently by an opaque provider/model/dimension/task/query hash; diagnostic m
 | `--embed-model <name>` | Override remote embedding model |
 | `--embed-dim <n>` | Override embedding dimension |
 | `--provider <name>` | `ollama`, `gemini`, `openai`, `bedrock` |
-| `--rerank` / `--no-rerank` | Compatibility flag; remote-only mode keeps semantic ranking |
+| `--rerank` / `--no-rerank` | Apply deterministic lexical/structural reranking (no separate model) |
 
 Changing provider, model, base URL, embedding dimension, local server pooling behavior, or task-prefix strategy requires a full reindex. Same-dimensional embeddings from different models are not interchangeable.
 
