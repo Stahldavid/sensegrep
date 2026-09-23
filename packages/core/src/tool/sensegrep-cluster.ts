@@ -196,9 +196,8 @@ function chooseClusterTitle(cluster: ClusterNode[], query: string): string {
   const symbolHints = topCounts(cluster.flatMap((member) => member.symbolHints), 3, queryTokenSet)
   const symbolPhrases = getDominantSymbolPhrases(cluster, query, 2, false)
   const importSignal = importHints.find((hint) => !GENERIC_TITLE_SIGNALS.has(hint)) ?? importHints[0]
-  const strongestSignal = importSignal && !GENERIC_TITLE_SIGNALS.has(importSignal)
-    ? importSignal
-    : symbolPhrases[0] ?? symbolHints[0] ?? importSignal
+  const strongestSignal = symbolPhrases[0] ?? symbolHints[0] ??
+    (importSignal && !GENERIC_TITLE_SIGNALS.has(importSignal) ? importSignal : undefined)
 
   if (strongestDomain && !strongestDomain.startsWith("domain /")) {
     if (strongestSignal) return `${strongestDomain} / ${strongestSignal}`

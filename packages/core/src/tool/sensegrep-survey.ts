@@ -104,9 +104,8 @@ function chooseSurveyTitle(group: SurveyGroup, query: string): string {
   const symbolHints = topCounts(group.symbolHints, 2, new Set(getQueryTokens(query)))
   const importHints = topCounts(group.importHints, 2)
   const importSignal = importHints.find((hint) => !GENERIC_TITLE_SIGNALS.has(hint)) ?? importHints[0]
-  const strongestSignal = importSignal && !GENERIC_TITLE_SIGNALS.has(importSignal)
-    ? importSignal
-    : symbolPhrases[0] ?? symbolHints[0] ?? importSignal
+  const strongestSignal = symbolPhrases[0] ?? symbolHints[0] ??
+    (importSignal && !GENERIC_TITLE_SIGNALS.has(importSignal) ? importSignal : undefined)
 
   if (!strongestSignal) return group.title
   if (group.title.includes(strongestSignal)) return group.title

@@ -470,6 +470,7 @@ describe("EmbeddingsRemote Ollama", () => {
   })
 
   it("posts batches to Ollama's native embed endpoint without Authorization", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ model_info: { "qwen3.context_length": 32768 } }) })
     fetchMock.mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -489,18 +490,38 @@ describe("EmbeddingsRemote Ollama", () => {
     })
 
     const vectors = await EmbeddingsRemote.embed(["find auth flow", "find billing"], { skipValidation: true })
-    const [, init] = fetchMock.mock.calls[0]
+    const [, init] = fetchMock.mock.calls[1]
     const body = JSON.parse(init.body)
 
-    expect(fetchMock.mock.calls[0][0]).toBe("http://127.0.0.1:11434/api/embed")
+    expect(fetchMock.mock.calls[1][0]).toBe("http://127.0.0.1:11434/api/embed")
     expect(init.headers.Authorization).toBeUndefined()
     expect(body).toEqual({
       model: "qwen3-embedding:0.6b",
       input: ["find auth flow", "find billing"],
+      truncate: false,
+      options: { num_ctx: 8192 },
     })
     expect(vectors[0][0]).toBeCloseTo(0.6)
     expect(vectors[0][1]).toBeCloseTo(0.8)
     expect(vectors[1][0]).toBeCloseTo(0)
     expect(vectors[1][1]).toBeCloseTo(1)
   })
+  it("rejects oversized input even with skipValidation and never sends a truncated embedding", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ model_info: { "qwen3.context_length": 32768 } }) })
+    const { EmbeddingsRemote } = await import("./embeddings-remote.js")
+    EmbeddingsRemote.configure({ provider: "ollama", embedModel: "qwen3-embedding:0.6b", embedDim: 1024, contextTokens: 128 })
+    await expect(EmbeddingsRemote.embed("x".repeat(1000), { skipValidation: true })).rejects.toThrow("no content was truncated")
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("propagates server context overflow without retrying or cutting the input", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ model_info: { "qwen3.context_length": 32768 } }) })
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 400, text: async () => "input length exceeds context length" })
+    const { EmbeddingsRemote } = await import("./embeddings-remote.js")
+    EmbeddingsRemote.configure({ provider: "ollama", embedModel: "qwen3-embedding:0.6b", embedDim: 1024 })
+    await expect(EmbeddingsRemote.embed("hello")).rejects.toThrow("exceeds context length")
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).input).toEqual(["hello"])
+  })
+
 })

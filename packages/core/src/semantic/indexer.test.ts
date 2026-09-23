@@ -31,18 +31,12 @@ const chunkAsync = vi.fn()
 const analyzeAsync = vi.fn()
 const addOverlap = vi.fn((chunks) => chunks)
 const testChunkingSignature = {
-  version: 4,
-  provider: "openai",
-  model: "test-model",
-  dimension: 3,
-  modelMaxTokens: 8192,
-  usableModelTokens: 6963,
-  maxChars: 8800,
-  minChars: 200,
-  overlapChars: 384,
-  simpleChars: 7200,
-  mediumChars: 4800,
-  complexChars: 3200,
+  version: 5, provider: "openai", model: "test-model", dimension: 3,
+  modelMaxTokens: 8192, usableModelTokens: 8028,
+  maxChars: 28000, minChars: 200, overlapChars: 512,
+  simpleChars: 16384, mediumChars: 16384, complexChars: 16384,
+  targetTokens: 2048, preserveTokens: 4096, contextTokens: 8192,
+  tokenizer: "estimate:utf8-div3:v1",
 }
 
 vi.mock("./lancedb.js", () => ({
@@ -101,6 +95,7 @@ vi.mock("./chunking.js", () => ({
     chunkAsync,
     analyzeAsync,
     addOverlap,
+    enforceEmbeddingBudget: (chunks: unknown) => chunks,
   },
 }))
 
@@ -235,6 +230,16 @@ describe("Indexer incremental updates", () => {
     expect(writeIndexMeta).not.toHaveBeenCalled()
   })
 
+  it("plans a full rebuild when only a chunk target changes", async () => {
+    const meta = await readIndexMeta()
+    readIndexMeta.mockResolvedValue({ ...meta, chunking: { ...testChunkingSignature, targetTokens: 1024 } })
+    const { Indexer } = await import("./indexer.js")
+    const plan = await Indexer.planIndex()
+    expect(plan.mode).toBe("full")
+    expect(embedDocuments).not.toHaveBeenCalled()
+    expect(writeIndexMeta).not.toHaveBeenCalled()
+  })
+
   it("separates index batches from Ollama HTTP requests in plans and full progress", async () => {
     getConfig.mockReturnValue({ provider: "ollama", embedModel: "qwen3-embedding:0.6b", embedDim: 3 })
     readIndexMeta.mockResolvedValue(null)
@@ -276,6 +281,15 @@ describe("Indexer incremental updates", () => {
     expect(writeIndexMeta).toHaveBeenCalledTimes(1)
     expect(writeIndexMeta.mock.calls[0][1].files["src/a.ts"].collapsibleRegions).toEqual(regions)
     expect(writeIndexMeta.mock.calls[0][1].chunking).toEqual(testChunkingSignature)
+  })
+
+  it("requires a rebuild instead of mixing chunk policies during watched updates", async () => {
+    const meta = await readIndexMeta()
+    readIndexMeta.mockResolvedValue({ ...meta, chunking: { ...testChunkingSignature, version: 4 } })
+    const { Indexer } = await import("./indexer.js")
+    await expect(Indexer.updateFile("src/a.ts")).rejects.toThrow("Chunking policy changed")
+    expect(embedDocumentsReusingFile).not.toHaveBeenCalled()
+    expect(replaceFileDocuments).not.toHaveBeenCalled()
   })
 
   it("removes generated files from index metadata during file updates", async () => {

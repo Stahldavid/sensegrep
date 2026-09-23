@@ -5,6 +5,7 @@ import type { Tree } from "web-tree-sitter"
 import { createRequire } from "module"
 import path from "path"
 import type { Chunking } from "./chunking.js"
+import { countEmbeddingTokens } from "./token-count.js"
 import { getTreeSitterChunkLimits } from "./chunk-limits.js"
 
 // SyntaxNode type from web-tree-sitter (not directly exported, so we define it)
@@ -28,10 +29,6 @@ type TreeCursor = {
 }
 
 const log = Log.create({ service: "semantic.chunking-treesitter" })
-
-function getChunkSizeConfig() {
-  return getTreeSitterChunkLimits().config
-}
 
 function getStatementOverlap() {
   return getTreeSitterChunkLimits().statementOverlap
@@ -85,6 +82,50 @@ const tsxParser = lazy(async () => {
 })
 
 export namespace TreeSitterChunking {
+  /** Call-site evidence; strings/comments and unrelated scheduler calls never classify an edge. */
+  export async function graphCalls(content: string, file: string): Promise<Array<{ target: string; scheduled: boolean; line: number; module?: string }>> {
+    const parser = await (/\.[jt]sx$/.test(file) ? tsxParser() : tsParser())
+    const tree = parser.parse(content)
+    if (!tree) return []
+    const calls: Array<{ target: string; scheduled: boolean; line: number; module?: string }> = []
+    const bindings = new Map<string, { imported: string; module: string }>()
+    const imports = (node: SyntaxNode, module?: string) => {
+      if (node.type === "import_statement") module = node.childForFieldName("source")?.text.slice(1, -1)
+      if (module && node.type === "import_specifier") {
+        const name = node.childForFieldName("name")?.text
+        const alias = node.childForFieldName("alias")?.text ?? name
+        if (name && alias) bindings.set(alias, { imported: name, module })
+      }
+      for (let i = 0; i < node.childCount; i++) { const child = node.child(i); if (child) imports(child, module) }
+    }
+    const add = (target: string, scheduled: boolean, line: number) => {
+      const binding = bindings.get(target)
+      calls.push({ target: binding?.imported ?? target, scheduled, line, module: binding?.module })
+    }
+    const visit = (node: SyntaxNode) => {
+      if (node.type === "call_expression") {
+        const callee = node.childForFieldName("function")
+        const target = callee?.text.replace(/\s+/g, "").replaceAll("?.", ".")
+        if (target && /^[\w$]+(?:\.[\w$]+)*$/.test(target)) {
+          add(target, false, node.startPosition.row + 1)
+          if (/\.scheduler\.(runAfter|runAt)$/.test(target) || /^scheduler\.(runAfter|runAt)$/.test(target) || /^crons?\.(interval|daily|weekly|monthly|cron)$/.test(target)) {
+            const args = node.childForFieldName("arguments")
+            // Delay/schedule is argument 0; the function reference is argument 1.
+            const values: SyntaxNode[] = []
+            if (args) for (let i = 0; i < args.childCount; i++) {
+              const child = args.child(i)
+              if (child && !["(", ")", ",", "comment"].includes(child.type)) values.push(child)
+            }
+            const reference = values[/^crons?\./.test(target) ? 2 : 1]?.text.replace(/\s+/g, "")
+            if (reference && /^[\w$]+(?:\.[\w$]+)*$/.test(reference)) add(reference, true, node.startPosition.row + 1)
+          }
+        }
+      }
+      for (let i = 0; i < node.childCount; i++) { const child = node.child(i); if (child) visit(child) }
+    }
+    try { imports(tree.rootNode); visit(tree.rootNode); return calls } finally { tree.delete() }
+  }
+
   /**
    * Check if file type is supported by tree-sitter chunking
    */
@@ -624,15 +665,14 @@ export namespace TreeSitterChunking {
   }
 
   /**
-   * Get adaptive max chunk size based on node complexity
+   * Choose an AST split target while preserving complete symbols
    */
   function getMaxChunkSize(node: SyntaxNode): number {
-    const complexity = calculateComplexity(node)
-
-    const chunkSizeConfig = getChunkSizeConfig()
-    if (complexity < 5) return chunkSizeConfig.simple
-    if (complexity < 15) return chunkSizeConfig.medium
-    return chunkSizeConfig.complex
+    const limits = getTreeSitterChunkLimits()
+    const tokens = countEmbeddingTokens(node.text)
+    // Keep cohesive symbols intact; control-flow complexity does not reduce their budget.
+    if (tokens <= limits.preserveTokens) return Math.min(limits.max, Math.max(limits.preserveTokens * 4, node.text.length + 512))
+    return Math.min(limits.max, Math.max(256, Math.floor(node.text.length * limits.targetTokens / Math.max(1, tokens))))
   }
 
   /**
@@ -1332,7 +1372,12 @@ ${content}`
 
     if (summaries.length === 0) return ""
 
-    return `// ... previous:\n${summaries.map((s) => `//   ${s}`).join("\n")}\n`
+    while (summaries.length) {
+      const context = `// ... previous:\n${summaries.map((s) => `//   ${s}`).join("\n")}\n`
+      if (countEmbeddingTokens(context) <= getTreeSitterChunkLimits().tokens.overlap) return context
+      summaries.shift()
+    }
+    return ""
   }
 
   /**
@@ -1724,7 +1769,7 @@ ${content}`
         // Add context prefix
         let finalContent = addContextPrefix(extracted.content, filePath, node.type, nodeName, isExported)
 
-        // Use adaptive chunk size based on complexity
+        // Use the configured symbol-preservation and split budgets
         const adaptiveMaxSize = getMaxChunkSize(node)
 
         // If too large, split it

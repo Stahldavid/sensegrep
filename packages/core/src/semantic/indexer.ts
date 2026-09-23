@@ -5,7 +5,7 @@ import { Chunking } from "./chunking.js"
 import { VectorStore } from "./lancedb.js"
 import { Bus } from "../bus/index.js"
 import { BusEvent } from "../bus/bus-event.js"
-import { estimateOllamaRequests, getOllamaBatchSize } from "./ollama-batching.js"
+import { estimateOllamaRequests, getOllamaBatchSize, packOllamaBatches } from "./ollama-batching.js"
 import { Embeddings } from "./embeddings.js"
 import { TreeShaker } from "./tree-shaker.js"
 import { Global } from "../global/index.js"
@@ -15,6 +15,7 @@ import {
   isProbablyMinifiedOrGenerated,
   shouldIndexFile,
 } from "./index-file-rules.js"
+import { countEmbeddingTokens } from "./token-count.js"
 import { getChunkingSignature } from "./chunk-limits.js"
 import { loadLanguagePlugins } from "./language/index.js"
 import { embeddingConfigFingerprint } from "./embedding-config.js"
@@ -414,14 +415,20 @@ export namespace Indexer {
   }
 
   function estimateEmbeddingTokens(text: string): number {
-    return Math.max(1, Math.ceil(text.length / 4))
+    return Math.max(1, countEmbeddingTokens(text))
   }
 
   function configBatchSize(): number {
     return Math.max(1, Math.floor(Embeddings.getConfig().batchSize ?? ADD_BATCH_SIZE))
   }
 
-  function estimateRequests(chunks: number, indexBatchSize = ADD_BATCH_SIZE): number {
+  function estimateRequests(input: number | Array<{ content: string }>, indexBatchSize = ADD_BATCH_SIZE): number {
+    const chunks = typeof input === "number" ? input : input.length
+    if (typeof input !== "number" && Embeddings.getConfig().provider === "ollama") {
+      let requests = 0
+      for (let i = 0; i < input.length; i += indexBatchSize) requests += packOllamaBatches(input.slice(i, i + indexBatchSize).map((doc) => doc.content), Embeddings.getConfig()).length
+      return requests
+    }
     if (Embeddings.getConfig().provider === "ollama") {
       return estimateOllamaRequests(chunks, indexBatchSize)
     }
@@ -454,6 +461,7 @@ export namespace Indexer {
     let estimatedTokens = 0
     let incrementalRequests = 0
     let incrementalBatches = 0
+    const plannedDocuments: Array<Array<{ content: string }>> = []
 
     await mapConcurrent(files, FILE_CONCURRENCY, async (file, index) => {
       options.signal?.throwIfAborted()
@@ -478,7 +486,8 @@ export namespace Indexer {
       if (documents.length === 0) return
       if (prev) changed.push(file)
       else added.push(file)
-      incrementalRequests += estimateRequests(documents.length, documents.length)
+      plannedDocuments[index] = documents
+      incrementalRequests += estimateRequests(documents, documents.length)
       incrementalBatches++
       chunks += documents.length
       estimatedTokens += documents.reduce((total, document) => total + estimateEmbeddingTokens(document.content), 0)
@@ -497,7 +506,7 @@ export namespace Indexer {
       unchanged,
       chunks,
       estimatedTokens,
-      estimatedRequests: mode === "full" ? estimateRequests(chunks) : incrementalRequests,
+      estimatedRequests: mode === "full" ? estimateRequests(plannedDocuments.flat()) : incrementalRequests,
       estimatedBatches: mode === "full" ? Math.ceil(chunks / batchSize) : incrementalBatches,
       ...(config.provider === "ollama" ? { httpBatchSize: getOllamaBatchSize() } : {}),
       provider: config.provider,
@@ -593,7 +602,7 @@ export namespace Indexer {
     const chunks = input.chunks ?? await Chunking.chunkAsync(input.content, normalizedFilePath)
     if (chunks.length === 0) return []
 
-    const chunksWithOverlap = Chunking.addOverlap(chunks)
+    const chunksWithOverlap = Chunking.enforceEmbeddingBudget(Chunking.addOverlap(chunks))
     const lines = input.content.split("\n")
     const fileKind = getFileKind(normalizedFilePath)
     const fileRole = classifyFileRole(normalizedFilePath, fileKind)
@@ -985,7 +994,7 @@ export namespace Indexer {
         }
         newlyEmbeddedChunks = pendingDocs.length
         const estimatedTokens = pendingDocs.reduce((total, document) => total + estimateEmbeddingTokens(document.content), 0)
-        const estimatedRequests = estimateRequests(pendingDocs.length)
+        const estimatedRequests = estimateRequests(pendingDocs)
         if (persistedIds.size > 0) {
           run.emit({
             phase: "persist",
@@ -1472,6 +1481,10 @@ export namespace Indexer {
       return
     }
 
+    const existingMeta = await VectorStore.readIndexMeta(Instance.directory)
+    if (existingMeta && !sameChunkingSignature(existingMeta.chunking, getChunkingSignature(Embeddings.getConfig()))) {
+      throw new Error("Chunking policy changed; run sensegrep index --no-watch to rebuild before applying watched updates")
+    }
     const { collapsibleRegions, documents } = await analyzeFile(filePath, content)
     if (documents.length === 0) {
       await deleteIndexedFileIfPresent(filePath)

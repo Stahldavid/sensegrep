@@ -58,7 +58,7 @@ Start with these defaults and adjust based on what you find:
 | General exploration | 20 | 2 | Balanced — visibly better file coverage than limit=10 |
 | Broad discovery (large codebase) | 20 | 3 | Diminishing returns beyond 3; max-per-file=5 rarely adds value |
 
-> When `--pattern` is set, sensegrep internally fetches `limit × 3` candidates before filtering — so the default limit=10 is already enough. Don't inflate `--limit` when using `--pattern`; the pattern does the filtering.
+> When `--pattern` is set, sensegrep internally fetches at least 200 candidates (or `limit × 3` when larger) before filtering. Increase `--limit` when the task needs more returned evidence.
 
 > **Tip:** Use `--include "src/**/*.ts"` to focus on source folders, or add `--exclude "*.md"` / `--exclude "docs/**"` when you want to keep markdown, docs, and changelogs out of results. On Windows, prefer forward slashes in globs (`src/**/*.ts`), though backslash-based indexed paths are now normalized automatically.
 
@@ -99,7 +99,7 @@ sensegrep search "error handling and retry logic" \
   --max-per-file 2         # dedup per file (default: 2)
   --max-per-symbol 2       # dedup per symbol (default: 2)
   --hybrid true            # fuse lexical + vector retrieval (default: true)
-  --hybrid-mode adaptive   # skip lexical work only when semantic evidence is already strong
+  --hybrid-mode parallel   # collect lexical and semantic candidates (default)
   --rerank true            # deterministic second-stage reranking
   --max-tokens 8000        # cap estimated output tokens
   --changed --base origin/main # restrict to Git-changed files
@@ -114,7 +114,7 @@ sensegrep search "error handling and retry logic" \
 
 `--parent` matches parent/class scope by containment, so partial class names are acceptable. `--imports` tries package-name variants (`@scope/pkg`, `scope/pkg`, `pkg`) to reduce false misses in scoped packages.
 
-Hybrid retrieval is the default: lexical and vector retrieval run concurrently, then ranks are fused before structural filtering. Adaptive mode delays lexical work briefly and cancels it only when strong semantic evidence arrives first. If optional ripgrep execution is unavailable, natural-language search safely falls back to vector results. Use `--no-hybrid` for latency-sensitive semantic-only discovery, and `--exact` for identifiers.
+Hybrid retrieval is the default: lexical and vector retrieval run concurrently, then ranks are fused before structural filtering. Opt-in adaptive mode delays lexical work briefly and cancels it only when strong semantic evidence arrives first. If optional ripgrep execution is unavailable, natural-language search safely falls back to vector results. Use `--no-hybrid` for latency-sensitive semantic-only discovery, and `--exact` for identifiers.
 
 Repeated queries reuse a persistent query-vector cache keyed by an opaque embedding identity;
 diagnostic output reports `metrics.queryEmbeddingCacheHit`. Set
@@ -225,7 +225,7 @@ sensegrep detect-duplicates \
   --min-complexity 3   # skip trivial helpers (getters, guards)
   --max-candidates 1500 # cap broad scans; raise for deeper audits
   --timeout 30s        # return partial findings instead of running indefinitely
-  --resume-cursor 0    # continue from summary.resumeCursor on the next call
+  --resume-cursor 0    # continue from continuation.cursor (or summary.resumeCursor with --json-detail full) on the next call
   --include "src/**/*.ts" # scope duplicate candidates by indexed path
   --exclude "*.test.ts"   # remove noisy paths
   --ignore-tests       # exclude test files
@@ -233,7 +233,7 @@ sensegrep detect-duplicates \
 
 `--threshold` guide: use `0.85` (default) for meaningful duplicates; lower to `0.7` for suspicious similarities; raise to `0.92+` for near-identical copies only.
 
-For broad monorepos, start with `--include`, `--language`, `--min-lines`, or `--min-complexity` before raising `--max-candidates`. If the candidate set is larger than the cap or reaches `--timeout`, Sensegrep returns partial findings and reports `summary.truncated`, `summary.candidates`, `summary.analyzedCandidates`, and `summary.resumeCursor` in JSON. Pass that cursor to the next invocation. The envelope always includes `schemaVersion`, `command`, and `status`.
+For broad monorepos, start with `--include`, `--language`, `--min-lines`, or `--min-complexity` before raising `--max-candidates`. If the candidate set is larger than the cap or reaches `--timeout`, Sensegrep returns partial findings and reports `summary.truncated`, `summary.candidates`, `summary.analyzedCandidates`, and `continuation.cursor (or summary.resumeCursor with --json-detail full)` in JSON. Pass that cursor to the next invocation with the same index and filters. Continuations preserve pairs in temporary snapshot-bound checkpoints; if the snapshot or candidate set changes, restart without --resume-cursor. The envelope always includes `schemaVersion`, `command`, and `status`.
 
 With `--json`, parse stdout directly. Use `--json --log-format none` when stdout and stderr may be merged; it suppresses every non-fatal log. Use `--embedding-timeout` to bound only query embedding acquisition; it is not a wall-clock limit for the entire search process. `--latency-budget` remains a deprecated alias.
 
@@ -461,3 +461,16 @@ sensegrep search "async context manager" --variant generator --async --language 
 sensegrep search "order service orchestration" --language java --type class
 sensegrep search "checkout page state and composables" --language vue --include "frontend-store/**/*.vue"
 ```
+
+## Chunk policy and Ollama context (1.16+)
+
+Inspect `sensegrep selftest --json`: find the `embeddings.config` check and its `details.inputPolicy`. This is the resolved policy; environment and API overrides may differ from the global config.
+
+- `contextTokens` controls the Ollama runtime window (default 8192, capped by model capacity). It is independent of `context --max-tokens`, which limits search output.
+- `chunking.targetTokens` defaults to 2048; `preserveTokens` to 4096; `maxTokens` to 7000; `overlapTokens` to 128. Complexity no longer imposes separate 800/1200/1800-token ceilings. Larger chunks are not automatically faster or more accurate.
+- A matching local Hugging Face `tokenizer.json`, selected with `tokenizerPath` or `SENSEGREP_TOKENIZER_PATH`, enables actual token counting. There is no automatic tokenizer download. Without it, counts are estimates. Ollama requests explicitly disable truncation; overflow requires correcting the tokenizer/budget and reindexing, not enabling truncation.
+- `batchTokens` (default 16384) complements the HTTP document-count limit. Request estimates exclude retries and `/api/show` metadata discovery.
+- Policy/tokenizer changes invalidate the index signature. Run `sensegrep index --no-watch` for the authorized migration; watch refuses to mix policies. A fresh install can require a full rebuild even if the source files are unchanged.
+- `--profile` isolates indexes, not configuration. Reuse the same config/environment for both indexing and searches within a profile. Keep experimental indexes separate from the default index.
+
+Configuration belongs in `~/.config/sensegrep/config.json`. For settings and reproducible comparisons, see [chunking documentation](https://github.com/Stahldavid/sensegrep/blob/main/docs/chunking.md).

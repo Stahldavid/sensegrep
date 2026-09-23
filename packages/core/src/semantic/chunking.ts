@@ -1,3 +1,4 @@
+import { countEmbeddingTokens, fittingPrefix } from "./token-count.js"
 import { Log } from "../util/log.js"
 import { TreeSitterChunking } from "./chunking-treesitter.js"
 import { getLanguageForFile, chunkPython, chunkJava, chunkVue } from "./language/index.js"
@@ -110,6 +111,32 @@ export namespace Chunking {
     }
 
     return result
+  }
+
+  /** Final validation after metadata and overlap have been attached, before assigning IDs.
+   * Split rather than truncate. Original source bounds remain conservative for fragments
+   * containing synthetic signatures/overlap, which do not map one-to-one to source lines.
+   */
+  export function enforceEmbeddingBudget(chunks: Chunk[]): Chunk[] {
+    const limit = getLimits().tokens.max
+    return chunks.flatMap((chunk) => {
+      if (countEmbeddingTokens(chunk.content) <= limit) return [chunk]
+      const pieces: Chunk[] = []
+      let remaining = chunk.content
+      while (remaining) {
+        if (countEmbeddingTokens(remaining) <= limit) {
+          pieces.push({ ...chunk, content: remaining })
+          break
+        }
+        let prefix = fittingPrefix(remaining, limit)
+        const newline = prefix.lastIndexOf("\n")
+        if (newline > prefix.length / 2 && countEmbeddingTokens(prefix.slice(0, newline + 1)) <= limit) prefix = prefix.slice(0, newline + 1)
+        if (!prefix) throw new Error("Chunk token budget is too small for a single character")
+        pieces.push({ ...chunk, content: prefix })
+        remaining = remaining.slice(prefix.length)
+      }
+      return pieces
+    })
   }
 
   export interface Chunk {
@@ -521,7 +548,11 @@ export namespace Chunking {
           availableChars,
           Math.max(0, Math.floor(chunkTokens * 0.15) * limits.charsPerToken),
         )
-        const overlap = adaptiveOverlapChars > 0 ? prevContent.slice(-adaptiveOverlapChars) : ""
+        let overlap = adaptiveOverlapChars > 0 ? prevContent.slice(-adaptiveOverlapChars) : ""
+        while (overlap && countEmbeddingTokens(overlap) > limits.tokens.overlap) {
+          overlap = overlap.slice(overlap.codePointAt(0)! > 0xffff ? 2 : 1)
+        }
+        if (overlap && /[\uDC00-\uDFFF]/.test(overlap[0])) overlap = overlap.slice(1)
         if (overlap) {
           content = `...${overlap}\n\n${content}`
         }

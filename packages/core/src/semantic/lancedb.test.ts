@@ -4,8 +4,26 @@ import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { Instance } from "../project/instance.js"
+import { getChunkingSignature } from "./chunk-limits.js"
 
 describe("VectorStore distance scoring", () => {
+  it("round-trips chunk policy and tokenizer identity through index metadata", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "sensegrep-policy-meta-"))
+    await Instance.provide({ directory: root, profile: "default", fn: async () => {
+      try {
+        const chunking = getChunkingSignature({ provider: "ollama", embedModel: "qwen3-embedding:0.6b", embedDim: 1024, contextTokens: 8192, chunking: { targetTokens: 1024 } })
+        await VectorStore.writeIndexMeta(root, {
+          version: 1, root, chunking,
+          embeddings: { provider: "ollama", model: "qwen3-embedding:0.6b", dimension: 1024 },
+          files: {}, updatedAt: Date.now(),
+        })
+        expect((await VectorStore.readIndexMeta(root))?.chunking).toEqual(chunking)
+      } finally {
+        await VectorStore.deleteCollection(root).catch(() => {})
+        await fs.rm(root, { recursive: true, force: true })
+      }
+    } })
+  })
   it("converts l2 distance between normalized vectors back to cosine similarity", () => {
     const cosineSimilarity = 0.3
     const l2Distance = Math.sqrt(2 - 2 * cosineSimilarity)

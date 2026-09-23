@@ -4,7 +4,7 @@ import { Chunking } from "./chunking.js"
 
 describe("Chunking oversized content", () => {
   it("splits very large single-line code into safe chunks", () => {
-    const content = `const payload = "${"a".repeat(20_000)}";`
+    const content = `const payload = "${"a".repeat(getGeneralChunkLimits().max * 2)}";`
     const chunks = Chunking.chunk(content, "src/generated/bundle.js")
     const limits = getGeneralChunkLimits()
 
@@ -206,7 +206,7 @@ export namespace EmbeddingsRemote {
     })
   })
 
-  it("splits complex TypeScript functions using the complex adaptive limit", async () => {
+  it("preserves complex TypeScript functions that fit the symbol budget", async () => {
     const branches = Array.from(
       { length: 24 },
       (_, index) => `
@@ -229,7 +229,7 @@ ${branches}
     const functionChunks = chunks.filter((chunk) => chunk.symbolName === "complexFlow")
 
     expect(content.length).toBeLessThan(getGeneralChunkLimits().max)
-    expect(functionChunks.length).toBeGreaterThan(1)
+    expect(functionChunks.length).toBe(1)
     expect(functionChunks.every((chunk) => chunk.symbolType === "function")).toBe(true)
     const locations = new Set(
       functionChunks.map((chunk) => `${chunk.startLine}:${chunk.endLine}:${chunk.symbolName}:${chunk.symbolType}`),

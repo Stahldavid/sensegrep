@@ -60,7 +60,7 @@ sensegrep search <query> [options]
 | `--json` | Output as JSON |
 | `--embedding-timeout <ms>` | Query embedding deadline before lexical fallback; does not cap total process time |
 | `--latency-budget <ms>` | Deprecated alias for `--embedding-timeout` |
-| `--hybrid-mode <mode>` | `adaptive` (default) or `parallel`; adaptive may skip lexical work for strong semantic evidence |
+| `--hybrid-mode <mode>` | `parallel` (default) or `adaptive`; adaptive may skip lexical work for strong semantic evidence |
 
 JSON is minified by default; use `--pretty` for human-readable indentation. Output projections:
 
@@ -192,7 +192,7 @@ sensegrep detect-duplicates [options]
 | `--min-complexity <n>` | Minimum complexity (default: 0) |
 | `--max-candidates <n>` | Maximum candidate set before explicit truncation |
 | `--timeout <duration>` | Return partial results after a wall-clock deadline (`30s`, `5m`) |
-| `--resume-cursor <n>` | Continue candidate analysis from `summary.resumeCursor` |
+| `--resume-cursor <n>` | Resume from `continuation.cursor` (`summary.resumeCursor` in full JSON), using the same index and filters |
 | `--normalize-identifiers` / `--no-normalize-identifiers` | Normalize identifiers (default: on) |
 | `--rank-by-impact` / `--no-rank-by-impact` | Rank by impact score (default: on) |
 | `--limit <n>` | Show top N results (default: 10) |
@@ -343,3 +343,10 @@ sensegrep index --full --no-watch --timeout 5m --log-format jsonl
 # CLI health check
 sensegrep selftest --strict --json
 ```
+
+
+Hybrid retrieval defaults to parallel lexical and semantic collection. Search investigates at least 200 candidates before selecting the requested number of results; broad queries may take longer than adaptive mode. Use --hybrid-mode adaptive to explicitly opt into lexical skipping.
+
+Duplicate scans first detect exact/normalized copies. Small cosine-vector candidate sets (up to 512) are compared in memory. Continuations preserve previous pairs in temporary snapshot-bound checkpoints; changed snapshots/candidate sets require restarting without --resume-cursor. A max-candidates cap still means incomplete coverage even when that subset finishes.
+
+Context accepts --max-output-bytes in addition to --max-tokens. Compact, relevant complete symbols are preferred over truncating an oversized first result; truncation remains explicit in JSON.

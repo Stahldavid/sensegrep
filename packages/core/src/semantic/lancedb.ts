@@ -106,6 +106,10 @@ export namespace VectorStore {
       simpleChars: z.number(),
       mediumChars: z.number(),
       complexChars: z.number(),
+      targetTokens: z.number().optional(),
+      preserveTokens: z.number().optional(),
+      contextTokens: z.number().optional(),
+      tokenizer: z.string().optional(),
     }).optional(),
     files: z.record(z.string(), z.object({
       size: z.number(),
@@ -1192,6 +1196,7 @@ export namespace VectorStore {
       filters?: SearchFilters
       signal?: AbortSignal
       columns?: string[]
+      excludeVector?: boolean
     } = {},
   ): Promise<ReturnType<typeof mapRow>[]> {
     let whereClause: string | undefined
@@ -1204,6 +1209,9 @@ export namespace VectorStore {
     let query = (collection as any).query()
     if (options.columns && options.columns.length > 0) {
       query = query.select(options.columns)
+    } else if (options.excludeVector) {
+      const schema = await collection.schema()
+      query = query.select(schema.fields.map((field) => field.name).filter((name) => name !== "vector"))
     }
     if (whereClause) query = query.where(whereClause)
     if (options.limit && options.limit > 0) query = query.limit(options.limit)

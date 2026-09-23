@@ -5,6 +5,8 @@ import { VectorStore } from "./lancedb.js"
 import * as fs from "fs/promises"
 import * as path from "path"
 import picomatch from "picomatch"
+import { createHash } from "node:crypto"
+import os from "node:os"
 
 const log = Log.create({ service: "semantic.duplicate-detector" })
 
@@ -537,7 +539,8 @@ export namespace DuplicateDetector {
       norm2 += vec2[i] * vec2[i]
     }
 
-    return dotProduct / (Math.sqrt(norm1) * Math.sqrt(norm2))
+    const denominator = Math.sqrt(norm1) * Math.sqrt(norm2)
+    return denominator > 0 ? dotProduct / denominator : 0
   }
 
   const TOKENIZE_REGEX = /[A-Za-z_$][A-Za-z0-9_$]*|\d+|[^\s]/g
@@ -725,7 +728,7 @@ export namespace DuplicateDetector {
     const ignoreAcceptablePatterns = options.ignoreAcceptablePatterns ?? false
     const minLines = options.minLines ?? 3
     const minComplexity = options.minComplexity ?? 0
-    const maxCandidates = Math.max(50, options.maxCandidates ?? 1500)
+    const maxCandidates = Math.max(1, options.maxCandidates ?? 1500)
 
     const resolvedPath = await fs.realpath(options.path).catch(() => path.resolve(options.path))
 
@@ -870,6 +873,7 @@ export namespace DuplicateDetector {
 
     const originalCandidateCount = candidates.length
     candidates = dedupeCandidatesBySourceLocation(candidates)
+    candidates.sort((a, b) => candidateLocationKey(a).localeCompare(candidateLocationKey(b)))
     const deduplicatedCandidateCount = originalCandidateCount - candidates.length
     if (candidates.length !== originalCandidateCount) {
       log.info("deduplicated overlapping duplicate candidates", {
@@ -892,7 +896,7 @@ export namespace DuplicateDetector {
           if (complexityDiff !== 0) return complexityDiff
           const aLines = a.endLine - a.startLine + 1
           const bLines = b.endLine - b.startLine + 1
-          return bLines - aLines
+          return bLines - aLines || candidateLocationKey(a).localeCompare(candidateLocationKey(b))
         })
         .slice(0, maxCandidates)
     }
@@ -926,8 +930,48 @@ export namespace DuplicateDetector {
     const candidateById = new Map(candidates.map((c) => [c.id, c]))
     const candidateIds = new Set(candidates.map((c) => c.id))
     const pairs = new Map<string, { a: string; b: string; similarity: number }>()
+    const eligible = (a: VectorCandidate, b: VectorCandidate) => a.id !== b.id
+      && !sameSourceLocation(a, b)
+      && (!options.crossFileOnly || a.file !== b.file)
+      && (options.crossLanguage || !a.language || !b.language || a.language === b.language)
+    // Exact/normalized copies do not need ANN and must not be lost in a top-k cap.
+    const exactGroups = new Map<string, VectorCandidate[]>()
+    for (const candidate of candidates) {
+      const content = normalizeIdentifiers ? candidate.normalized : candidate.rawContent || candidate.content
+      if (!content) continue
+      const key = `${options.crossLanguage ? "" : candidate.language}\0${content}`
+      const group = exactGroups.get(key) ?? []
+      const anchor = group.find((other) => eligible(candidate, other))
+      if (anchor) {
+        const key = candidate.id < anchor.id ? `${candidate.id}::${anchor.id}` : `${anchor.id}::${candidate.id}`
+        pairs.set(key, { a: candidate.id, b: anchor.id, similarity: 1 })
+      }
+      group.push(candidate)
+      exactGroups.set(key, group)
+    }
+    const neighborFilters: VectorStore.SearchFilters = {
+      ...filters, all: [...(filters.all ?? []), { key: "id", operator: "in", value: [...candidateIds] }],
+    }
     const maxNeighbors = Math.min(30, Math.max(5, candidates.length))
     const resumeCursor = Math.min(candidates.length, Math.max(0, options.resumeCursor ?? 0))
+    const fingerprint = createHash("sha256").update(JSON.stringify({
+      version: 1, root: resolvedIndex.root, updatedAt: meta.updatedAt, embeddings: meta.embeddings,
+      candidates: candidates.map((candidate) => candidate.id), thresholds, normalizeIdentifiers,
+      crossFileOnly: options.crossFileOnly, crossLanguage: options.crossLanguage,
+    })).digest("hex")
+    const checkpointDir = path.join(os.tmpdir(), "sensegrep-duplicate-checkpoints")
+    const checkpointPath = (cursor: number) => path.join(checkpointDir, `${fingerprint}-${cursor}.json`)
+    if (resumeCursor > 0) {
+      const checkpoint = await fs.readFile(checkpointPath(resumeCursor), "utf8").then(JSON.parse).catch(() => undefined)
+      if (!checkpoint || checkpoint.fingerprint !== fingerprint || checkpoint.cursor !== resumeCursor || !Array.isArray(checkpoint.pairs)) {
+        throw new Error("Duplicate continuation does not match this index or candidate set. Restart without --resume-cursor.")
+      }
+      for (const pair of checkpoint.pairs as Array<{ a: string; b: string; similarity: number }>) {
+        if (!candidateIds.has(pair.a) || !candidateIds.has(pair.b) || !Number.isFinite(pair.similarity)) continue
+        const key = pair.a < pair.b ? `${pair.a}::${pair.b}` : `${pair.b}::${pair.a}`
+        pairs.set(key, pair)
+      }
+    }
     const deadline = options.timeoutMs ? startTime + options.timeoutMs : Number.POSITIVE_INFINITY
     let processedCandidates = 0
     let timedOut = false
@@ -951,9 +995,17 @@ export namespace DuplicateDetector {
         : options.signal ?? timeoutSignal
       let neighbors: Awaited<ReturnType<typeof VectorStore.searchByVector>>
       try {
-        neighbors = await VectorStore.searchByVector(collection, candidate.vector, {
+        neighbors = candidates.length <= 512 && VectorStore.getDistanceMetric(meta) === "cosine"
+          ? candidates.filter((other) => eligible(candidate, other)).map((other) => ({
+            id: other.id, distance: 1 - cosineSimilarity(candidate.vector, other.vector),
+          })).sort((a, b) => a.distance - b.distance || a.id.localeCompare(b.id)).slice(0, maxNeighbors) as typeof neighbors
+          : await VectorStore.searchByVector(collection, candidate.vector, {
           limit: maxNeighbors,
-          filters,
+          filters: {
+            ...neighborFilters,
+            all: [...(neighborFilters.all ?? []), ...(!options.crossLanguage && candidate.language ? [{ key: "language", operator: "equals" as const, value: candidate.language }] : [])],
+            none: [...(neighborFilters.none ?? []), ...(options.crossFileOnly ? [{ key: "file", operator: "equals" as const, value: candidate.file }] : [])],
+          },
           signal: iterationSignal,
         })
       } catch (error) {
@@ -1014,7 +1066,14 @@ export namespace DuplicateDetector {
     const nextCursor = resumeCursor + processedCandidates < candidates.length
       ? resumeCursor + processedCandidates
       : undefined
-    const wasPartial = timedOut || aborted || resumeCursor > 0
+    const wasPartial = timedOut || aborted
+    if (nextCursor !== undefined) {
+      await fs.mkdir(checkpointDir, { recursive: true })
+      const target = checkpointPath(nextCursor)
+      const temporary = `${target}.${process.pid}.tmp`
+      await fs.writeFile(temporary, JSON.stringify({ fingerprint, cursor: nextCursor, pairs: [...pairs.values()] }), { mode: 0o600 })
+      await fs.rename(temporary, target)
+    }
 
     if (pairs.size === 0) {
       return {
