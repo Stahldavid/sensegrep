@@ -39,7 +39,7 @@ export function createSensegrepHttpHandler(
   return createMcpHandler(async (context) => {
     options.onServerCreated?.(context);
     const server = new Server(
-      { name: "sensegrep", version: "1.17.0" },
+      { name: "sensegrep", version: "1.17.1" },
       { capabilities: { tools: {} } },
     );
 

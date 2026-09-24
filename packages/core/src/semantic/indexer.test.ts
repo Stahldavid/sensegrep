@@ -1,5 +1,5 @@
 import path from "node:path"
-import { mkdir, rm, writeFile } from "node:fs/promises"
+import { mkdir, rm, writeFile, stat } from "node:fs/promises"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const TEST_DIR = path.join(process.cwd(), ".test-indexer")
@@ -18,6 +18,7 @@ const replaceFileDocuments = vi.fn()
 const updateDocuments = vi.fn()
 const writeIndexMeta = vi.fn()
 const deleteCollection = vi.fn()
+const copyCollection = vi.fn()
 const createStagingCollection = vi.fn()
 const openCollectionReadOnly = vi.fn()
 const dropCollectionTable = vi.fn()
@@ -57,6 +58,7 @@ vi.mock("./lancedb.js", () => ({
     writeIndexMeta,
     deleteCollection,
     createStagingCollection,
+    copyCollection,
     openCollectionReadOnly,
     dropCollectionTable,
     cleanupInactiveTables,
@@ -210,9 +212,40 @@ describe("Indexer incremental updates", () => {
     expect(updateDocuments).not.toHaveBeenCalled()
     expect(embedDocumentsReusingFile).toHaveBeenCalledTimes(1)
     expect(embedDocuments).toHaveBeenCalledTimes(1)
-    expect(replaceFileDocuments).toHaveBeenCalledWith({}, "src/a.ts", expect.any(Array))
+    expect(replaceFileDocuments).toHaveBeenCalledWith({ staging: true }, "src/a.ts", expect.any(Array))
     expect(writeIndexMeta).toHaveBeenCalledTimes(1)
     expect(writeIndexMeta.mock.calls[0][1].chunking).toEqual(testChunkingSignature)
+  })
+
+  it("keeps the active snapshot untouched when staged persistence fails", async () => {
+    replaceFileDocuments.mockRejectedValueOnce(new Error("disk failure"))
+    const { Indexer } = await import("./indexer.js")
+    await expect(Indexer.indexProjectIncremental()).rejects.toThrow("disk failure")
+    expect(copyCollection).toHaveBeenCalledWith({}, { staging: true }, expect.anything())
+    expect(replaceFileDocuments).toHaveBeenCalledWith({ staging: true }, "src/a.ts", expect.any(Array))
+    expect(writeIndexMeta).not.toHaveBeenCalled()
+    expect(dropCollectionTable).toHaveBeenCalledWith(TEST_DIR, "chunks_staging")
+  })
+
+  it("does not activate a generation if its metadata cannot be committed", async () => {
+    writeIndexMeta.mockRejectedValueOnce(new Error("metadata failure"))
+    const { Indexer } = await import("./indexer.js")
+    await expect(Indexer.indexProjectIncremental()).rejects.toThrow("metadata failure")
+    expect(dropCollectionTable).toHaveBeenCalledWith(TEST_DIR, "chunks_staging")
+    expect(clearProjectCache).not.toHaveBeenCalled()
+  })
+
+  it("keeps no-op indexing on the active generation without copying vectors", async () => {
+    const meta = await readIndexMeta()
+    const current = await stat(path.join(TEST_DIR, "src/a.ts"))
+    meta.files["src/a.ts"].size = current.size
+    meta.files["src/a.ts"].mtimeMs = current.mtimeMs
+    const { Indexer } = await import("./indexer.js")
+    const result = await Indexer.indexProjectIncremental()
+    expect(result).toMatchObject({ files: 0, skipped: 1 })
+    expect(createStagingCollection).not.toHaveBeenCalled()
+    expect(copyCollection).not.toHaveBeenCalled()
+    expect(replaceFileDocuments).not.toHaveBeenCalled()
   })
 
   it("plans embedding work without calling the provider or mutating the index", async () => {

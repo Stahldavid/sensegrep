@@ -835,6 +835,15 @@ export namespace VectorStore {
     return { collection, tableName }
   }
 
+  /** Copy raw Arrow batches without embedding or changing the active generation. */
+  export async function copyCollection(source: LanceTable, target: LanceTable, signal?: AbortSignal): Promise<void> {
+    for await (const batch of source.query()) {
+      signal?.throwIfAborted()
+      const rows = batch.toArray().map((row: any) => ({ ...row.toJSON(), vector: Array.from(row.vector ?? [], Number) }))
+      await addEmbeddedDocuments(target, rows)
+    }
+  }
+
   export async function openCollectionTable(
     projectPath: string,
     tableName: string,

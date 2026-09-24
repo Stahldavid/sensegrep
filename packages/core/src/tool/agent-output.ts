@@ -331,6 +331,7 @@ export function projectDuplicateAgentResponse(raw: any, options: AgentProjection
     processed: raw.summary?.processedCandidates ?? raw.summary?.analyzedCandidates,
     truncated: raw.summary?.truncated,
     timedOut: raw.summary?.timedOut,
+    outputTruncated: raw.summary?.outputTruncated,
   })
   return {
     schemaVersion: AGENT_SCHEMA_VERSION,

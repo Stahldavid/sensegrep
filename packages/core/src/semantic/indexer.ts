@@ -1325,84 +1325,98 @@ export namespace Indexer {
       const embeddedRows = preparedReplacements.flatMap((prepared) => prepared.rows)
       const estimatedTokens = docsToAdd.reduce((total, document) => total + estimateEmbeddingTokens(document.content), 0)
 
-      // Replace each changed file with rollback support. This keeps the previous
-      // rows intact if a LanceDB append fails after deletion.
-      if (embeddedRows.length > 0) {
-        let chunksPersisted = 0
-        for (const file of filesToReplace) {
-          run.assertNotTimedOut("persist")
-          const rows = embeddedRows.filter((row) => normalizeIndexedFilePath(row.file) === file)
-          await VectorStore.replaceFileDocuments(collection, file, rows)
-          run.assertNotTimedOut("persist")
-          chunksPersisted += rows.length
-          run.emit({
-            phase: "persist",
-            current: chunksPersisted,
-            total: embeddedRows.length,
-            message: `Persisted ${chunksPersisted}/${embeddedRows.length} changed chunks`,
-            chunksPrepared: docsToAdd.length,
-            chunksEmbedded: newlyEmbeddedChunks,
-            reusedChunks,
-            estimatedTokens,
-            requests: estimatedRequests,
-            batches: embeddingBatches,
-            chunksPersisted,
-            skipped,
-            failed,
-          })
+      // Stage mutations so a killed process cannot damage the active snapshot.
+      const hasChanges = filesToReplace.length > 0 || filesToRemove.length > 0 || (!truncatedByMaxFiles && remaining.size > 0)
+      const staging = hasChanges ? await VectorStore.createStagingCollection(Instance.directory, dimension) : null
+      const target = staging?.collection ?? collection
+      let activated = false
+      try {
+        if (staging) await VectorStore.copyCollection(collection, target, run.signal)
+        if (embeddedRows.length > 0) {
+          let chunksPersisted = 0
+          for (const file of filesToReplace) {
+            run.assertNotTimedOut("persist")
+            const rows = embeddedRows.filter((row) => normalizeIndexedFilePath(row.file) === file)
+            await VectorStore.replaceFileDocuments(target, file, rows)
+            run.assertNotTimedOut("persist")
+            chunksPersisted += rows.length
+            run.emit({
+              phase: "persist",
+              current: chunksPersisted,
+              total: embeddedRows.length,
+              message: `Persisted ${chunksPersisted}/${embeddedRows.length} changed chunks`,
+              chunksPrepared: docsToAdd.length,
+              chunksEmbedded: newlyEmbeddedChunks,
+              reusedChunks,
+              estimatedTokens,
+              requests: estimatedRequests,
+              batches: embeddingBatches,
+              chunksPersisted,
+              skipped,
+              failed,
+            })
+          }
         }
-      }
 
-      for (const file of filesToRemove) {
-        run.assertNotTimedOut("persist")
-        await VectorStore.deleteByFile(collection, file)
-        removed++
-      }
-
-      // Remove files that no longer exist
-      if (remaining.size > 0 && !truncatedByMaxFiles) {
-        for (const file of remaining) {
-          await VectorStore.deleteByFile(collection, file)
+        for (const file of filesToRemove) {
+          run.assertNotTimedOut("persist")
+          await VectorStore.deleteByFile(target, file)
           removed++
         }
-      } else if (truncatedByMaxFiles) {
-        for (const file of remaining) {
-          const prev = previous[file]
-          if (prev) newStats[file] = prev
+
+        // Remove files that no longer exist
+        if (remaining.size > 0 && !truncatedByMaxFiles) {
+          for (const file of remaining) {
+            await VectorStore.deleteByFile(target, file)
+            removed++
+          }
+        } else if (truncatedByMaxFiles) {
+          for (const file of remaining) {
+            const prev = previous[file]
+            if (prev) newStats[file] = prev
+          }
         }
-      }
 
-      let nextExpectedChunks = 0
-      for (const fileStat of Object.values(newStats)) {
-        nextExpectedChunks += fileStat.chunks?.length ?? 0
-      }
-      const nextStats = await VectorStore.getStats(collection)
-      if (nextExpectedChunks > 0 && nextStats.count !== nextExpectedChunks) {
-        log.warn("chunk mismatch after incremental update, falling back to full rebuild", {
-          expectedChunks: nextExpectedChunks,
-          actualChunks: nextStats.count,
+        let nextExpectedChunks = 0
+        for (const fileStat of Object.values(newStats)) {
+          nextExpectedChunks += fileStat.chunks?.length ?? 0
+        }
+        const nextStats = await VectorStore.getStats(target)
+        if (nextStats.count !== nextExpectedChunks) {
+          log.warn("chunk mismatch after incremental update, falling back to full rebuild", {
+            expectedChunks: nextExpectedChunks,
+            actualChunks: nextStats.count,
+          })
+          const full = await indexProjectUnlocked(options)
+          return { ...full, skipped, removed, mode: "full" }
+        }
+        await VectorStore.optimizeForSearch(target, nextStats.count)
+
+        await VectorStore.writeIndexMeta(Instance.directory, {
+          version: 1,
+          root: Instance.directory,
+          profile: Instance.profile,
+          tableName: staging?.tableName ?? meta.tableName,
+          embeddings: {
+            provider,
+            model,
+            dimension,
+            distanceMetric: VectorStore.DEFAULT_DISTANCE_METRIC,
+            configFingerprint: embeddingConfigFingerprint(config),
+          },
+          chunking,
+          files: newStats,
+          updatedAt: Date.now(),
         })
-        const full = await indexProjectUnlocked(options)
-        return { ...full, skipped, removed, mode: "full" }
-      }
-      await VectorStore.optimizeForSearch(collection, nextStats.count)
 
-      await VectorStore.writeIndexMeta(Instance.directory, {
-        version: 1,
-        root: Instance.directory,
-        profile: Instance.profile,
-        tableName: meta.tableName,
-        embeddings: {
-          provider,
-          model,
-          dimension,
-          distanceMetric: VectorStore.DEFAULT_DISTANCE_METRIC,
-          configFingerprint: embeddingConfigFingerprint(config),
-        },
-        chunking,
-        files: newStats,
-        updatedAt: Date.now(),
-      })
+        activated = true
+        if (staging) {
+          VectorStore.clearProjectCache(Instance.directory)
+          await VectorStore.cleanupInactiveTables(Instance.directory, staging.tableName)
+        }
+      } finally {
+        if (staging && !activated) await VectorStore.dropCollectionTable(Instance.directory, staging.tableName).catch(() => {})
+      }
 
       const duration = Date.now() - start
       run.emit({

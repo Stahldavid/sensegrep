@@ -40,7 +40,7 @@ Search options:
   --min-complexity <n>      Minimum cyclomatic complexity
   --max-complexity <n>      Maximum cyclomatic complexity
   --min-score <n>           Minimum relevance score 0-1
-  --max-per-file <n>        Max results per file (default: 2)
+  --max-per-file <n>        Max results per file (search default: 1; --exact: 2)
   --max-per-symbol <n>      Max results per symbol (default: 2)
   --has-docs <true|false>   Require documentation
   --language <lang>         typescript|javascript|python|java|vue (comma-separated for multiple)

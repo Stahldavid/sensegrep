@@ -60,7 +60,7 @@ sensegrep_search({
   strictImports: true,          // strict AST import metadata validation
   hasDocumentation: true,       // require docs
   minScore: 0.5,                // relevance threshold
-  maxPerFile: 2,                // dedup per file (default: 2)
+  maxPerFile: 2,                // dedup per file (search default: 1; exact: 2)
   maxPerSymbol: 2,              // dedup per symbol (default: 2)
   shake: false,                 // disable tree-shaking if collapsed output hides the target
   limit: 10                     // max results (default: 10)

@@ -1583,7 +1583,8 @@ export function getDominantSymbolPhrases(
   for (const result of results) {
     const tokens = getSymbolTokens(result.metadata)
       .filter((token) => !excludeQueryTokens || !queryTokens.has(token))
-      .slice(0, 4)
+      .slice(0, 7)
+    while (tokens.length && /^(?:by|for|with|from|to|of|in|on|at|and|or|the|a|an)$/.test(tokens[tokens.length - 1])) tokens.pop()
     if (tokens.length < 2) continue
     const phrase = tokens.join(" ")
     counts.set(phrase, (counts.get(phrase) ?? 0) + 1)
