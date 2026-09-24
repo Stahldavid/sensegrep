@@ -50,7 +50,7 @@ const ALLOWED_FLAGS_BY_COMMAND: Record<string, Set<string>> = {
   ]),
   verify: new Set([...GLOBAL_FLAGS, "strict"]),
   status: new Set([...GLOBAL_FLAGS, "verbose", "verify"]),
-  search: new Set([...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, ...SEARCH_FILTER_FLAGS]),
+  search: new Set([...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, ...SEARCH_FILTER_FLAGS, "max-output-bytes", "maxOutputBytes"]),
   literal: new Set([...GLOBAL_FLAGS, "query", "include", "exclude", "limit", "regex", "ignore-case", "ignoreCase", "filesystem", "max-output-bytes", "maxOutputBytes", "include-rendered-output", "dry-run"]),
   context: new Set([...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, ...SEARCH_FILTER_FLAGS, "require-coverage", "requireCoverage", "max-output-bytes", "maxOutputBytes"]),
   audit: new Set([

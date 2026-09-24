@@ -157,13 +157,13 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     const diversifiedResults = diversifyResults(dedupedResults, { maxPerFile, maxPerSymbol })
 
     // Take top results
-    const limitedResults = diversifiedResults.slice(0, limit)
-    const budgeted = selectWithinTokenBudget(limitedResults, params.maxTokens, params.query)
+    const budgeted = selectWithinTokenBudget(diversifiedResults, params.maxTokens, params.query, limit, params.purpose)
     const finalResults = budgeted.results
     finalResults.forEach((result, index) => {
       result.rankScore = Number(((finalResults.length - index) / Math.max(1, finalResults.length)).toFixed(6))
     })
     metrics.estimatedOutputTokens = budgeted.estimatedTokens
+    metrics.tokenBudgetTruncated = params.maxTokens && (finalResults.length < Math.min(limit, diversifiedResults.length) || finalResults.some((r) => r.contentTruncated)) ? 1 : 0
 
     if (finalResults.length === 0) {
       metrics.totalMs = Date.now() - startedAt
@@ -295,7 +295,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       // Always show relevance score
       metaParts.push(`Relevance: ${(Math.max(0, Math.min(1, result.semanticScore)) * 100).toFixed(1)}%`)
       if (result.confidence) {
-        metaParts.push(`Confidence: ${result.confidence}`)
+        metaParts.push(`Ranking strength: ${result.confidence}`)
       }
       if (result.rerankScore !== undefined) {
         metaParts.push(`Rerank: ${result.rerankScore.toFixed(3)}`)
@@ -374,14 +374,17 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     return {
       schemaVersion: 1,
       command: params.commandName ?? "search",
-      status: "complete",
+      status: metrics.tokenBudgetTruncated ? "incomplete" : "complete",
       index: {
         fresh: freshness ? !freshness.isStale : null,
         schemaCompatible: schema.schemaCompatible,
         snapshotId: `${meta.tableName ?? "chunks"}:${meta.updatedAt}`,
       },
       ...result,
+      answerSufficiency: "not-assessed",
       budget: {
+        maxOutputBytes: params.maxOutputBytes,
+        maxBytes: params.maxOutputBytes,
         tokensRequested: params.maxTokens,
         tokensUsed: contextTokens,
         inputTokens: retrievalTokens,

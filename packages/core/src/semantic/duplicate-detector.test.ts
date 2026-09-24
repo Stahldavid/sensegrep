@@ -82,6 +82,22 @@ vi.mock("./lancedb.js", () => ({
 }))
 
 describe("DuplicateDetector", () => {
+  it("uses memory for 513 candidates and resumes to the same groups as a full run", async () => {
+    const { DuplicateDetector } = await import("./duplicate-detector.js")
+    const { VectorStore } = await import("./lancedb.js")
+    rows = Array.from({ length: 513 }, (_, i) => ({ ...baseRows[0], id: `memory-${i}`, metadata: { ...baseRows[0].metadata, file: `src/memory-${i}.ts` } }))
+    vi.mocked(VectorStore.searchByVector).mockClear()
+    const controller = new AbortController()
+    const options = { path: process.cwd(), minLines: 1, ignoreAcceptablePatterns: true }
+    const partial = await DuplicateDetector.detect({ ...options, signal: controller.signal,
+      onProgress: ({ current }) => { if (current === 17) controller.abort() } })
+    expect(partial.summary.resumeCursor).toBe(17)
+    expect(partial.metrics?.strategy).toBe("memory-cosine")
+    const resumed = await DuplicateDetector.detect({ ...options, resumeCursor: partial.summary.resumeCursor })
+    const full = await DuplicateDetector.detect(options)
+    expect(resumed.duplicates).toEqual(full.duplicates)
+    expect(VectorStore.searchByVector).not.toHaveBeenCalled()
+  })
   beforeEach(() => {
     rows = [...baseRows]
     searchDelayMs = 0

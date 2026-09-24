@@ -31,7 +31,7 @@ const chunkAsync = vi.fn()
 const analyzeAsync = vi.fn()
 const addOverlap = vi.fn((chunks) => chunks)
 const testChunkingSignature = {
-  version: 5, provider: "openai", model: "test-model", dimension: 3,
+  version: 6, provider: "openai", model: "test-model", dimension: 3,
   modelMaxTokens: 8192, usableModelTokens: 8028,
   maxChars: 28000, minChars: 200, overlapChars: 512,
   simpleChars: 16384, mediumChars: 16384, complexChars: 16384,
@@ -285,7 +285,7 @@ describe("Indexer incremental updates", () => {
 
   it("requires a rebuild instead of mixing chunk policies during watched updates", async () => {
     const meta = await readIndexMeta()
-    readIndexMeta.mockResolvedValue({ ...meta, chunking: { ...testChunkingSignature, version: 4 } })
+    readIndexMeta.mockResolvedValue({ ...meta, chunking: { ...testChunkingSignature, version: 5 } })
     const { Indexer } = await import("./indexer.js")
     await expect(Indexer.updateFile("src/a.ts")).rejects.toThrow("Chunking policy changed")
     expect(embedDocumentsReusingFile).not.toHaveBeenCalled()

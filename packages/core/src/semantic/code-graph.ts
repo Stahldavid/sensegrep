@@ -14,6 +14,8 @@ export namespace CodeGraph {
     toId: string
     kind: "call" | "import" | "inheritance" | "component-usage" | "hook-usage" | "convex-api" | "route-invocation" | "scheduled-function" | "schema-table"
     confidence: "high" | "medium"
+    resolution?: "ast-relative-import" | "ast-name" | "metadata-name" | "synthetic" | "syntax-inheritance"
+    callLine?: number
     location: Location
     targetLocation: Location
   }
@@ -31,7 +33,7 @@ export namespace CodeGraph {
     "if", "for", "while", "switch", "catch", "function", "return", "typeof", "new", "super", "import",
   ])
   let cached: { key: string; snapshot: Snapshot } | undefined
-  const CACHE_VERSION = 3
+  const CACHE_VERSION = 4
 
   type PersistedSnapshot = {
     version: number
@@ -163,6 +165,7 @@ export namespace CodeGraph {
     const symbols = new Map<string, Location[]>()
     const nodes = new Map<string, Node>()
     const nodesByName = new Map<string, Node[]>()
+    const nodesByFile = new Map<string, Node[]>()
     const nodeByDocument = new Map<object, Node>()
     const symbolGroups = new Map<string, typeof documents>()
 
@@ -193,6 +196,7 @@ export namespace CodeGraph {
         const location = createLocation(metadata, symbol)
         const node = { id: location.id, name: symbol, location }
         nodes.set(node.id, node)
+        nodesByFile.set(location.file, [...(nodesByFile.get(location.file) ?? []), node])
         nodesByName.set(symbol, [...(nodesByName.get(symbol) ?? []), node])
         symbols.set(symbol, [...(symbols.get(symbol) ?? []), location])
         for (const row of cluster) nodeByDocument.set(row, node)
@@ -205,7 +209,7 @@ export namespace CodeGraph {
     const seenReferences = new Set<string>()
     let unresolvedEdges = 0
     let ambiguousEdges = 0
-    const addReference = (source: Node, target: Node, kind: Reference["kind"], confidence: "high" | "medium") => {
+    const addReference = (source: Node, target: Node, kind: Reference["kind"], confidence: "high" | "medium", resolution?: Reference["resolution"], callLine?: number) => {
       if (target.id === source.id) return
       const key = `${source.id}\0${target.id}\0${kind}`
       if (seenReferences.has(key)) return
@@ -220,6 +224,8 @@ export namespace CodeGraph {
         toId: target.id,
         kind,
         confidence,
+        resolution,
+        callLine,
         location: source.location,
         targetLocation: target.location,
       })
@@ -235,7 +241,7 @@ export namespace CodeGraph {
       if (!source) continue
 
       const file = source.location.file
-      let calls: Array<{ target: string; scheduled: boolean; module?: string }>
+      let calls: Array<{ target: string; scheduled: boolean; module?: string; line?: number }>
       if (TreeSitterChunking.isSupported(file)) {
         if (!callsByFile.has(file)) {
           const absolute = path.resolve(resolved.root, file)
@@ -247,11 +253,16 @@ export namespace CodeGraph {
         const fullCalls = await callsByFile.get(file)
         calls = fullCalls
           ? fullCalls.filter((call) => call.line >= Number(row.metadata.startLine) && call.line <= Number(row.metadata.endLine))
-          : await TreeSitterChunking.graphCalls(row.content, file)
+          : (await TreeSitterChunking.graphCalls(row.content, file)).map((call) => ({ ...call, line: call.line + Number(row.metadata.startLine) - 1 }))
       } else {
         calls = extractPersistedCalls(row.content, row.metadata.calls, sourceName).map((target) => ({ target, scheduled: false }))
       }
-      for (const { target: targetName, scheduled, module } of calls) {
+      for (const { target: targetName, scheduled, module, line } of calls) {
+        // A containing class/file chunk must not also own its method's calls.
+        if (line !== undefined && (nodesByFile.get(file) ?? []).some((node) => node.id !== source.id
+          && node.location.startLine >= source.location.startLine && node.location.endLine <= source.location.endLine
+          && node.location.endLine - node.location.startLine < source.location.endLine - source.location.startLine
+          && node.location.startLine <= line && node.location.endLine >= line)) continue
         let targetCandidates = nodesByName.get(targetName) ?? nodesByName.get(targetName.split(".").at(-1) ?? "") ?? []
         if (module) {
           const modulePath = path.posix.normalize(path.posix.join(path.posix.dirname(file.replace(/\\/g, "/")), module)).replace(/\.[cm]?[jt]sx?$/, "")
@@ -266,12 +277,13 @@ export namespace CodeGraph {
           else unresolvedEdges++
           continue
         }
-        addReference(source, resolvedTarget.target, scheduled ? "scheduled-function" : classifyEdge(targetName, row.content), resolvedTarget.confidence!)
+        addReference(source, resolvedTarget.target, scheduled ? "scheduled-function" : classifyEdge(targetName, row.content), resolvedTarget.confidence!,
+          module ? "ast-relative-import" : TreeSitterChunking.isSupported(file) ? "ast-name" : "metadata-name", line)
       }
 
       for (const match of row.content.matchAll(/\bextends\s+([A-Za-z_$][A-Za-z0-9_$]*)/g)) {
         const target = resolveTarget(source, nodesByName.get(match[1]) ?? [])
-        if (target.target) addReference(source, target.target, "inheritance", target.confidence!)
+        if (target.target) addReference(source, target.target, "inheritance", target.confidence!, "syntax-inheritance")
         else if (target.ambiguous) ambiguousEdges++
         else unresolvedEdges++
       }
@@ -290,7 +302,7 @@ export namespace CodeGraph {
           target = { id, name: synthetic.name, location }
           nodes.set(id, target)
         }
-        addReference(source, target, synthetic.kind, "high")
+        addReference(source, target, synthetic.kind, "high", "synthetic")
       }
     }
 

@@ -2,7 +2,7 @@ import { tokenCounterIdentity } from "./token-count.js"
 import { getEmbeddingConfig, type EmbeddingConfig } from "./embedding-config.js"
 
 const CHARS_PER_TOKEN = 4
-const CHUNKING_SIGNATURE_VERSION = 5
+const CHUNKING_SIGNATURE_VERSION = 6
 
 export type GeneralChunkLimits = {
   max: number

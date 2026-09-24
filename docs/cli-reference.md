@@ -347,6 +347,36 @@ sensegrep selftest --strict --json
 
 Hybrid retrieval defaults to parallel lexical and semantic collection. Search investigates at least 200 candidates before selecting the requested number of results; broad queries may take longer than adaptive mode. Use --hybrid-mode adaptive to explicitly opt into lexical skipping.
 
-Duplicate scans first detect exact/normalized copies. Small cosine-vector candidate sets (up to 512) are compared in memory. Continuations preserve previous pairs in temporary snapshot-bound checkpoints; changed snapshots/candidate sets require restarting without --resume-cursor. A max-candidates cap still means incomplete coverage even when that subset finishes.
+Duplicate scans first detect exact/normalized copies. Cosine-vector candidate sets up to 4096 are compared in memory, with precomputed norms and cached symmetric distances; larger sets and other distance metrics use the vector store. Diagnostic output reports load, preparation, and neighbor-scan timings plus the selected strategy. Continuations preserve previous pairs in temporary snapshot-bound checkpoints; changed snapshots/candidate sets require restarting without --resume-cursor. A max-candidates cap still means incomplete coverage even when that subset finishes.
 
-Context accepts --max-output-bytes in addition to --max-tokens. Compact, relevant complete symbols are preferred over truncating an oversized first result; truncation remains explicit in JSON.
+Search and context accept `--max-output-bytes` in addition to `--max-tokens`.
+For search, the byte limit must be at least 256. JSON byte limits include the envelope,
+UTF-8 encoding, pretty printing, and the trailing newline. If evidence does not fit,
+`status: "incomplete"` and explicit truncation are returned. Token counts remain estimates.
+
+Token-budget selection considers the candidate pool before applying the result limit.
+It balances relevance, new query-term coverage, source roles, and references from strong
+candidates. Tests and type contracts receive less context space unless requested;
+`--purpose test` explicitly favors test evidence. These are retrieval heuristics, not
+proof that all relevant behavior has been found. Whole symbols are preferred, with an
+explicit partial snippet only when no complete candidate fits.
+
+Search/context output reports `answerSufficiency: "not-assessed"`. Diagnostic cards use
+`rankingStrength` for the high/medium/low ranking heuristic. Full internal results retain
+`confidence` as a deprecated compatibility alias; neither value is a calibrated answer
+probability. Execution completion is distinct from answer sufficiency.
+
+Graph references include source/target locations, resolution method, and call line when
+available. Calls inside nested indexed symbols belong to the smallest containing symbol.
+`graphCoverage` is the fraction of resolved extracted edges (including synthetic imports
+and table references), not recall against all real references. Use compiler-aware tools
+for exhaustive refactoring. Dynamic calls and unsupported alias/re-export forms may remain
+unresolved.
+
+Clusters require similarity to every member to prevent transitive similarity chains.
+Titles prefer symbol/file terms over common testing/framework imports. Colliding cluster
+titles include a source location for disambiguation.
+
+Chunking policy version 6 preserves structural metadata even below the old minimum file
+size. `sensegrep index --no-watch` detects the old policy and rebuilds the index atomically;
+existing indexes remain readable until that explicit indexing command runs.

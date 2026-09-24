@@ -107,6 +107,7 @@ export namespace DuplicateDetector {
       processedCandidates?: number
       elapsedMs?: number
     }
+    metrics?: { loadMs: number; prepareMs: number; neighborsMs: number; strategy: "memory-cosine" | "vector-store" }
     duplicates: DuplicateGroup[]
     acceptableDuplicates?: DuplicateGroup[]
   }
@@ -525,24 +526,6 @@ export namespace DuplicateDetector {
     return files
   }
 
-  /**
-   * Calcular similaridade entre dois vetores (cosine similarity)
-   */
-  function cosineSimilarity(vec1: number[], vec2: number[]): number {
-    let dotProduct = 0
-    let norm1 = 0
-    let norm2 = 0
-
-    for (let i = 0; i < vec1.length; i++) {
-      dotProduct += vec1[i] * vec2[i]
-      norm1 += vec1[i] * vec1[i]
-      norm2 += vec2[i] * vec2[i]
-    }
-
-    const denominator = Math.sqrt(norm1) * Math.sqrt(norm2)
-    return denominator > 0 ? dotProduct / denominator : 0
-  }
-
   const TOKENIZE_REGEX = /[A-Za-z_$][A-Za-z0-9_$]*|\d+|[^\s]/g
 
   function tokenize(text: string): string[] {
@@ -814,6 +797,7 @@ export namespace DuplicateDetector {
       ],
     })
 
+    const loadedAt = Date.now()
     const subdirPrefix = resolvedIndex.subdirPrefix
     const isInScopedPath = (file: string) => {
       if (!subdirPrefix) return true
@@ -955,7 +939,7 @@ export namespace DuplicateDetector {
     const maxNeighbors = Math.min(30, Math.max(5, candidates.length))
     const resumeCursor = Math.min(candidates.length, Math.max(0, options.resumeCursor ?? 0))
     const fingerprint = createHash("sha256").update(JSON.stringify({
-      version: 1, root: resolvedIndex.root, updatedAt: meta.updatedAt, embeddings: meta.embeddings,
+      version: 2, root: resolvedIndex.root, updatedAt: meta.updatedAt, embeddings: meta.embeddings,
       candidates: candidates.map((candidate) => candidate.id), thresholds, normalizeIdentifiers,
       crossFileOnly: options.crossFileOnly, crossLanguage: options.crossLanguage,
     })).digest("hex")
@@ -972,6 +956,17 @@ export namespace DuplicateDetector {
         pairs.set(key, pair)
       }
     }
+    // Bound quadratic work to moderate candidate sets. Normalize once instead of
+    // recomputing both vector norms for every pair, and reuse symmetric distances.
+    const memoryCosine = candidates.length <= 4096 && VectorStore.getDistanceMetric(meta) === "cosine"
+    const unitVectors = memoryCosine ? candidates.map(({ vector }) => {
+      const norm = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0))
+      return Float64Array.from(vector, (value) => norm ? value / norm : 0)
+    }) : []
+    const distances = memoryCosine ? new Float64Array(candidates.length * (candidates.length - 1) / 2).fill(NaN) : undefined
+    const preparedAt = Date.now()
+    const metrics = { loadMs: loadedAt - startTime, prepareMs: preparedAt - loadedAt, neighborsMs: 0,
+      strategy: memoryCosine ? "memory-cosine" as const : "vector-store" as const }
     const deadline = options.timeoutMs ? startTime + options.timeoutMs : Number.POSITIVE_INFINITY
     let processedCandidates = 0
     let timedOut = false
@@ -979,6 +974,7 @@ export namespace DuplicateDetector {
 
     options.onProgress?.({ phase: "neighbors", current: resumeCursor, total: candidates.length, elapsedMs: Date.now() - startTime })
     for (let candidateIndex = resumeCursor; candidateIndex < candidates.length; candidateIndex++) {
+      if (memoryCosine && (candidateIndex - resumeCursor) % 16 === 0) await new Promise<void>((resolve) => setImmediate(resolve))
       if (options.signal?.aborted) {
         aborted = true
         break
@@ -995,11 +991,33 @@ export namespace DuplicateDetector {
         : options.signal ?? timeoutSignal
       let neighbors: Awaited<ReturnType<typeof VectorStore.searchByVector>>
       try {
-        neighbors = candidates.length <= 512 && VectorStore.getDistanceMetric(meta) === "cosine"
-          ? candidates.filter((other) => eligible(candidate, other)).map((other) => ({
-            id: other.id, distance: 1 - cosineSimilarity(candidate.vector, other.vector),
-          })).sort((a, b) => a.distance - b.distance || a.id.localeCompare(b.id)).slice(0, maxNeighbors) as typeof neighbors
-          : await VectorStore.searchByVector(collection, candidate.vector, {
+        if (memoryCosine) {
+          const nearest: Array<{ id: string; distance: number }> = []
+          for (let otherIndex = 0; otherIndex < candidates.length; otherIndex++) {
+            if (otherIndex % 256 === 0 && (options.signal?.aborted || Date.now() >= deadline)) {
+              throw new Error("Duplicate neighbor scan interrupted")
+            }
+            const other = candidates[otherIndex]
+            if (!eligible(candidate, other)) continue
+            const high = Math.max(candidateIndex, otherIndex)
+            const low = Math.min(candidateIndex, otherIndex)
+            const offset = high * (high - 1) / 2 + low
+            let distance = distances![offset]
+            if (Number.isNaN(distance)) {
+              const left = unitVectors[candidateIndex], right = unitVectors[otherIndex]
+              let dot = 0
+              if (left.length === right.length) for (let i = 0; i < left.length; i++) dot += left[i] * right[i]
+              distance = 1 - Math.max(-1, Math.min(1, dot))
+              distances![offset] = distance
+            }
+            const entry = { id: other.id, distance }
+            const position = nearest.findIndex((value) => distance < value.distance || (distance === value.distance && entry.id.localeCompare(value.id) < 0))
+            if (position >= 0) nearest.splice(position, 0, entry)
+            else if (nearest.length < maxNeighbors) nearest.push(entry)
+            if (nearest.length > maxNeighbors) nearest.pop()
+          }
+          neighbors = nearest as typeof neighbors
+        } else neighbors = await VectorStore.searchByVector(collection, candidate.vector, {
           limit: maxNeighbors,
           filters: {
             ...neighborFilters,
@@ -1063,6 +1081,7 @@ export namespace DuplicateDetector {
       }
     }
 
+    metrics.neighborsMs = Date.now() - preparedAt
     const nextCursor = resumeCursor + processedCandidates < candidates.length
       ? resumeCursor + processedCandidates
       : undefined
@@ -1100,6 +1119,7 @@ export namespace DuplicateDetector {
           processedCandidates,
           elapsedMs: Date.now() - startTime,
         },
+        metrics,
         duplicates: [],
       }
     }
@@ -1255,6 +1275,7 @@ export namespace DuplicateDetector {
         processedCandidates,
         elapsedMs: elapsed,
       },
+      metrics,
       duplicates,
       acceptableDuplicates: acceptableDuplicates.length > 0 ? acceptableDuplicates : undefined,
     }

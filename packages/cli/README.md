@@ -33,7 +33,9 @@ sensegrep semantic-kinds --json
 
 `--json` writes parseable JSON to stdout; progress and warnings are written to stderr.
 Argument errors under `--json` also use stdout JSON and exit code 2. `--max-output-bytes`
-is enforced against the complete serialized payload.
+is supported by search/context/audit/literal and enforced against the complete serialized JSON payload. Search requires at least 256 bytes.
+Search/context explicitly report `answerSufficiency: "not-assessed"`; diagnostic
+`rankingStrength` describes retrieval ranking, not proof that the question is answered.
 Hybrid retrieval runs semantic and lexical work concurrently and uses one batched index read
 for lexical matches. `--hybrid-mode parallel` is the default; `--no-hybrid` is available for
 latency-sensitive semantic-only discovery. Deterministic query embeddings are cached locally

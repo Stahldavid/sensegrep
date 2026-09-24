@@ -77,7 +77,7 @@ Search options:
   --continue-uncovered      Add token-bounded batches until changed-file textual coverage is complete
   --batch-tokens <n>        Per-batch audit budget (default: 4000)
   --max-total-tokens <n>    Global audit token budget, including continuation batches
-  --max-output-bytes <n>    Global serialized audit evidence budget
+  --max-output-bytes <n>    Serialized JSON budget for search/context/audit (search minimum: 256)
   --max-batches <n>         Maximum number of continuation batches
   --profile <name>          Select a side-by-side named index profile
   --embed-model <name>      Override remote embedding model

@@ -54,7 +54,10 @@ export type StructuredSearchResult = {
   semanticKind?: string
   framework?: string
   fileRole?: string
+  /** @deprecated Ranking heuristic only; use rankingStrength. */
   confidence: "high" | "medium" | "low"
+  rankingStrength: "high" | "medium" | "low"
+  answerSufficiency: "not-assessed"
   isWeakMatch: boolean
   whyMatched: string[]
   filterMatches?: Record<string, unknown>
@@ -700,52 +703,67 @@ export function estimateResultTokens(result: Pick<WorkingResult, "content" | "fi
   return Math.max(1, Math.ceil((result.content.length + metadataOverhead) / 4))
 }
 
-export function selectWithinTokenBudget(results: WorkingResult[], maxTokens?: number, query = ""): { results: WorkingResult[]; estimatedTokens: number } {
+export function selectWithinTokenBudget(results: WorkingResult[], maxTokens?: number, query = "", maxResults = results.length, purpose?: SearchPurpose): { results: WorkingResult[]; estimatedTokens: number } {
   if (!maxTokens) {
-    return { results, estimatedTokens: results.reduce((sum, result) => sum + estimateResultTokens(result), 0) }
+    const selected = results.slice(0, maxResults)
+    return { results: selected, estimatedTokens: selected.reduce((sum, result) => sum + estimateResultTokens(result), 0) }
   }
   const selected: WorkingResult[] = []
   let estimatedTokens = 0
-  // Prefer useful complete evidence over a large prefix that exhausts the pack.
-  // Preserve relevance, while rewarding compact, query-specific implementations.
   const queryTokens = getQueryTokens(query)
-  const ordered = [...results].sort((a, b) => {
-    const utility = (r: WorkingResult) => {
-      const coverage = queryTokens.length ? lexicalRelevance(queryTokens, r) : 0
-      const executableWeight = ["type", "interface", "enum"].includes(String(r.metadata.symbolType)) ? 0.75 : 1
-      return ((r.rerankScore ?? r.semanticScore) + coverage * 0.3) * executableWeight / Math.sqrt(Math.max(120, estimateResultTokens(r)))
-    }
-    return utility(b) - utility(a) || compareWorkingResults(a, b)
-  })
-  // Only truncate if no complete candidate fits. Never sacrifice complete evidence
-  // just because the first ranked symbol is larger than the entire budget.
+  const covered = new Set<string>()
   const strongest = Math.max(0, ...results.map((r) => r.rerankScore ?? r.semanticScore))
-  const fitting = ordered.filter((r) => estimateResultTokens(r) <= maxTokens && (r.rerankScore ?? r.semanticScore) >= strongest * 0.7)
-  for (const result of fitting.length ? fitting : ordered.slice(0, 1)) {
-    let selectedResult = result
-    let tokens = estimateResultTokens(selectedResult)
-    if (selected.length === 0 && tokens > maxTokens) {
-      const metadataOverhead = selectedResult.file.length + String(selectedResult.metadata.symbolName ?? "").length + 80
-      const maxContentCharacters = Math.max(0, maxTokens * 4 - metadataOverhead)
-      let content = selectedResult.content.slice(0, maxContentCharacters)
-      const newline = content.lastIndexOf("\n")
-      if (newline >= Math.floor(maxContentCharacters / 2)) content = content.slice(0, newline)
-      selectedResult = {
-        ...selectedResult,
-        content,
-        contentTruncated: content.length < selectedResult.content.length,
-        metadata: {
-          ...selectedResult.metadata,
-          snippetIntegrity: "partial",
-          contentTruncated: true,
-        },
-      }
-      tokens = estimateResultTokens(selectedResult)
+  const remaining = results.filter((r) => (r.rerankScore ?? r.semanticScore) >= strongest * 0.7)
+  const wantsTests = purpose === "test" || queryTokens.some((token) => ["test", "tests", "teste", "testes"].includes(token))
+  const wantsContracts = queryTokens.some((token) => ["type", "types", "interface", "interfaces", "schema", "contract", "contrato", "tipos"].includes(token))
+  const anchors = [...results].filter((r) => r.metadata.fileRole !== "test" && r.metadata.fileRole !== "contract")
+    .sort((a, b) => (b.rerankScore ?? b.semanticScore) - (a.rerankScore ?? a.semanticScore)).slice(0, 5)
+  const supported = new Set(results.filter((r) => {
+    const name = String(r.metadata.symbolName ?? "")
+    if (name.length < 5 || !/^[\w$]+$/.test(name)) return false
+    const reference = new RegExp(`\\b${name.replaceAll("$", "\\$")}\\b`)
+    return anchors.some((anchor) => anchor !== r && reference.test(anchor.content))
+  }))
+  const terms = (r: WorkingResult) => {
+    const text = `${r.file} ${r.metadata.symbolName ?? ""} ${r.content}`.toLowerCase()
+    return queryTokens.filter((token) => text.includes(token))
+  }
+  // Relevance remains the main signal. A bounded size penalty cannot let tiny,
+  // redundant wrappers displace the implementation merely because they are cheap.
+  while (remaining.length && selected.length < maxResults) {
+    const available = maxTokens - estimatedTokens
+    const fitting = remaining.filter((r) => estimateResultTokens(r) <= available)
+    if (!fitting.length) break
+    const utility = (r: WorkingResult) => {
+      const novelty = queryTokens.length ? terms(r).filter((token) => !covered.has(token)).length / queryTokens.length : 0
+      const redundant = selected.some((s) => s.file === r.file && s.startLine <= r.endLine && r.startLine <= s.endLine)
+      const contractPenalty = !wantsContracts && (r.metadata.fileRole === "contract" || ["type", "interface", "enum"].includes(String(r.metadata.symbolType))) ? 0.2 : 0
+      const testPenalty = !wantsTests && r.metadata.fileRole === "test" ? 0.18 : 0
+      return (r.rerankScore ?? r.semanticScore) + novelty * 0.15 + (supported.has(r) ? 0.12 : 0)
+        - contractPenalty - testPenalty - (redundant ? 0.3 : 0) - 0.12 * Math.sqrt(estimateResultTokens(r) / maxTokens)
     }
-    if (selected.length > 0 && estimatedTokens + tokens > maxTokens) continue
-    selected.push(selectedResult)
-    estimatedTokens += tokens
-    if (estimatedTokens >= maxTokens) break
+    fitting.sort((a, b) => utility(b) - utility(a) || compareWorkingResults(a, b))
+    const winner = fitting[0]
+    selected.push(winner)
+    estimatedTokens += estimateResultTokens(winner)
+    terms(winner).forEach((token) => covered.add(token))
+    remaining.splice(remaining.indexOf(winner), 1)
+  }
+  // Only return partial source when no complete candidate fits. Preserve source
+  // bounds/IDs for expansion and explicitly mark the evidence as partial.
+  if (!selected.length && results.length && maxResults > 0) {
+    const first = results[0]
+    const overhead = first.file.length + String(first.metadata.symbolName ?? "").length + 80
+    const characters = maxTokens * 4 - overhead
+    if (characters > 0) {
+      let content = first.content.slice(0, characters)
+      const newline = content.lastIndexOf("\n")
+      if (newline >= characters / 2) content = content.slice(0, newline)
+      const partial = { ...first, content, contentTruncated: true,
+        metadata: { ...first.metadata, snippetIntegrity: "partial", contentTruncated: true } }
+      const tokens = estimateResultTokens(partial)
+      if (tokens <= maxTokens) { selected.push(partial); estimatedTokens = tokens }
+    }
   }
   return { results: selected, estimatedTokens }
 }
@@ -1580,6 +1598,16 @@ export function getDominantSymbolPhrases(
     .map(([phrase]) => phrase)
 }
 
+/** Prefer source/domain terms over ubiquitous framework and testing imports. */
+export function getGroupTitleSignal(results: WorkingResult[], query: string): string | undefined {
+  const generic = new Set(["api", "client", "service", "types", "contracts", "model", "models", "test", "tests", "convex", "react", "vitest", "jest", "errorhelpers", "helpers", "utils", "index"])
+  const meaningful = (phrase: string) => splitIdentifier(phrase).some((token) => !generic.has(token))
+  const symbols = getDominantSymbolPhrases(results, query, 10, false).filter(meaningful)
+  if (symbols.length) return symbols[0]
+  const filenames = topCounts(results.map((result) => splitIdentifier(path.basename(result.file).replace(/\.(?:test|spec)?\.?[cm]?[jt]sx?$/, "")).filter((token) => !generic.has(token)).join(" ")).filter(Boolean), 1)
+  return filenames[0] ?? topCounts(results.flatMap((r) => getImportHints(r.metadata)).filter(meaningful), 1)[0]
+}
+
 function scoreToConfidence(score: number): "high" | "medium" | "low" {
   if (score >= 0.55) return "high"
   if (score >= 0.25) return "medium"
@@ -2175,6 +2203,8 @@ export function toStructuredSearchResult(result: WorkingResult): StructuredSearc
     framework: typeof metadata.framework === "string" && metadata.framework ? metadata.framework : undefined,
     fileRole: typeof metadata.fileRole === "string" && metadata.fileRole ? metadata.fileRole : undefined,
     confidence: result.confidence ?? scoreToConfidence(result.rerankScore ?? result.semanticScore),
+    rankingStrength: result.confidence ?? scoreToConfidence(result.rerankScore ?? result.semanticScore),
+    answerSufficiency: "not-assessed",
     isWeakMatch: result.isWeakMatch ?? (result.rerankScore ?? result.semanticScore) < 0.25,
     whyMatched: result.whyMatched ?? [],
     filterMatches: result.filterMatches,

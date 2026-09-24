@@ -48,6 +48,19 @@ vi.mock("../project/instance.js", () => ({
 }))
 
 describe("SenseGrepClusterTool", () => {
+  it("does not merge a similarity chain into one cluster", async () => {
+    const { buildInitialClusters } = await import("./sensegrep-cluster.js")
+    const nodes = [0, Math.PI / 6, Math.PI / 3].map((angle, index) => ({
+      file: `src/${index}.ts`, startLine: 1, endLine: 3, content: "", semanticScore: 1,
+      metadata: { symbolType: "function" }, vector: [Math.cos(angle), Math.sin(angle)],
+      importHints: [], symbolHints: [], domainLabel: "business logic",
+    }))
+    const groups = buildInitialClusters(nodes, 0.8)
+    expect(groups.length).toBeGreaterThan(1)
+    expect(groups.flat()).toHaveLength(3)
+    expect(groups.some((group) => group.includes(nodes[0]) && group.includes(nodes[2]))).toBe(false)
+    expect(buildInitialClusters([...nodes].reverse(), 0.8)).toEqual(groups)
+  })
   beforeEach(() => {
     vi.clearAllMocks()
     readIndexMeta.mockResolvedValue({

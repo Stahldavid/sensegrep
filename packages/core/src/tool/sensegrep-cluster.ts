@@ -9,7 +9,7 @@ import {
   deriveDomainLabel,
   formatGroupedResultHeader,
   formatRepresentativeSnippets,
-  getDominantSymbolPhrases,
+  getGroupTitleSignal,
   getGroupingReasons,
   getImportHints,
   getQueryTokens,
@@ -65,33 +65,7 @@ type ClusterGroup = {
   dominantSymbolTypes: string[]
 }
 
-const GENERIC_TITLE_SIGNALS = new Set(["api", "client", "clients", "service", "services", "types", "contracts", "model", "models"])
-
-class UnionFind {
-  private parent = new Map<number, number>()
-
-  constructor(size: number) {
-    for (let index = 0; index < size; index += 1) {
-      this.parent.set(index, index)
-    }
-  }
-
-  find(value: number): number {
-    const parent = this.parent.get(value)
-    if (parent === undefined || parent === value) return value
-    const root = this.find(parent)
-    this.parent.set(value, root)
-    return root
-  }
-
-  union(a: number, b: number) {
-    const rootA = this.find(a)
-    const rootB = this.find(b)
-    if (rootA !== rootB) {
-      this.parent.set(rootB, rootA)
-    }
-  }
-}
+const GENERIC_TITLE_SIGNALS = new Set(["api", "client", "clients", "service", "services", "types", "contracts", "model", "models", "react", "convex", "convex-test", "vitest", "jest", "errorhelpers"])
 
 function combinedSimilarity(a: ClusterNode, b: ClusterNode): number {
   const weighted: Array<[number, number]> = []
@@ -115,34 +89,22 @@ function combinedSimilarity(a: ClusterNode, b: ClusterNode): number {
   return weighted.reduce((sum, [weight, score]) => sum + weight * score, 0) / totalWeight
 }
 
-function averagePairwiseSimilarity(cluster: ClusterNode[], candidate: ClusterNode): number {
-  if (cluster.length === 0) return 0
-  let total = 0
-  for (const member of cluster) total += combinedSimilarity(member, candidate)
-  return total / cluster.length
-}
-
-function buildInitialClusters(nodes: ClusterNode[], threshold: number): ClusterNode[][] {
-  if (nodes.length === 0) return []
-  const unionFind = new UnionFind(nodes.length)
-
-  for (let a = 0; a < nodes.length; a += 1) {
-    for (let b = a + 1; b < nodes.length; b += 1) {
-      if (combinedSimilarity(nodes[a], nodes[b]) >= threshold) {
-        unionFind.union(a, b)
-      }
+export function buildInitialClusters(nodes: ClusterNode[], threshold: number): ClusterNode[][] {
+  // Complete-link admission prevents A~B and B~C from implying A~C.
+  // Stable relevance/source ordering makes ties reproducible across index reads.
+  const ordered = [...nodes].sort((a, b) => b.semanticScore - a.semanticScore || a.file.localeCompare(b.file) || a.startLine - b.startLine)
+  const groups: ClusterNode[][] = []
+  for (const node of ordered) {
+    let best: ClusterNode[] | undefined
+    let bestScore = -Infinity
+    for (const group of groups) {
+      const similarity = Math.min(...group.map((member) => combinedSimilarity(member, node)))
+      if (similarity >= threshold && similarity > bestScore) { best = group; bestScore = similarity }
     }
+    if (best) best.push(node)
+    else groups.push([node])
   }
-
-  const groups = new Map<number, ClusterNode[]>()
-  for (let index = 0; index < nodes.length; index += 1) {
-    const root = unionFind.find(index)
-    const cluster = groups.get(root) ?? []
-    cluster.push(nodes[index])
-    groups.set(root, cluster)
-  }
-
-  return [...groups.values()]
+  return groups
 }
 
 function attachSmallClusters(
@@ -157,7 +119,7 @@ function attachSmallClusters(
 
   if (largeClusters.length === 0 || smallClusters.length === 0) return clusters
 
-  const attachThreshold = Math.max(0.55, threshold - 0.08)
+  const attachThreshold = threshold
   const leftovers: ClusterNode[][] = []
 
   for (const cluster of smallClusters) {
@@ -171,7 +133,7 @@ function attachSmallClusters(
     let bestScore = 0
 
     for (let index = 0; index < largeClusters.length; index += 1) {
-      const score = averagePairwiseSimilarity(largeClusters[index], candidate)
+      const score = Math.min(...largeClusters[index].map((member) => combinedSimilarity(member, candidate)))
       if (score > bestScore) {
         bestScore = score
         bestClusterIndex = index
@@ -189,15 +151,9 @@ function attachSmallClusters(
 }
 
 function chooseClusterTitle(cluster: ClusterNode[], query: string): string {
-  const queryTokenSet = new Set(getQueryTokens(query))
   const domainHints = topCounts(cluster.map((member) => member.domainLabel), 2)
   const strongestDomain = domainHints.find((value) => value !== "related code")
-  const importHints = topCounts(cluster.flatMap((member) => member.importHints), 2)
-  const symbolHints = topCounts(cluster.flatMap((member) => member.symbolHints), 3, queryTokenSet)
-  const symbolPhrases = getDominantSymbolPhrases(cluster, query, 2, false)
-  const importSignal = importHints.find((hint) => !GENERIC_TITLE_SIGNALS.has(hint)) ?? importHints[0]
-  const strongestSignal = symbolPhrases[0] ?? symbolHints[0] ??
-    (importSignal && !GENERIC_TITLE_SIGNALS.has(importSignal) ? importSignal : undefined)
+  const strongestSignal = getGroupTitleSignal(cluster, query)
 
   if (strongestDomain && !strongestDomain.startsWith("domain /")) {
     if (strongestSignal) return `${strongestDomain} / ${strongestSignal}`
@@ -254,7 +210,7 @@ function buildClusterGroups(
   const queryTokenSet = new Set(getQueryTokens(query))
   const nodes: ClusterNode[] = results.map((result) => ({
     ...result,
-    importHints: getImportHints(result.metadata),
+    importHints: getImportHints(result.metadata).filter((hint) => !GENERIC_TITLE_SIGNALS.has(hint)),
     symbolHints: getSymbolTokens(result.metadata).filter((token) => !queryTokenSet.has(token)),
     domainLabel: deriveDomainLabel(result),
   }))
@@ -262,6 +218,12 @@ function buildClusterGroups(
   const initial = buildInitialClusters(nodes, threshold)
   const normalized = attachSmallClusters(initial, threshold, minClusterSize)
   const groups = normalized.map((cluster) => summarizeCluster(cluster, query))
+  const titles = new Map<string, number>()
+  for (const group of groups) titles.set(group.title, (titles.get(group.title) ?? 0) + 1)
+  for (const group of groups) if (titles.get(group.title)! > 1) {
+    const first = [...group.members].sort((a, b) => a.file.localeCompare(b.file) || a.startLine - b.startLine)[0]
+    group.title += `  - ${first.file}:${first.startLine}`
+  }
 
   return groups.sort((a, b) => {
     const rankA = a.score * Math.log2(a.members.length + 1)
