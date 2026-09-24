@@ -43,6 +43,7 @@ export function resolveAgentDetail(value: unknown, diagnostic = false): AgentDet
 
 function warningCode(message: string): string {
   const normalized = message.toLowerCase()
+  if (normalized.startsWith("jev")) return "JEV_FALLBACK"
   if (normalized.includes("stale")) return "INDEX_STALE"
   if (normalized.includes("embedding") || normalized.includes("lexical-fallback") || normalized.includes("provider")) return "EMBEDDING_FALLBACK"
   if (normalized.includes("schema") || normalized.includes("migration")) return "INDEX_INCOMPATIBLE"
@@ -143,6 +144,7 @@ export function projectAgentResult(entry: any, rank: number, options: AgentProje
   })
   if (diagnostics) {
     card.diagnostic = defined({
+      jev: entry.jev,
       rawDistance: entry.rawDistance,
       distanceMetric: entry.distanceMetric,
       language: entry.language,
@@ -188,6 +190,7 @@ export function projectSearchAgentResponse(raw: any, options: AgentProjectionOpt
     ...baseEnvelope(raw, options),
     answerSufficiency: raw.answerSufficiency ?? "not-assessed",
     ...(raw.evidenceAssessment ? { evidenceAssessment: raw.evidenceAssessment } : {}),
+    ...(raw.jev ? { jev: raw.jev } : {}),
     ...(raw.coverage ? {
       coverage: defined({
         changedFiles: raw.coverage.changedFiles,
@@ -256,6 +259,8 @@ function projectGroupedItem(group: any, index: number, detail: GroupedAgentDetai
   const representativeIds = group.representativeIds ?? representativeResults.map((entry: any) => entry.resultId).filter(Boolean)
   return defined({
     label: group.title ?? group.label,
+    originalLabel: group.originalTitle,
+    jev: group.jev,
     rank: index + 1,
     matches: group.matches,
     files: group.files,
@@ -274,6 +279,7 @@ export function projectGroupedAgentResponse(raw: any, options: AgentProjectionOp
   return {
     ...baseEnvelope(raw, options),
     [key]: (raw[key] ?? []).map((group: any, index: number) => projectGroupedItem(group, index, detail)),
+    ...(raw.jev ? { jev: raw.jev } : {}),
     ...(options.diagnostics ? { diagnostic: { metadata: raw.metadata, freshness: raw.freshness, retrieval: raw.retrieval, budget: raw.budget } } : {}),
   }
 }
@@ -340,9 +346,11 @@ export function projectDuplicateAgentResponse(raw: any, options: AgentProjection
     status: raw.status ?? "complete",
     warnings: projectWarnings(raw.warnings),
     summary,
+    ...(raw.jev ? { jev: raw.jev } : {}),
     ...(diagnostics ? { diagnostic: { metrics: raw.metrics } } : {}),
     duplicates: (raw.duplicates ?? []).map((group: any) => defined({
       level: group.level,
+      jev: group.jev,
       similarity: group.similarity,
       type: group.duplicateType,
       savings: group.impact?.estimatedSavings,
@@ -454,6 +462,11 @@ function markTruncated(payload: any): any {
   return {
     ...payload,
     status: "incomplete",
+    ...(payload.evidenceAssessment?.scope === "final-structured-source-packet" ? {
+      answerSufficiency: "not-assessed",
+      evidenceAssessment: { status: "not-assessed", verdict: "not-assessed", fullyAssessed: false,
+        scope: "final-structured-source-packet", calibrated: false, reason: "output-budget-changed-packet" },
+    } : {}),
     truncated: true,
     retrieval: payload.retrieval ? { ...payload.retrieval, exhaustive: false, truncated: true } : payload.retrieval,
     coverage: payload.coverage ? { ...payload.coverage, exhaustive: false, truncated: true } : payload.coverage,
@@ -516,6 +529,20 @@ export function enforceAgentOutputBudget(payload: any, options: AgentBudgetOptio
   let projected = withAgentOutputMetrics(payload, options)
   const maxBytes = Number(projected?.budget?.maxBytes ?? 0)
   if (!maxBytes || projected.budget.usedBytes <= maxBytes) return projected
+  // Evidence takes priority over verbose diagnostic distributions under a hard wire budget.
+  // Removing diagnostics does not invalidate the evaluated source packet.
+  if (Array.isArray(projected.results)) {
+    const compact = { ...projected, results: projected.results.map((entry: any) => {
+      const { diagnostic, ...evidence } = entry
+      return evidence
+    }), budget: { ...projected.budget, diagnosticsOmitted: true } }
+    if (compact.evidenceAssessment?.evaluation) {
+      const { evaluation, ...assessment } = compact.evidenceAssessment
+      compact.evidenceAssessment = assessment
+    }
+    projected = withAgentOutputMetrics(compact, options)
+    if (projected.budget.usedBytes <= maxBytes) return projected
+  }
   projected = withAgentOutputMetrics(markTruncated(projected), options)
   const collectionKeys = ["results", "matches", "groups", "clusters", "references", "impacted", "duplicates", "batches"]
   for (const key of collectionKeys) {

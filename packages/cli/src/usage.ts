@@ -48,6 +48,11 @@ Search options:
   --imports <name>          Filter by imported module name
   --rerank <true|false>     Apply deterministic lexical/structural reranking
   --no-rerank               Disable reranking
+  --jev <mode>              OpenRouter Jev: evidence|rerank|both|off (default off; sends source)
+  --jev-candidates <n>      Maximum remote candidate evaluations (default 20, max 40)
+  --jev-batch-size <n>      Candidates per request: 1-10 (default 5; also byte-bounded)
+  --jev-ranking <strategy>  score (default), legacy weights, or rrf ordinal fusion
+  --jev-timeout <ms>        Whole Jev stage deadline (default 8000ms); local fallback
   --hybrid <true|false>     Fuse lexical and vector retrieval (default: true)
   --no-hybrid               Disable lexical/vector fusion
   --hybrid-mode <mode>      parallel (default) or adaptive

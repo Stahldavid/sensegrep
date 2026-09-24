@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest"
 import { projectAgentResponse, enforceAgentOutputBudget } from "./agent-output.js"
 
 describe("shared agent output projection", () => {
+  it("retains group judgement and original label in compact output", () => {
+    const jev = { status: "complete", evaluated: 1 }
+    const groupJev = { category: "payments", advisory: true }
+    const response = projectAgentResponse({ command: "survey", jev, groups: [{ title: "payments / payout rules", originalTitle: "payout rules", jev: groupJev }] })
+    expect(response.jev).toEqual(jev)
+    expect(response.groups[0]).toMatchObject({ label: "payments / payout rules", originalLabel: "payout rules", jev: groupJev })
+  })
   it("keeps ranking strength separate from answer sufficiency", () => {
     const response = projectAgentResponse({ command: "search", results: [{ file: "test.ts", score: 0.9, confidence: "high" }] }, { detail: "diagnostic" })
     expect(response.answerSufficiency).toBe("not-assessed")
@@ -94,4 +101,24 @@ describe("shared agent output projection", () => {
     })
     expect(projected).not.toHaveProperty("pathNodes")
   })
+  it("invalidates packet evidence after serialized output truncation", () => {
+    const raw = { command: "context", status: "complete", answerSufficiency: "not-assessed",
+      evidenceAssessment: { scope: "final-structured-source-packet", verdict: "direct-evidence", fullyAssessed: true },
+      budget: { maxBytes: 1400 }, results: [{ id: "one", file: "a.ts", content: "a".repeat(3000) }, { id: "two", file: "b.ts", content: "b".repeat(3000) }] }
+    const result = enforceAgentOutputBudget(raw)
+    expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(1400)
+    expect(result.evidenceAssessment.verdict).toBe("not-assessed")
+    expect(result.evidenceAssessment.reason).toBe("output-budget-changed-packet")
+  })
+
+  it("drops optional diagnostics before source, preserving the packet verdict", () => {
+    const result = enforceAgentOutputBudget({ command: "context", status: "complete",
+      evidenceAssessment: { scope: "final-structured-source-packet", verdict: "direct-evidence", fullyAssessed: true },
+      budget: { maxBytes: 900 }, results: [{ id: "a", content: "function rule() { return true }", diagnostic: { why: "x".repeat(3000) } }] })
+    expect(result.results[0].content).toContain("function rule")
+    expect(result.results[0].diagnostic).toBeUndefined()
+    expect(result.evidenceAssessment.verdict).toBe("direct-evidence")
+    expect(result.budget.diagnosticsOmitted).toBe(true)
+  })
+
 })

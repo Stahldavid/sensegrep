@@ -4,6 +4,13 @@ import { DuplicateToolArgsSchema, IndexToolArgsSchema, toRootedInputSchema } fro
 
 describe("MCP tool input schemas", () => {
   it("rejects invalid duplicate detector ranges and scopes", () => {
+    expect(() => DuplicateToolArgsSchema.parse({ jev: "invalid" })).toThrow()
+    expect(() => DuplicateToolArgsSchema.parse({ jevCandidates: 41 })).toThrow()
+    expect(() => DuplicateToolArgsSchema.parse({ jevTimeoutMs: 0 })).toThrow()
+    expect(() => DuplicateToolArgsSchema.parse({ jevBatchSize: 11 })).toThrow()
+    expect(() => DuplicateToolArgsSchema.parse({ jevRanking: "unsupported" })).toThrow()
+    expect(DuplicateToolArgsSchema.parse({ jevBatchSize: 5, jevRanking: "rrf" })).toMatchObject({ jevBatchSize: 5, jevRanking: "rrf" })
+    expect(DuplicateToolArgsSchema.parse({ jev: "both", jevCandidates: 3 })).toMatchObject({ jev: "both", jevCandidates: 3 })
     expect(() => DuplicateToolArgsSchema.parse({ threshold: 2 })).toThrow()
     expect(() => DuplicateToolArgsSchema.parse({ limit: -1 })).toThrow()
     expect(() => DuplicateToolArgsSchema.parse({ scope: "function,typo" })).toThrow()

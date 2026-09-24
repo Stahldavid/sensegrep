@@ -1,0 +1,1120 @@
+[
+  {
+    "name": "authorization-en",
+    "batchSize": 1,
+    "reversed": false,
+    "ranks": {
+      "legacy": 1,
+      "score": 1,
+      "rrf": 1
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 8,
+      "inputTokens": 7371,
+      "outputTokens": 1140,
+      "cost": 0.000309582,
+      "elapsedMs": 1023,
+      "batchSize": 1,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "authorization-en",
+    "batchSize": 5,
+    "reversed": false,
+    "ranks": {
+      "legacy": 1,
+      "score": 1,
+      "rrf": 1
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 2,
+      "inputTokens": 5643,
+      "outputTokens": 1122,
+      "cost": 0.000237006,
+      "elapsedMs": 328,
+      "batchSize": 5,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "authorization-en",
+    "batchSize": 10,
+    "reversed": false,
+    "ranks": {
+      "legacy": 1,
+      "score": 1,
+      "rrf": 1
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 1,
+      "inputTokens": 5355,
+      "outputTokens": 1119,
+      "cost": 0.00022491,
+      "elapsedMs": 306,
+      "batchSize": 10,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "authorization-en",
+    "batchSize": 5,
+    "reversed": true,
+    "ranks": {
+      "legacy": 1,
+      "score": 1,
+      "rrf": 5
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 2,
+      "inputTokens": 5643,
+      "outputTokens": 1122,
+      "cost": 0.000237006,
+      "elapsedMs": 392,
+      "batchSize": 5,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "authorization-pt",
+    "batchSize": 1,
+    "reversed": false,
+    "ranks": {
+      "legacy": 1,
+      "score": 1,
+      "rrf": 1
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 8,
+      "inputTokens": 7387,
+      "outputTokens": 1140,
+      "cost": 0.000310254,
+      "elapsedMs": 730,
+      "batchSize": 1,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "authorization-pt",
+    "batchSize": 5,
+    "reversed": false,
+    "ranks": {
+      "legacy": 1,
+      "score": 1,
+      "rrf": 1
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 2,
+      "inputTokens": 5647,
+      "outputTokens": 1124,
+      "cost": 0.000237174,
+      "elapsedMs": 297,
+      "batchSize": 5,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "authorization-pt",
+    "batchSize": 10,
+    "reversed": false,
+    "ranks": {
+      "legacy": 1,
+      "score": 1,
+      "rrf": 1
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 1,
+      "inputTokens": 5357,
+      "outputTokens": 1121,
+      "cost": 0.000224994,
+      "elapsedMs": 322,
+      "batchSize": 10,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "authorization-pt",
+    "batchSize": 5,
+    "reversed": true,
+    "ranks": {
+      "legacy": 1,
+      "score": 1,
+      "rrf": 4
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 2,
+      "inputTokens": 5647,
+      "outputTokens": 1122,
+      "cost": 0.000237174,
+      "elapsedMs": 346,
+      "batchSize": 5,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "ordering-en",
+    "batchSize": 1,
+    "reversed": false,
+    "ranks": {
+      "legacy": 1,
+      "score": 1,
+      "rrf": 1
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 8,
+      "inputTokens": 7331,
+      "outputTokens": 1140,
+      "cost": 0.000307902,
+      "elapsedMs": 629,
+      "batchSize": 1,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "ordering-en",
+    "batchSize": 5,
+    "reversed": false,
+    "ranks": {
+      "legacy": 1,
+      "score": 1,
+      "rrf": 1
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 2,
+      "inputTokens": 5633,
+      "outputTokens": 1122,
+      "cost": 0.000236586,
+      "elapsedMs": 353,
+      "batchSize": 5,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "ordering-en",
+    "batchSize": 10,
+    "reversed": false,
+    "ranks": {
+      "legacy": 1,
+      "score": 1,
+      "rrf": 1
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 1,
+      "inputTokens": 5350,
+      "outputTokens": 1119,
+      "cost": 0.0002247,
+      "elapsedMs": 329,
+      "batchSize": 10,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "ordering-en",
+    "batchSize": 5,
+    "reversed": true,
+    "ranks": {
+      "legacy": 1,
+      "score": 1,
+      "rrf": 4
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 2,
+      "inputTokens": 5633,
+      "outputTokens": 1122,
+      "cost": 0.000236586,
+      "elapsedMs": 369,
+      "batchSize": 5,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "ordering-pt",
+    "batchSize": 1,
+    "reversed": false,
+    "ranks": {
+      "legacy": 1,
+      "score": 1,
+      "rrf": 1
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 8,
+      "inputTokens": 7387,
+      "outputTokens": 1140,
+      "cost": 0.00031025400000000004,
+      "elapsedMs": 707,
+      "batchSize": 1,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "ordering-pt",
+    "batchSize": 5,
+    "reversed": false,
+    "ranks": {
+      "legacy": 1,
+      "score": 1,
+      "rrf": 1
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 2,
+      "inputTokens": 5647,
+      "outputTokens": 1122,
+      "cost": 0.000237174,
+      "elapsedMs": 312,
+      "batchSize": 5,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "ordering-pt",
+    "batchSize": 10,
+    "reversed": false,
+    "ranks": {
+      "legacy": 1,
+      "score": 1,
+      "rrf": 1
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 1,
+      "inputTokens": 5357,
+      "outputTokens": 1119,
+      "cost": 0.000224994,
+      "elapsedMs": 359,
+      "batchSize": 10,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "ordering-pt",
+    "batchSize": 5,
+    "reversed": true,
+    "ranks": {
+      "legacy": 1,
+      "score": 1,
+      "rrf": 3
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 2,
+      "inputTokens": 5647,
+      "outputTokens": 1122,
+      "cost": 0.000237174,
+      "elapsedMs": 351,
+      "batchSize": 5,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "legal-hold",
+    "batchSize": 1,
+    "reversed": false,
+    "ranks": {
+      "legacy": 1,
+      "score": 1,
+      "rrf": 1
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 8,
+      "inputTokens": 7371,
+      "outputTokens": 1142,
+      "cost": 0.000309582,
+      "elapsedMs": 675,
+      "batchSize": 1,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "legal-hold",
+    "batchSize": 5,
+    "reversed": false,
+    "ranks": {
+      "legacy": 1,
+      "score": 1,
+      "rrf": 1
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 2,
+      "inputTokens": 5643,
+      "outputTokens": 1124,
+      "cost": 0.000237006,
+      "elapsedMs": 349,
+      "batchSize": 5,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "legal-hold",
+    "batchSize": 10,
+    "reversed": false,
+    "ranks": {
+      "legacy": 1,
+      "score": 1,
+      "rrf": 1
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 1,
+      "inputTokens": 5355,
+      "outputTokens": 1119,
+      "cost": 0.00022491,
+      "elapsedMs": 318,
+      "batchSize": 10,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "legal-hold",
+    "batchSize": 5,
+    "reversed": true,
+    "ranks": {
+      "legacy": 1,
+      "score": 1,
+      "rrf": 3
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 2,
+      "inputTokens": 5643,
+      "outputTokens": 1124,
+      "cost": 0.000237006,
+      "elapsedMs": 317,
+      "batchSize": 5,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "constant",
+    "batchSize": 1,
+    "reversed": false,
+    "ranks": {
+      "legacy": 1,
+      "score": 1,
+      "rrf": 2
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 8,
+      "inputTokens": 7323,
+      "outputTokens": 1140,
+      "cost": 0.000307566,
+      "elapsedMs": 808,
+      "batchSize": 1,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "constant",
+    "batchSize": 5,
+    "reversed": false,
+    "ranks": {
+      "legacy": 1,
+      "score": 1,
+      "rrf": 1
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 2,
+      "inputTokens": 5631,
+      "outputTokens": 1122,
+      "cost": 0.000236502,
+      "elapsedMs": 309,
+      "batchSize": 5,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "constant",
+    "batchSize": 10,
+    "reversed": false,
+    "ranks": {
+      "legacy": 1,
+      "score": 1,
+      "rrf": 1
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 1,
+      "inputTokens": 5349,
+      "outputTokens": 1119,
+      "cost": 0.000224658,
+      "elapsedMs": 369,
+      "batchSize": 10,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "constant",
+    "batchSize": 5,
+    "reversed": true,
+    "ranks": {
+      "legacy": 1,
+      "score": 1,
+      "rrf": 1
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 2,
+      "inputTokens": 5631,
+      "outputTokens": 1122,
+      "cost": 0.00023650199999999998,
+      "elapsedMs": 344,
+      "batchSize": 5,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "comment-injection",
+    "batchSize": 1,
+    "reversed": false,
+    "ranks": {
+      "legacy": 1,
+      "score": 1,
+      "rrf": 1
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 9,
+      "candidates": 9,
+      "cacheHits": 0,
+      "requests": 9,
+      "inputTokens": 8287,
+      "outputTokens": 1283,
+      "cost": 0.000348054,
+      "elapsedMs": 895,
+      "batchSize": 1,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "comment-injection",
+    "batchSize": 5,
+    "reversed": false,
+    "ranks": {
+      "legacy": 1,
+      "score": 1,
+      "rrf": 1
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 9,
+      "candidates": 9,
+      "cacheHits": 0,
+      "requests": 2,
+      "inputTokens": 6271,
+      "outputTokens": 1262,
+      "cost": 0.000263382,
+      "elapsedMs": 384,
+      "batchSize": 5,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "comment-injection",
+    "batchSize": 10,
+    "reversed": false,
+    "ranks": {
+      "legacy": 1,
+      "score": 1,
+      "rrf": 2
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 9,
+      "candidates": 9,
+      "cacheHits": 0,
+      "requests": 1,
+      "inputTokens": 5983,
+      "outputTokens": 1259,
+      "cost": 0.000251286,
+      "elapsedMs": 324,
+      "batchSize": 10,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "comment-injection",
+    "batchSize": 5,
+    "reversed": true,
+    "ranks": {
+      "legacy": 1,
+      "score": 1,
+      "rrf": 4
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 9,
+      "candidates": 9,
+      "cacheHits": 0,
+      "requests": 2,
+      "inputTokens": 6271,
+      "outputTokens": 1262,
+      "cost": 0.000263382,
+      "elapsedMs": 344,
+      "batchSize": 5,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "near-negative",
+    "batchSize": 1,
+    "reversed": false,
+    "ranks": {
+      "legacy": null,
+      "score": null,
+      "rrf": null
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 8,
+      "inputTokens": 7339,
+      "outputTokens": 1144,
+      "cost": 0.00030823799999999996,
+      "elapsedMs": 725,
+      "batchSize": 1,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "near-negative",
+    "batchSize": 5,
+    "reversed": false,
+    "ranks": {
+      "legacy": null,
+      "score": null,
+      "rrf": null
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 2,
+      "inputTokens": 5635,
+      "outputTokens": 1124,
+      "cost": 0.00023667,
+      "elapsedMs": 378,
+      "batchSize": 5,
+      "ranking": "score",
+      "splitRequests": 0
+    },
+    "packet": {
+      "status": "weak-evidence",
+      "method": "evidence-v2",
+      "scope": "final-structured-source-packet",
+      "calibrated": false,
+      "fullyAssessed": true,
+      "evaluated": 1,
+      "maxAnswerEvidence": 0.29,
+      "weakThreshold": 0.2,
+      "evaluation": {
+        "status": "complete",
+        "mode": "evidence",
+        "model": "typesafe/jev-1.13",
+        "models": [
+          "typesafe/jev-1.13-20260917"
+        ],
+        "evaluated": 1,
+        "candidates": 1,
+        "cacheHits": 0,
+        "requests": 1,
+        "inputTokens": 844,
+        "outputTokens": 65,
+        "cost": 0.000035448,
+        "elapsedMs": 291,
+        "batchSize": 5,
+        "ranking": "score",
+        "splitRequests": 0
+      },
+      "verdict": "no-evidence-found",
+      "packetHash": "efb3e165ce94d386ed717fc5a7bbfef88e4d5601305b88e3509b1fefe8e26f21",
+      "resultCount": 5,
+      "criteria": {
+        "relevant": 0.13,
+        "evidence": 0.04,
+        "contradiction": 0.29
+      }
+    }
+  },
+  {
+    "name": "near-negative",
+    "batchSize": 10,
+    "reversed": false,
+    "ranks": {
+      "legacy": null,
+      "score": null,
+      "rrf": null
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 1,
+      "inputTokens": 5351,
+      "outputTokens": 1121,
+      "cost": 0.000224742,
+      "elapsedMs": 412,
+      "batchSize": 10,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "near-negative",
+    "batchSize": 5,
+    "reversed": true,
+    "ranks": {
+      "legacy": null,
+      "score": null,
+      "rrf": null
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 2,
+      "inputTokens": 5635,
+      "outputTokens": 1124,
+      "cost": 0.00023667000000000002,
+      "elapsedMs": 377,
+      "batchSize": 5,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "near-negative-pt",
+    "batchSize": 1,
+    "reversed": false,
+    "ranks": {
+      "legacy": null,
+      "score": null,
+      "rrf": null
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 8,
+      "inputTokens": 7411,
+      "outputTokens": 1144,
+      "cost": 0.000311262,
+      "elapsedMs": 725,
+      "batchSize": 1,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "near-negative-pt",
+    "batchSize": 5,
+    "reversed": false,
+    "ranks": {
+      "legacy": null,
+      "score": null,
+      "rrf": null
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 2,
+      "inputTokens": 5653,
+      "outputTokens": 1126,
+      "cost": 0.000237426,
+      "elapsedMs": 323,
+      "batchSize": 5,
+      "ranking": "score",
+      "splitRequests": 0
+    },
+    "packet": {
+      "status": "weak-evidence",
+      "method": "evidence-v2",
+      "scope": "final-structured-source-packet",
+      "calibrated": false,
+      "fullyAssessed": true,
+      "evaluated": 1,
+      "maxAnswerEvidence": 0.22,
+      "weakThreshold": 0.2,
+      "evaluation": {
+        "status": "complete",
+        "mode": "evidence",
+        "model": "typesafe/jev-1.13",
+        "models": [
+          "typesafe/jev-1.13-20260917"
+        ],
+        "evaluated": 1,
+        "candidates": 1,
+        "cacheHits": 0,
+        "requests": 1,
+        "inputTokens": 858,
+        "outputTokens": 65,
+        "cost": 0.000036036,
+        "elapsedMs": 283,
+        "batchSize": 5,
+        "ranking": "score",
+        "splitRequests": 0
+      },
+      "verdict": "no-evidence-found",
+      "packetHash": "6d0a4d9ba8194cdaea51411211ab82b30d2f96c7f4a6563ace0da1c1711dfcae",
+      "resultCount": 5,
+      "criteria": {
+        "relevant": 0.15,
+        "evidence": 0.04,
+        "contradiction": 0.22
+      }
+    }
+  },
+  {
+    "name": "near-negative-pt",
+    "batchSize": 10,
+    "reversed": false,
+    "ranks": {
+      "legacy": null,
+      "score": null,
+      "rrf": null
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 1,
+      "inputTokens": 5360,
+      "outputTokens": 1123,
+      "cost": 0.00022512,
+      "elapsedMs": 353,
+      "batchSize": 10,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  },
+  {
+    "name": "near-negative-pt",
+    "batchSize": 5,
+    "reversed": true,
+    "ranks": {
+      "legacy": null,
+      "score": null,
+      "rrf": null
+    },
+    "diagnostics": {
+      "status": "complete",
+      "mode": "both",
+      "model": "typesafe/jev-1.13",
+      "models": [
+        "typesafe/jev-1.13-20260917"
+      ],
+      "evaluated": 8,
+      "candidates": 8,
+      "cacheHits": 0,
+      "requests": 2,
+      "inputTokens": 5653,
+      "outputTokens": 1126,
+      "cost": 0.000237426,
+      "elapsedMs": 358,
+      "batchSize": 5,
+      "ranking": "score",
+      "splitRequests": 0
+    }
+  }
+]

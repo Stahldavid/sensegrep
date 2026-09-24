@@ -15,11 +15,13 @@ const cases = JSON.parse(readFileSync(flags.cases, 'utf8'))
 mkdirSync(output, { recursive: true })
 const rows = []
 const warmed = new Set()
-const invoke = (cli, args) => {
+const invoke = (cli, args, variant) => {
   const start = performance.now()
   const p = spawnSync(process.execPath, [cli, ...args, '--root', root, '--json', '--log-format', 'none'], {
     encoding: 'utf8', timeout: 30000, maxBuffer: 16 * 1024 * 1024,
-    env: { ...process.env, ...(flags.cache === 'off' ? { SENSEGREP_QUERY_CACHE: 'false' } : {}) },
+    env: { ...process.env,
+      ...(flags[`${variant}-ranking`] ? { SENSEGREP_JEV_RANKING: flags[`${variant}-ranking`] } : {}),
+      ...(flags[`${variant}-batch`] ? { SENSEGREP_JEV_BATCH_SIZE: flags[`${variant}-batch`] } : {}), ...(flags.cache === 'off' ? { SENSEGREP_QUERY_CACHE: 'false' } : {}), ...(flags['jev-cache'] === 'off' ? { SENSEGREP_JEV_CACHE: 'false' } : {}) },
   })
   if (p.status !== 0) throw new Error(`CLI failed: ${p.error?.message ?? p.stderr ?? p.status}`)
   return { data: JSON.parse(p.stdout), ms: Math.round(performance.now() - start), bytes: Buffer.byteLength(p.stdout) }
@@ -36,14 +38,15 @@ for (let i = 0; i < cases.length; i++) {
   const variants = [['baseline', path.resolve(flags.baseline)], ['candidate', candidate]]
   if (i % 2) variants.reverse()
   for (const [variant, cli] of variants) {
-    const { data, ms, bytes } = invoke(cli, c.args ?? ['search', c.query, '--limit', '10', '--diagnostic'])
+    const args = c.args ?? ['search', c.query, '--limit', '10', '--diagnostic']
+    const { data, ms, bytes } = invoke(cli, [...args, ...(variant === 'candidate' && flags.jev ? ['--jev', flags.jev] : variant === 'baseline' && flags['baseline-jev'] ? ['--jev', flags['baseline-jev']] : [])], variant)
     const results = data.results ?? []
     if (c.budget && (data.budget?.usedTokens > c.budget || (data.budget?.maxBytes && bytes > data.budget.maxBytes)))
       throw new Error(`Output budget exceeded for ${c.name}`)
     row[variant] = {
       ms, bytes, snapshot: data.diagnostic?.index?.snapshotId ?? data.index?.snapshotId, fileRank: c.expected ? results.findIndex((r) => r.file === c.expected) + 1 : null,
       symbolRank: c.symbol ? results.findIndex((r) => r.file === c.expected && r.symbol === c.symbol) + 1 : null,
-      sufficiency: data.answerSufficiency, budget: data.budget, metrics: data.diagnostic?.metrics,
+      sufficiency: data.answerSufficiency, evidenceVerdict: data.evidenceAssessment?.verdict, budget: data.budget, metrics: data.diagnostic?.metrics, jev: data.jev,
       symbols: results.map((r) => `${r.file}:${r.symbol ?? ''}`),
     }
     writeFileSync(path.join(output, `${i}-${variant}.json`), JSON.stringify({ case: c, data, ms, bytes }, null, 2))
@@ -64,6 +67,13 @@ const totals = Object.fromEntries(['baseline', 'candidate'].map((variant) => [va
   fileTop5: searches.filter((r) => r[variant].fileRank > 0 && r[variant].fileRank <= 5).length,
   symbolCases: searches.filter((r) => r.symbol).length,
   symbolTop5: searches.filter((r) => r.symbol && r[variant].symbolRank > 0 && r[variant].symbolRank <= 5).length,
+  fileTop10: searches.filter((r) => r[variant].fileRank > 0 && r[variant].fileRank <= 10).length,
+  reciprocalRank: searches.reduce((sum, r) => sum + (r[variant].fileRank > 0 ? 1 / r[variant].fileRank : 0), 0) / searches.length,
+  contextCases: rows.filter(r => r.budget && r.expected).length,
+  contextHits: rows.filter(r => r.budget && r.expected && (r[variant].symbolRank ?? r[variant].fileRank) > 0).length,
+  jevRequests: rows.reduce((sum, r) => sum + (r[variant].jev?.requests ?? 0), 0),
+  jevCacheHits: rows.reduce((sum, r) => sum + (r[variant].jev?.cacheHits ?? 0), 0),
+  jevReportedCost: rows.reduce((sum, r) => sum + (r[variant].jev?.cost ?? 0), 0),
   medianMs: quantile(searches.map((r) => r[variant].ms), 0.5), p95Ms: quantile(searches.map((r) => r[variant].ms), 0.95),
   falseWeakWarnings: searches.filter((r) => r[variant].sufficiency === 'weak-evidence').length,
   negativesFlagged: rows.filter((r) => r.negative && r[variant].sufficiency === 'weak-evidence').length,

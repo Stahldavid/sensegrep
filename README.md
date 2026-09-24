@@ -34,6 +34,8 @@ Traditional search tools (grep, ripgrep, ast-grep) match **text patterns**. sens
 
 ## Quickstart
 
+Optional remote evaluation: [Jev setup, evidence-aware reranking, group labels and duplicate judgments](docs/jev.md). It is off by default and works alongside local Ollama embeddings.
+
 ### Claude Code Plugin (recommended)
 
 The fastest way to get sensegrep into Claude Code — zero configuration:

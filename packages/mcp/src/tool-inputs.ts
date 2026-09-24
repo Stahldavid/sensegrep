@@ -42,6 +42,11 @@ const DuplicateScope = z.string()
   }, "scope must be all, function, method, or function,method")
 
 export const DuplicateToolArgsSchema = z.object({
+  jev: z.enum(["off", "evidence", "rerank", "both"]).optional().describe("Optional remote Jev duplicate judgement; sends candidate code to OpenRouter"),
+  jevBatchSize: z.number().int().min(1).max(10).optional().describe("Maximum candidates per Jev request (default 5; byte budget can split batches)"),
+  jevRanking: z.enum(["legacy", "score", "rrf"]).optional().describe("Jev ranking strategy (default score; ignored for evidence-only)"),
+  jevCandidates: z.number().int().min(1).max(40).optional(),
+  jevTimeoutMs: z.number().int().min(100).max(60_000).optional(),
   rootDir: RootDir,
   profile: Profile,
   threshold: z.number().min(0).max(1).default(0.85),

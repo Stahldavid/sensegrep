@@ -8,13 +8,13 @@ import { evidenceTerms } from "./search-quality.js"
 
 /** Bounded, one-hop expansion. Only same-file or relative-import calls are resolved. */
 export async function expandHelpers(resources: SearchResources, results: WorkingResult[], query: string,
-  filters: VectorStore.SearchFilters, allowedFiles: Set<string>, signal?: AbortSignal) {
+  filters: VectorStore.SearchFilters, allowedFiles: Set<string>, signal?: AbortSignal, jevExpansion = false) {
   const controller = new AbortController()
   const combined = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal
   let timeout: ReturnType<typeof setTimeout> | undefined
   try {
     return await Promise.race([
-      expandWithinBudget(resources, results, query, filters, allowedFiles, combined),
+      expandWithinBudget(resources, results, query, filters, allowedFiles, combined, jevExpansion),
       new Promise<never>((_, reject) => {
         timeout = setTimeout(() => { controller.abort(); reject(new Error("Helper expansion exceeded 750ms")) }, 750)
       }),
@@ -23,7 +23,7 @@ export async function expandHelpers(resources: SearchResources, results: Working
 }
 
 async function expandWithinBudget(resources: SearchResources, results: WorkingResult[], query: string,
-  filters: VectorStore.SearchFilters, allowedFiles: Set<string>, signal?: AbortSignal) {
+  filters: VectorStore.SearchFilters, allowedFiles: Set<string>, signal?: AbortSignal, jevExpansion = false) {
   const started = Date.now()
   const deadline = started + 750
   const terms = evidenceTerms(query)
@@ -53,7 +53,7 @@ async function expandWithinBudget(resources: SearchResources, results: WorkingRe
         if (edges.length >= 32) break
         const anchor = anchors.find((r) => call.line >= r.startLine && call.line <= r.endLine)
         if (!anchor || !/^[\w$]+$/.test(call.target)) continue
-        if (!evidenceTerms(call.target).some((term) => terms.includes(term))) continue
+        if (!jevExpansion && !evidenceTerms(call.target).some((term) => terms.includes(term))) continue
         let targetFile = file
         if (call.module) {
           if (!call.module.startsWith(".")) continue
@@ -90,16 +90,19 @@ async function expandWithinBudget(resources: SearchResources, results: WorkingRe
     if (!edge) continue
     const symbol = String(row.metadata.symbolName ?? "")
     const symbolHits = evidenceTerms(symbol).filter((term) => terms.includes(term)).length
-    if (symbolHits < Math.min(2, terms.length)) continue
+    if (!direct && symbolHits < Math.min(2, terms.length)) continue
     const ownTerms = new Set(evidenceTerms(`${symbol} ${row.content}`))
     const coverage = terms.filter((term) => ownTerms.has(term)).length / Math.max(1, terms.length)
     const symbolCoverage = symbolHits / Math.max(1, terms.length)
-    if (coverage < 0.2 || symbolCoverage === 0) continue
+    const localSupported = symbolHits >= Math.min(2, terms.length) && coverage >= 0.2 && symbolCoverage > 0
+    if (!localSupported && !(jevExpansion && direct)) continue
     const key = `${edge.file}:${row.metadata.startLine}:${row.metadata.endLine}`
     const existing = merged.get(key)
+    // Extra graph discovery must not perturb the local candidate ranking on fallback.
+    if (existing && !localSupported) continue
     // A graph relationship alone is not enough: the helper supplies its own query support.
     const score = Math.min(0.95, edge.source.semanticScore * 0.5 + coverage * 0.45 + symbolCoverage * 0.35 + 0.12)
-    merged.set(key, { ...existing, id: row.id, file: edge.file, content: row.content,
+    merged.set(key, { ...existing, jevOnly: existing?.jevOnly ?? (!existing && !localSupported), id: row.id, file: edge.file, content: row.content,
       startLine: Number(row.metadata.startLine), endLine: Number(row.metadata.endLine), metadata: row.metadata,
       semanticScore: existing?.semanticScore ?? score,
       rerankScore: Math.max(existing?.rerankScore ?? existing?.semanticScore ?? 0, score),

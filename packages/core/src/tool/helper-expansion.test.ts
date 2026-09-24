@@ -77,4 +77,28 @@ describe("bounded helper discovery", () => {
       expect(anchor).toEqual(original)
     })
   })
+  it("offers direct helpers without lexical overlap only for Jev and keeps scope", async () => {
+    await fixture(async (root, anchor) => {
+      vi.spyOn(VectorStore, "listDocuments").mockResolvedValue([row] as any)
+      const resources = { projectDirectory: root, collection: {} } as SearchResources
+      const local = await expandHelpers(resources, [anchor], "protect financial secrets", {}, new Set(["account.ts", "crypto.ts"]))
+      expect(local.results).toEqual([anchor])
+      const expanded = await expandHelpers(resources, [anchor], "protect financial secrets", {}, new Set(["account.ts", "crypto.ts"]), undefined, true)
+      expect(expanded.results.find(r => r.metadata.symbolName === "encryptDestination")?.jevOnly).toBe(true)
+      const scoped = await expandHelpers(resources, [anchor], "protect financial secrets", {}, new Set(["account.ts"]), undefined, true)
+      expect(scoped.results).toEqual([anchor])
+    })
+  })
+
+  it("does not replace an existing source result using a graph-only match", async () => {
+    await fixture(async (root, anchor) => {
+      vi.spyOn(VectorStore, "listDocuments").mockResolvedValue([row] as any)
+      const existing: WorkingResult = { file: "crypto.ts", startLine: 1, endLine: 3,
+        content: "complete original implementation", semanticScore: 0.9, metadata: row.metadata }
+      const expanded = await expandHelpers({ projectDirectory: root, collection: {} } as SearchResources,
+        [anchor, existing], "protect financial secrets", {}, new Set(["account.ts", "crypto.ts"]), undefined, true)
+      expect(expanded.results.find(r => r.file === "crypto.ts")).toBe(existing)
+    })
+  })
+
 })

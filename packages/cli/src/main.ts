@@ -11,6 +11,7 @@ import { runEval, runInvestigate } from "./agent-commands.js"
 import {
   assignNumberParam,
   buildCommonSearchParams,
+  parseJevOptions,
   enforceActualOutputBudget,
   executeSearchLikeTool,
   getSearchQuery,
@@ -787,6 +788,7 @@ async function run() {
     if (rankByImpact === undefined) rankByImpact = true
 
     const options: DuplicateDetectOptions = {
+      ...parseJevOptions(flags),
       path: rootDir,
       thresholds: {
         exact: 0.98,
@@ -882,6 +884,7 @@ async function run() {
       writeStdoutLine("DUPLICATE DETECTION RESULTS")
       writeStdoutLine("━".repeat(80))
       writeStdoutLine(`Total duplicates: ${result.summary.totalDuplicates}`)
+      if (result.jev) writeStdoutLine(`Jev: ${result.jev.status}, evaluated ${result.jev.evaluated}/${result.jev.candidates} groups (advisory)`)
 
       const critical = result.duplicates.filter(d => d.similarity >= thresholds.exact).length
       const high = result.duplicates.filter(
@@ -935,6 +938,7 @@ async function run() {
 
     for (let i = 0; i < topDuplicates.length; i++) {
       const dup = topDuplicates[i]
+      if (dup.jev) writeStdoutLine(`Jev: ${dup.jev.relationship} (advisory; not proof of equivalence)`)
       const { emoji, label } = getCategoryInfo(dup.level, dup.similarity)
 
       writeStdoutLine(`${emoji} #${i + 1} - ${label} (${(dup.similarity * 100).toFixed(1)}% similar)`)

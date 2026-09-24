@@ -12,8 +12,24 @@ import {
   type AgentDetail,
 } from "@sensegrep/core"
 import { isPrettyJson, writeJson, writeStdoutLine } from "./output.js"
+import { CliUsageError } from "./cli-errors.js"
 
 export type Flags = Record<string, string | boolean>
+export function parseJevOptions(flags: Flags) {
+  const jev = flags.jev === undefined ? undefined : flags.jev === true ? "both" : String(flags.jev)
+  if (jev !== undefined && !["off", "evidence", "rerank", "both"].includes(jev)) throw new CliUsageError("--jev must be off, evidence, rerank, or both")
+  const integer = (name: string, min: number, max: number) => {
+    if (flags[name] === undefined) return undefined
+    const value = Number(flags[name])
+    if (typeof flags[name] === "boolean" || !Number.isInteger(value) || value < min || value > max) throw new CliUsageError(`--${name} must be an integer from ${min} to ${max}`)
+    return value
+  }
+  const ranking = flags["jev-ranking"]
+  if (ranking !== undefined && !["legacy", "score", "rrf"].includes(String(ranking))) throw new CliUsageError("--jev-ranking must be legacy, score, or rrf")
+  return { jevBatchSize: integer("jev-batch-size", 1, 10), jevRanking: ranking as "legacy" | "score" | "rrf" | undefined,
+    jev: jev as "off" | "evidence" | "rerank" | "both" | undefined,
+    jevCandidates: integer("jev-candidates", 1, 40), jevTimeoutMs: integer("jev-timeout", 100, 60_000) }
+}
 type CoreModule = typeof import("@sensegrep/core")
 
 export type SearchLikeParams = Record<string, unknown> & {
@@ -121,6 +137,7 @@ function assignBooleanParam(params: SearchLikeParams, flags: Flags, key: string,
 
 export function buildCommonSearchParams(query: string, flags: Flags, defaults: Omit<SearchLikeParams, "query"> = {}): SearchLikeParams {
   const params: SearchLikeParams = { query, ...defaults }
+  Object.assign(params, parseJevOptions(flags))
 
   assignStringParam(params, flags, "pattern", ["pattern"])
   assignNumberParam(params, flags, "limit", ["limit"])

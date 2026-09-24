@@ -1,0 +1,35 @@
+{
+  "cache": "existing",
+  "totals": {
+    "baseline": {
+      "searches": 0,
+      "fileTop5": 0,
+      "symbolCases": 0,
+      "symbolTop5": 0,
+      "fileTop10": 0,
+      "reciprocalRank": null,
+      "contextCases": 11,
+      "contextHits": 11,
+      "jevRequests": 340,
+      "jevCacheHits": 0,
+      "jevReportedCost": 0.019264392000000005,
+      "falseWeakWarnings": 0,
+      "negativesFlagged": 5
+    },
+    "candidate": {
+      "searches": 0,
+      "fileTop5": 0,
+      "symbolCases": 0,
+      "symbolTop5": 0,
+      "fileTop10": 0,
+      "reciprocalRank": null,
+      "contextCases": 11,
+      "contextHits": 11,
+      "jevRequests": 108,
+      "jevCacheHits": 0,
+      "jevReportedCost": 0.027716808000000002,
+      "falseWeakWarnings": 0,
+      "negativesFlagged": 6
+    }
+  }
+}
