@@ -310,7 +310,7 @@ describe("Indexer incremental updates", () => {
 
     expect(embedDocumentsReusingFile).toHaveBeenCalledTimes(1)
     expect(embedDocuments).toHaveBeenCalledTimes(1)
-    expect(replaceFileDocuments).toHaveBeenCalledWith({}, "src/a.ts", expect.any(Array))
+    expect(replaceFileDocuments).toHaveBeenCalledWith({ staging: true }, "src/a.ts", expect.any(Array))
     expect(writeIndexMeta).toHaveBeenCalledTimes(1)
     expect(writeIndexMeta.mock.calls[0][1].files["src/a.ts"].collapsibleRegions).toEqual(regions)
     expect(writeIndexMeta.mock.calls[0][1].chunking).toEqual(testChunkingSignature)
@@ -326,12 +326,13 @@ describe("Indexer incremental updates", () => {
   })
 
   it("removes generated files from index metadata during file updates", async () => {
+    getStats.mockResolvedValue({ count: 0 })
     await writeFile(path.join(TEST_DIR, "src/a.ts"), "x".repeat(60_000))
     const { Indexer } = await import("./indexer.js")
 
     await Indexer.updateFile("src/a.ts")
 
-    expect(deleteByFile).toHaveBeenCalledWith({}, "src/a.ts")
+    expect(deleteByFile).toHaveBeenCalledWith({ staging: true }, "src/a.ts")
     expect(embedDocuments).not.toHaveBeenCalled()
     expect(embedDocumentsReusingFile).not.toHaveBeenCalled()
     expect(writeIndexMeta).toHaveBeenCalledTimes(1)
@@ -339,6 +340,7 @@ describe("Indexer incremental updates", () => {
   })
 
   it("removes stale metadata when a watched file is no longer indexable", async () => {
+    getStats.mockResolvedValue({ count: 0 })
     readIndexMeta.mockResolvedValueOnce({
       version: 1,
       root: TEST_DIR,
@@ -362,12 +364,43 @@ describe("Indexer incremental updates", () => {
 
     await Indexer.updateFile("src/a.ts.map")
 
-    expect(deleteByFile).toHaveBeenCalledWith({}, "src/a.ts.map")
+    expect(deleteByFile).toHaveBeenCalledWith({ staging: true }, "src/a.ts.map")
     expect(embedDocuments).not.toHaveBeenCalled()
     expect(embedDocumentsReusingFile).not.toHaveBeenCalled()
     expect(getConfig).not.toHaveBeenCalled()
     expect(writeIndexMeta).toHaveBeenCalledTimes(1)
     expect(writeIndexMeta.mock.calls[0][1].files["src/a.ts.map"]).toBeUndefined()
+  })
+
+  it.each(["update", "remove"])("preserves active watcher metadata when %s persistence fails", async (operation) => {
+    const meta = await readIndexMeta()
+    const original = structuredClone(meta)
+    if (operation === "update") replaceFileDocuments.mockRejectedValueOnce(new Error("disk failure"))
+    else deleteByFile.mockRejectedValueOnce(new Error("disk failure"))
+    const { Indexer } = await import("./indexer.js")
+    await expect(operation === "update" ? Indexer.updateFile("src/a.ts") : Indexer.removeFile("src/a.ts")).rejects.toThrow("disk failure")
+    expect(meta).toEqual(original)
+    expect(writeIndexMeta).not.toHaveBeenCalled()
+    expect(dropCollectionTable).toHaveBeenCalledWith(TEST_DIR, "chunks_staging")
+  })
+
+  it("does not activate watcher changes with inconsistent staged counts", async () => {
+    getStats.mockResolvedValue({ count: 999 })
+    const { Indexer } = await import("./indexer.js")
+    await expect(Indexer.updateFile("src/a.ts")).rejects.toThrow("chunk mismatch")
+    expect(writeIndexMeta).not.toHaveBeenCalled()
+    expect(dropCollectionTable).toHaveBeenCalled()
+  })
+
+  it("discards watcher staging when the metadata commit fails", async () => {
+    writeIndexMeta.mockRejectedValueOnce(new Error("metadata failure"))
+    const meta = await readIndexMeta()
+    const original = structuredClone(meta)
+    const { Indexer } = await import("./indexer.js")
+    await expect(Indexer.updateFile("src/a.ts")).rejects.toThrow("metadata failure")
+    expect(meta).toEqual(original)
+    expect(clearProjectCache).not.toHaveBeenCalled()
+    expect(dropCollectionTable).toHaveBeenCalled()
   })
 
   it("serializes concurrent indexing for the same project", async () => {

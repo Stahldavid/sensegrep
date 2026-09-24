@@ -1,5 +1,14 @@
 # @sensegrep/cli
 
+## 1.17.2
+
+### Patch Changes
+
+- [`62f4bb9`](https://github.com/Stahldavid/sensegrep/commit/62f4bb99102fcd332139a2331a36ff34e381acdd) Thanks [@Stahldavid](https://github.com/Stahldavid)! - Extend staged, atomic index activation to individual watched file updates and removals, including files that become ignored or empty. Validate the staged chunk count before committing metadata and leave the active generation untouched if persistence or metadata writing fails.
+
+- Updated dependencies [[`62f4bb9`](https://github.com/Stahldavid/sensegrep/commit/62f4bb99102fcd332139a2331a36ff34e381acdd)]:
+  - @sensegrep/core@1.17.2
+
 ## 1.17.1
 
 ### Patch Changes

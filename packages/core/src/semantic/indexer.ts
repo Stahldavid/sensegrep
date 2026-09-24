@@ -566,31 +566,38 @@ export namespace Indexer {
     return { count: documents.length, chunkHashes: documents.map((d) => d.hash) }
   }
 
-  async function deleteFileFromIndexAndMeta(
+  async function commitWatchedMutation(
     collection: Awaited<ReturnType<typeof VectorStore.getCollection>>,
-    filePath: string,
+    meta: VectorStore.IndexMeta,
+    files: VectorStore.IndexMeta["files"],
+    mutate: (target: Awaited<ReturnType<typeof VectorStore.getCollection>>) => Promise<void>,
   ): Promise<void> {
-    await VectorStore.deleteByFile(collection, filePath)
-    const meta = await VectorStore.readIndexMeta(Instance.directory)
-    if (meta?.files) {
-      delete meta.files[filePath]
-      meta.updatedAt = Date.now()
-      await VectorStore.writeIndexMeta(Instance.directory, meta)
+    const staging = await VectorStore.createStagingCollection(Instance.directory, meta.embeddings.dimension)
+    let activated = false
+    try {
+      await VectorStore.copyCollection(collection, staging.collection)
+      await mutate(staging.collection)
+      const expected = Object.values(files).reduce((sum, file) => sum + (file.chunks?.length ?? 0), 0)
+      const actual = (await VectorStore.getStats(staging.collection)).count
+      if (actual !== expected) throw new Error(`Staged watcher index chunk mismatch: expected ${expected}, persisted ${actual}`)
+      await VectorStore.writeIndexMeta(Instance.directory, {
+        ...meta, files, tableName: staging.tableName, updatedAt: Date.now(),
+      })
+      activated = true
+      VectorStore.clearProjectCache(Instance.directory)
+      await VectorStore.cleanupInactiveTables(Instance.directory, staging.tableName)
+    } finally {
+      if (!activated) await VectorStore.dropCollectionTable(Instance.directory, staging.tableName).catch(() => {})
     }
   }
 
   async function deleteIndexedFileIfPresent(filePath: string): Promise<void> {
     const meta = await VectorStore.readIndexMeta(Instance.directory)
-    if (!meta?.files || !meta.files[filePath]) return
-
-    if (await VectorStore.hasCollection(Instance.directory)) {
-      const collection = await VectorStore.getCollectionUnsafe(Instance.directory, meta.embeddings?.dimension)
-      await VectorStore.deleteByFile(collection, filePath)
-    }
-
-    delete meta.files[filePath]
-    meta.updatedAt = Date.now()
-    await VectorStore.writeIndexMeta(Instance.directory, meta)
+    if (!meta?.files?.[filePath]) return
+    const collection = await VectorStore.getCollectionUnsafe(Instance.directory, meta.embeddings.dimension)
+    const files = { ...meta.files }
+    delete files[filePath]
+    await commitWatchedMutation(collection, meta, files, (target) => VectorStore.deleteByFile(target, filePath))
   }
 
   async function buildDocuments(input: {
@@ -1496,7 +1503,8 @@ export namespace Indexer {
     }
 
     const existingMeta = await VectorStore.readIndexMeta(Instance.directory)
-    if (existingMeta && !sameChunkingSignature(existingMeta.chunking, getChunkingSignature(Embeddings.getConfig()))) {
+    if (!existingMeta) throw new Error("No index metadata; run sensegrep index --no-watch before watched updates")
+    if (!sameChunkingSignature(existingMeta.chunking, getChunkingSignature(Embeddings.getConfig()))) {
       throw new Error("Chunking policy changed; run sensegrep index --no-watch to rebuild before applying watched updates")
     }
     const { collapsibleRegions, documents } = await analyzeFile(filePath, content)
@@ -1513,20 +1521,15 @@ export namespace Indexer {
       metadata,
     }))
     const prepared = await VectorStore.embedDocumentsReusingFile(collection, filePath, docsToAdd)
-    await VectorStore.replaceFileDocuments(collection, filePath, prepared.rows)
-    const meta = await VectorStore.readIndexMeta(Instance.directory)
-    if (meta?.files) {
-      meta.chunking = getChunkingSignature(Embeddings.getConfig())
-      meta.files[filePath] = {
-        size: stat.size,
-        mtimeMs: stat.mtimeMs,
-        hash: hashContent(content),
-        chunks: documents.map((d) => d.hash),
-        collapsibleRegions,
-      }
-      meta.updatedAt = Date.now()
-      await VectorStore.writeIndexMeta(Instance.directory, meta)
-    }
+    const nextFiles = { ...existingMeta.files, [filePath]: {
+      size: stat.size,
+      mtimeMs: stat.mtimeMs,
+      hash: hashContent(content),
+      chunks: documents.map((d) => d.hash),
+      collapsibleRegions,
+    } }
+    await commitWatchedMutation(collection, existingMeta, nextFiles,
+      (target) => VectorStore.replaceFileDocuments(target, filePath, prepared.rows))
   }
 
   export async function updateFile(filePath: string): Promise<void> {
