@@ -412,6 +412,10 @@ for Ollama, HTTP requests use `httpBatchSize` (default 16), including splits ins
 each index batch. Request estimates exclude retries; dry runs do not subtract
 vectors that will be reused. Other providers retain approximate request estimates.
 
+### Search evidence and context
+
+Search preserves diverse file anchors while admitting complementary symbols and bounded local helper expansion. `context` defaults to **12,000 estimated output tokens**; use 4,000 for a compact pack or 8,000 for broader investigation. Explicit file/token limits remain respected. Weak-evidence warnings are advisory, not proof that code is absent. See [search quality and budgets](docs/search-quality.md) for behavior, limitations, and a reproducible comparison script.
+
 ### Index compatibility
 
 Each index records the embedding provider, model, dimension, distance metric, and a non-secret endpoint/configuration fingerprint. If you change provider, model, base URL, dimension, local server pooling behavior, or task-prefix strategy, rebuild the index with `sensegrep index --root . --full --no-watch`. Same dimension does **not** make embeddings interchangeable; two 768-dimensional models still produce different vector spaces.

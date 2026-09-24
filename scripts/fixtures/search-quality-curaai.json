@@ -1,0 +1,334 @@
+[
+  {
+    "symbol": null,
+    "expected": "apps/web/lib/auth/syncClerkRoleSession.ts",
+    "name": "auth-en",
+    "query": "Clerk session token refresh after onboarding role metadata"
+  },
+  {
+    "symbol": null,
+    "expected": "apps/web/lib/auth/syncClerkRoleSession.ts",
+    "name": "auth-pt",
+    "query": "atualizar token de sessao Clerk depois de definir perfil no cadastro"
+  },
+  {
+    "symbol": null,
+    "expected": "convex/actions/livekit.ts",
+    "name": "payment",
+    "query": "LiveKit prevent patient joining room until consultation payment confirmed"
+  },
+  {
+    "symbol": null,
+    "expected": "convex/lib/patientConsent.ts",
+    "name": "consent",
+    "query": "patient consent timestamp validation clock skew future acceptedAt"
+  },
+  {
+    "symbol": null,
+    "expected": "convex/lib/resend.ts",
+    "name": "email",
+    "query": "Resend notification email retry idempotency key"
+  },
+  {
+    "symbol": null,
+    "expected": "convex/mutations/googleCalendarWatch.ts",
+    "name": "calendar",
+    "query": "Google Calendar webhook deduplicate message number"
+  },
+  {
+    "symbol": null,
+    "expected": "convex/lib/agentBridgePrompt.ts",
+    "name": "bridge",
+    "query": "LiveKit doctor voice request untrusted draft only medical review"
+  },
+  {
+    "symbol": null,
+    "expected": "convex/http.ts",
+    "name": "webhook",
+    "query": "Asaas webhook verify access token timing safe comparison"
+  },
+  {
+    "symbol": null,
+    "expected": "convex/lib/gtiSms.ts",
+    "name": "sms-format",
+    "query": "Onde o telefone brasileiro e normalizado e a mensagem SMS perde acentos?"
+  },
+  {
+    "symbol": null,
+    "expected": "convex/lib/gtiSms.ts",
+    "name": "sms-timeout",
+    "query": "GTI SMS avoid automatic retry when network timeout leaves delivery uncertain"
+  },
+  {
+    "symbol": null,
+    "expected": "convex/mutations/agentBridge.ts",
+    "name": "voice-race",
+    "query": "Nao apagar contexto de voz se outra mensagem chegou durante o processamento"
+  },
+  {
+    "symbol": null,
+    "expected": "convex/lib/prescriptionDelivery.ts",
+    "name": "signed-pdf",
+    "query": "Only release a prescription when its signed PDF matches the current canonical document version"
+  },
+  {
+    "symbol": null,
+    "expected": "convex/mutations/doctors.ts",
+    "name": "calendar-token",
+    "query": "Preservar refresh token do Google Calendar quando atualizacao parcial omite campos"
+  },
+  {
+    "symbol": null,
+    "expected": "convex/lib/patientConsent.ts",
+    "name": "consent-pt",
+    "query": "Aceite dos termos da teleconsulta rejeitado porque o relogio do celular esta adiantado"
+  },
+  {
+    "symbol": null,
+    "expected": "apps/web/lib/analytics/posthog.ts",
+    "name": "privacy",
+    "query": "Remove personal identifiers from browser analytics event properties"
+  },
+  {
+    "symbol": null,
+    "expected": "convex/actions/asaas.ts",
+    "name": "refund",
+    "query": "Asaas refund network failure must require manual review instead of automatic retry"
+  },
+  {
+    "symbol": "encryptPayoutDestination",
+    "expected": "convex/lib/payoutDestinationCrypto.ts",
+    "name": "pix-crypto",
+    "query": "Where are doctor payout bank details encrypted before storage and decrypted for transfers?"
+  },
+  {
+    "symbol": "getCommissionHoldMs",
+    "expected": "convex/lib/payoutPolicy.ts",
+    "name": "payout-hold",
+    "query": "Onde e definido quanto tempo a comissao medica fica retida antes de poder ser paga?"
+  },
+  {
+    "symbol": "applyAvailableCreditForPatientConsultation",
+    "expected": "convex/lib/consultationCreditRedemption.ts",
+    "name": "credit-reuse",
+    "query": "Apply an available patient consultation credit before charging for another appointment"
+  },
+  {
+    "symbol": null,
+    "expected": "convex/mutations/medicalStore.ts",
+    "name": "seed-auth",
+    "query": "Prevent anonymous users from seeding medical store products without a server secret"
+  },
+  {
+    "symbol": "formatDoctorRequestPayload",
+    "expected": "convex/lib/agentBridgePrompt.ts",
+    "name": "voice-draft",
+    "query": "Ensure a doctor voice request can only create a draft and cannot authorize signing or sending"
+  },
+  {
+    "symbol": "shouldIgnoreMinimumPayout",
+    "expected": "convex/lib/payoutPolicy.ts",
+    "name": "payout-minimum",
+    "query": "When can an old small doctor balance be paid even if below the minimum payout amount?"
+  },
+  {
+    "symbol": "MAX_SMALL_BALANCE_AGE_MS",
+    "expected": "convex/lib/payoutPolicy.ts",
+    "name": "constant-control",
+    "query": "What is the value of MAX_SMALL_BALANCE_AGE_MS?"
+  },
+  {
+    "symbol": "shouldIgnoreMinimumPayout",
+    "expected": "convex/lib/payoutPolicy.ts",
+    "name": "minimum-pt",
+    "query": "Quando um saldo pequeno pode ser pago apesar do valor minimo de repasse?"
+  },
+  {
+    "symbol": "markContextConsumed",
+    "expected": "convex/mutations/agentBridge.ts",
+    "name": "voice-concurrency",
+    "query": "How does expectedLastBridgeMessageId prevent clearing voice context after another message arrives?"
+  },
+  {
+    "symbol": "markContextConsumed",
+    "expected": "convex/mutations/agentBridge.ts",
+    "name": "heldout-cancel",
+    "query": "Which comparison rejects acknowledgment of voice context when the latest bridge message has changed?"
+  },
+  {
+    "symbol": "decryptPayoutDestination",
+    "expected": "convex/lib/payoutDestinationCrypto.ts",
+    "name": "heldout-crypto",
+    "query": "How is a saved payout destination decoded for a bank transfer?"
+  },
+  {
+    "symbol": "syncClerkRoleSession",
+    "expected": "apps/web/lib/auth/syncClerkRoleSession.ts",
+    "name": "heldout-clerk",
+    "query": "After assigning a role, force Clerk to fetch a fresh session token"
+  },
+  {
+    "name": "negative-0",
+    "negative": true,
+    "query": "Kubernetes operator reconciles Kafka partitions and rotates AWS EKS certificates"
+  },
+  {
+    "name": "negative-1",
+    "negative": true,
+    "query": "Redis cluster sentinel failover replication slots"
+  },
+  {
+    "name": "negative-2",
+    "negative": true,
+    "query": "Terraform provisioning Amazon Neptune graph clusters"
+  },
+  {
+    "name": "negative-3",
+    "negative": true,
+    "query": "Kubernetes Kafka EKS certificados infraestrutura"
+  },
+  {
+    "query": "When can an old small doctor balance be paid even if below the minimum payout amount?",
+    "expected": "convex/lib/payoutPolicy.ts",
+    "symbol": "shouldIgnoreMinimumPayout",
+    "args": [
+      "context",
+      "When can an old small doctor balance be paid even if below the minimum payout amount?",
+      "--max-tokens",
+      "1200",
+      "--max-output-bytes",
+      "4800",
+      "--diagnostic"
+    ],
+    "budget": 1200,
+    "name": "context-payout-minimum-1200"
+  },
+  {
+    "query": "When can an old small doctor balance be paid even if below the minimum payout amount?",
+    "expected": "convex/lib/payoutPolicy.ts",
+    "symbol": "shouldIgnoreMinimumPayout",
+    "args": [
+      "context",
+      "When can an old small doctor balance be paid even if below the minimum payout amount?",
+      "--max-tokens",
+      "4000",
+      "--max-output-bytes",
+      "16000",
+      "--diagnostic"
+    ],
+    "budget": 4000,
+    "name": "context-payout-minimum-4000"
+  },
+  {
+    "query": "When can an old small doctor balance be paid even if below the minimum payout amount?",
+    "expected": "convex/lib/payoutPolicy.ts",
+    "symbol": "shouldIgnoreMinimumPayout",
+    "args": [
+      "context",
+      "When can an old small doctor balance be paid even if below the minimum payout amount?",
+      "--max-tokens",
+      "8000",
+      "--max-output-bytes",
+      "32000",
+      "--diagnostic"
+    ],
+    "budget": 8000,
+    "name": "context-payout-minimum-8000"
+  },
+  {
+    "query": "Clerk session token refresh after onboarding role metadata",
+    "expected": "apps/web/lib/auth/syncClerkRoleSession.ts",
+    "symbol": "syncClerkRoleSession",
+    "args": [
+      "context",
+      "Clerk session token refresh after onboarding role metadata",
+      "--max-tokens",
+      "1200",
+      "--max-output-bytes",
+      "4800",
+      "--diagnostic"
+    ],
+    "budget": 1200,
+    "name": "context-auth-en-1200"
+  },
+  {
+    "query": "Clerk session token refresh after onboarding role metadata",
+    "expected": "apps/web/lib/auth/syncClerkRoleSession.ts",
+    "symbol": "syncClerkRoleSession",
+    "args": [
+      "context",
+      "Clerk session token refresh after onboarding role metadata",
+      "--max-tokens",
+      "4000",
+      "--max-output-bytes",
+      "16000",
+      "--diagnostic"
+    ],
+    "budget": 4000,
+    "name": "context-auth-en-4000"
+  },
+  {
+    "query": "Clerk session token refresh after onboarding role metadata",
+    "expected": "apps/web/lib/auth/syncClerkRoleSession.ts",
+    "symbol": "syncClerkRoleSession",
+    "args": [
+      "context",
+      "Clerk session token refresh after onboarding role metadata",
+      "--max-tokens",
+      "8000",
+      "--max-output-bytes",
+      "32000",
+      "--diagnostic"
+    ],
+    "budget": 8000,
+    "name": "context-auth-en-8000"
+  },
+  {
+    "query": "Ensure a doctor voice request can only create a draft and cannot authorize signing or sending",
+    "expected": "convex/lib/agentBridgePrompt.ts",
+    "symbol": "formatDoctorRequestPayload",
+    "args": [
+      "context",
+      "Ensure a doctor voice request can only create a draft and cannot authorize signing or sending",
+      "--max-tokens",
+      "1200",
+      "--max-output-bytes",
+      "4800",
+      "--diagnostic"
+    ],
+    "budget": 1200,
+    "name": "context-voice-draft-1200"
+  },
+  {
+    "query": "Ensure a doctor voice request can only create a draft and cannot authorize signing or sending",
+    "expected": "convex/lib/agentBridgePrompt.ts",
+    "symbol": "formatDoctorRequestPayload",
+    "args": [
+      "context",
+      "Ensure a doctor voice request can only create a draft and cannot authorize signing or sending",
+      "--max-tokens",
+      "4000",
+      "--max-output-bytes",
+      "16000",
+      "--diagnostic"
+    ],
+    "budget": 4000,
+    "name": "context-voice-draft-4000"
+  },
+  {
+    "query": "Ensure a doctor voice request can only create a draft and cannot authorize signing or sending",
+    "expected": "convex/lib/agentBridgePrompt.ts",
+    "symbol": "formatDoctorRequestPayload",
+    "args": [
+      "context",
+      "Ensure a doctor voice request can only create a draft and cannot authorize signing or sending",
+      "--max-tokens",
+      "8000",
+      "--max-output-bytes",
+      "32000",
+      "--diagnostic"
+    ],
+    "budget": 8000,
+    "name": "context-voice-draft-8000"
+  }
+]

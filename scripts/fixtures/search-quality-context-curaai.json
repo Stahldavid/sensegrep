@@ -1,0 +1,200 @@
+[
+  {
+    "query": "When can an old small doctor balance be paid even if below the minimum payout amount?",
+    "expected": "convex/lib/payoutPolicy.ts",
+    "symbol": "shouldIgnoreMinimumPayout",
+    "args": [
+      "context",
+      "When can an old small doctor balance be paid even if below the minimum payout amount?",
+      "--max-tokens",
+      "1200",
+      "--max-output-bytes",
+      "4800",
+      "--diagnostic",
+      "--json-detail",
+      "content"
+    ],
+    "budget": 1200,
+    "name": "context-payout-minimum-1200"
+  },
+  {
+    "query": "When can an old small doctor balance be paid even if below the minimum payout amount?",
+    "expected": "convex/lib/payoutPolicy.ts",
+    "symbol": "shouldIgnoreMinimumPayout",
+    "args": [
+      "context",
+      "When can an old small doctor balance be paid even if below the minimum payout amount?",
+      "--max-tokens",
+      "4000",
+      "--max-output-bytes",
+      "16000",
+      "--diagnostic",
+      "--json-detail",
+      "content"
+    ],
+    "budget": 4000,
+    "name": "context-payout-minimum-4000"
+  },
+  {
+    "query": "When can an old small doctor balance be paid even if below the minimum payout amount?",
+    "expected": "convex/lib/payoutPolicy.ts",
+    "symbol": "shouldIgnoreMinimumPayout",
+    "args": [
+      "context",
+      "When can an old small doctor balance be paid even if below the minimum payout amount?",
+      "--max-tokens",
+      "8000",
+      "--max-output-bytes",
+      "32000",
+      "--diagnostic",
+      "--json-detail",
+      "content"
+    ],
+    "budget": 8000,
+    "name": "context-payout-minimum-8000"
+  },
+  {
+    "query": "Clerk session token refresh after onboarding role metadata",
+    "expected": "apps/web/lib/auth/syncClerkRoleSession.ts",
+    "symbol": "syncClerkRoleSession",
+    "args": [
+      "context",
+      "Clerk session token refresh after onboarding role metadata",
+      "--max-tokens",
+      "1200",
+      "--max-output-bytes",
+      "4800",
+      "--diagnostic",
+      "--json-detail",
+      "content"
+    ],
+    "budget": 1200,
+    "name": "context-auth-en-1200"
+  },
+  {
+    "query": "Clerk session token refresh after onboarding role metadata",
+    "expected": "apps/web/lib/auth/syncClerkRoleSession.ts",
+    "symbol": "syncClerkRoleSession",
+    "args": [
+      "context",
+      "Clerk session token refresh after onboarding role metadata",
+      "--max-tokens",
+      "4000",
+      "--max-output-bytes",
+      "16000",
+      "--diagnostic",
+      "--json-detail",
+      "content"
+    ],
+    "budget": 4000,
+    "name": "context-auth-en-4000"
+  },
+  {
+    "query": "Clerk session token refresh after onboarding role metadata",
+    "expected": "apps/web/lib/auth/syncClerkRoleSession.ts",
+    "symbol": "syncClerkRoleSession",
+    "args": [
+      "context",
+      "Clerk session token refresh after onboarding role metadata",
+      "--max-tokens",
+      "8000",
+      "--max-output-bytes",
+      "32000",
+      "--diagnostic",
+      "--json-detail",
+      "content"
+    ],
+    "budget": 8000,
+    "name": "context-auth-en-8000"
+  },
+  {
+    "query": "Ensure a doctor voice request can only create a draft and cannot authorize signing or sending",
+    "expected": "convex/lib/agentBridgePrompt.ts",
+    "symbol": "formatDoctorRequestPayload",
+    "args": [
+      "context",
+      "Ensure a doctor voice request can only create a draft and cannot authorize signing or sending",
+      "--max-tokens",
+      "1200",
+      "--max-output-bytes",
+      "4800",
+      "--diagnostic",
+      "--json-detail",
+      "content"
+    ],
+    "budget": 1200,
+    "name": "context-voice-draft-1200"
+  },
+  {
+    "query": "Ensure a doctor voice request can only create a draft and cannot authorize signing or sending",
+    "expected": "convex/lib/agentBridgePrompt.ts",
+    "symbol": "formatDoctorRequestPayload",
+    "args": [
+      "context",
+      "Ensure a doctor voice request can only create a draft and cannot authorize signing or sending",
+      "--max-tokens",
+      "4000",
+      "--max-output-bytes",
+      "16000",
+      "--diagnostic",
+      "--json-detail",
+      "content"
+    ],
+    "budget": 4000,
+    "name": "context-voice-draft-4000"
+  },
+  {
+    "query": "Ensure a doctor voice request can only create a draft and cannot authorize signing or sending",
+    "expected": "convex/lib/agentBridgePrompt.ts",
+    "symbol": "formatDoctorRequestPayload",
+    "args": [
+      "context",
+      "Ensure a doctor voice request can only create a draft and cannot authorize signing or sending",
+      "--max-tokens",
+      "8000",
+      "--max-output-bytes",
+      "32000",
+      "--diagnostic",
+      "--json-detail",
+      "content"
+    ],
+    "budget": 8000,
+    "name": "context-voice-draft-8000"
+  },
+  {
+    "symbol": "encryptPayoutDestination",
+    "args": [
+      "context",
+      "Where are doctor payout bank details encrypted before storage and decrypted for transfers?",
+      "--max-tokens",
+      "4000",
+      "--max-output-bytes",
+      "16000",
+      "--json-detail",
+      "content",
+      "--diagnostic"
+    ],
+    "expected": "convex/lib/payoutDestinationCrypto.ts",
+    "budget": 4000,
+    "name": "context-crypto-4000",
+    "query": "Where are doctor payout bank details encrypted before storage and decrypted for transfers?"
+  },
+  {
+    "symbol": "encryptPayoutDestination",
+    "args": [
+      "context",
+      "Where are doctor payout bank details encrypted before storage and decrypted for transfers?",
+      "--max-tokens",
+      "8000",
+      "--max-output-bytes",
+      "32000",
+      "--json-detail",
+      "content",
+      "--diagnostic"
+    ],
+    "expected": "convex/lib/payoutDestinationCrypto.ts",
+    "budget": 8000,
+    "name": "context-crypto-8000",
+    "query": "Where are doctor payout bank details encrypted before storage and decrypted for transfers?"
+  }
+]

@@ -13,6 +13,8 @@ import { TreeShaker } from "../semantic/tree-shaker.js"
 import { expandSemanticKindFilter } from "../semantic/language/index.js"
 import { fileRoleBoost, type FileRole, type SearchPurpose } from "../semantic/file-role.js"
 import { createResultId, decodeResultId } from "./result-id.js"
+import { expandHelpers } from "./helper-expansion.js"
+import { evidenceTerms, evidenceUtility } from "./search-quality.js"
 
 export type ResultMetadata = Record<string, string | number | boolean | string[] | undefined>
 
@@ -685,7 +687,7 @@ export function rerankWorkingResults(query: string, results: WorkingResult[]): W
     const executablePenalty = seeksExecutableCode && exactSymbol === 0 && nonExecutableTypes.has(symbolType) ? 0.08 : 0
     const rerankScore = Math.max(0, Math.min(
       1,
-      result.semanticScore * 0.72 + lexical * 0.2 + structural * 0.08 + domainAdjustment - executablePenalty,
+      Math.max(result.semanticScore, result.rerankScore ?? 0) * 0.72 + lexical * 0.2 + structural * 0.08 + domainAdjustment - executablePenalty,
     ))
     return {
       ...result,
@@ -711,9 +713,18 @@ export function selectWithinTokenBudget(results: WorkingResult[], maxTokens?: nu
   const selected: WorkingResult[] = []
   let estimatedTokens = 0
   const queryTokens = getQueryTokens(query)
+  const evidenceQueryTerms = evidenceTerms(query)
   const covered = new Set<string>()
   const strongest = Math.max(0, ...results.map((r) => r.rerankScore ?? r.semanticScore))
-  const remaining = results.filter((r) => (r.rerankScore ?? r.semanticScore) >= strongest * 0.7)
+  const remaining = results.filter((r) => {
+    const score = r.rerankScore ?? r.semanticScore
+    if (score >= strongest * 0.7) return true
+    // A separately requested operation can sit just below the general cutoff.
+    // Admit only bounded structural expansion with its own multi-term support.
+    const symbolHits = evidenceTerms(String(r.metadata.symbolName ?? "")).filter((term) => evidenceQueryTerms.includes(term)).length
+    return score >= strongest * 0.55 && symbolHits >= 2
+      && r.whyMatched?.some((reason) => reason.startsWith("helper expansion:")) === true
+  })
   const wantsTests = purpose === "test" || queryTokens.some((token) => ["test", "tests", "teste", "testes"].includes(token))
   const wantsContracts = queryTokens.some((token) => ["type", "types", "interface", "interfaces", "schema", "contract", "contrato", "tipos"].includes(token))
   const anchors = [...results].filter((r) => r.metadata.fileRole !== "test" && r.metadata.fileRole !== "contract")
@@ -739,7 +750,15 @@ export function selectWithinTokenBudget(results: WorkingResult[], maxTokens?: nu
       const redundant = selected.some((s) => s.file === r.file && s.startLine <= r.endLine && r.startLine <= s.endLine)
       const contractPenalty = !wantsContracts && (r.metadata.fileRole === "contract" || ["type", "interface", "enum"].includes(String(r.metadata.symbolType))) ? 0.2 : 0
       const testPenalty = !wantsTests && r.metadata.fileRole === "test" ? 0.18 : 0
-      return (r.rerankScore ?? r.semanticScore) + novelty * 0.15 + (supported.has(r) ? 0.12 : 0)
+      const symbolHits = evidenceTerms(String(r.metadata.symbolName ?? "")).filter((term) => evidenceQueryTerms.includes(term)).length
+      const supportBonus = supported.has(r) && (evidenceQueryTerms.length === 0 || symbolHits >= Math.min(2, evidenceQueryTerms.length)) ? 0.12 : 0
+      const symbolTerms = evidenceTerms(String(r.metadata.symbolName ?? ""))
+      const companionBonus = symbolHits >= 2 && r.whyMatched?.some((reason) => reason.startsWith("helper expansion:"))
+        && selected.some((s) => s.file === r.file && String(s.metadata.symbolName) !== String(r.metadata.symbolName)
+          && symbolTerms.some((term) => evidenceQueryTerms.includes(term) && !evidenceTerms(String(s.metadata.symbolName ?? "")).includes(term))) ? 0.18 : 0
+      return (r.rerankScore ?? r.semanticScore) + evidenceUtility(query, r) + novelty * 0.15 + supportBonus
+        + companionBonus
+        + 0.2 * symbolHits / Math.max(1, evidenceQueryTerms.length)
         - contractPenalty - testPenalty - (redundant ? 0.3 : 0) - 0.12 * Math.sqrt(estimateResultTokens(r) / maxTokens)
     }
     fitting.sort((a, b) => utility(b) - utility(a) || compareWorkingResults(a, b))
@@ -1405,6 +1424,22 @@ export async function collectWorkingResults(
 
   const fallbackResults = [...exactSymbolResults, ...literalFallbackResults, ...patternFallbackResults]
   workingResults = fuseHybridResults(workingResults, [...hybridLexicalResults, ...fallbackResults])
+
+  if (!params.exact && !params.pattern && params.hybrid !== false && !params.symbol && !params.name) {
+    try {
+      const expanded = await expandHelpers(resources, workingResults, params.query, filters,
+        new Set(lexicalCandidateFiles), options.signal)
+      workingResults = expanded.results
+      metrics.helperExpansionMs = expanded.elapsedMs
+      metrics.helperExpansionAdded = expanded.added
+      metrics.helperExpansionCandidates = expanded.considered
+      metrics.helperExpansionTruncated = expanded.truncated ? 1 : 0
+    } catch (error) {
+      if (options.signal?.aborted) throw error
+      metrics.helperExpansionTruncated = 1
+      warnings.push("Helper expansion unavailable or timed out; initial search results were preserved.")
+    }
+  }
 
   workingResults = annotateWorkingResults(workingResults, params)
   workingResults = workingResults.map((result) => {

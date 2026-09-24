@@ -18,6 +18,7 @@ import {
 } from "./sensegrep-pipeline.js"
 import { SenseGrepParametersSchema } from "./search-schema.js"
 import { embeddingConfigFingerprint } from "../semantic/embedding-config.js"
+import { assessEvidence, flexibleDiversity, rankEvidence } from "./search-quality.js"
 
 const DESCRIPTION = readFileSync(new URL("./sensegrep.txt", import.meta.url), "utf8")
 const MAX_LINE_LENGTH = 2000
@@ -111,7 +112,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       subdirPrefix: resolved.subdirPrefix,
       freshness,
       schema,
-    }, params, {
+    }, { ...params, rerank: false }, {
       rawLimit: Math.max(200, params.pattern ? limit * 3 : limit * 2),
       diversify: false,
       signal: ctx.abort,
@@ -125,7 +126,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     let workingResults = collected.results
 
     // Sort by semantic score initially
-    workingResults.sort((a, b) => b.semanticScore - a.semanticScore)
+    workingResults.sort((a, b) => (b.rerankScore ?? b.semanticScore) - (a.rerankScore ?? a.semanticScore))
 
     // Optional deterministic lexical/structural rerank on top-N candidates
     let rankedResults = workingResults
@@ -143,6 +144,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       ])),
     )
 
+    rankedResults = rankEvidence(params.query, rankedResults)
     const minScore = typeof params.minScore === "number" ? params.minScore : undefined
     if (minScore !== undefined) {
       rankedResults = rankedResults.filter((r) => (r.rerankScore ?? r.semanticScore) >= minScore)
@@ -154,7 +156,9 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     // Enforce diversity across file/symbol to avoid repeating the same source
     const maxPerFile = typeof params.maxPerFile === "number" ? Math.max(0, params.maxPerFile) : (params.exact ? 2 : 1)
     const maxPerSymbol = typeof params.maxPerSymbol === "number" ? Math.max(0, params.maxPerSymbol) : 2
-    const diversifiedResults = diversifyResults(dedupedResults, { maxPerFile, maxPerSymbol })
+    const diversifiedResults = params.maxPerFile === undefined && !params.exact
+      ? flexibleDiversity(dedupedResults, params.query, maxPerSymbol)
+      : diversifyResults(dedupedResults, { maxPerFile, maxPerSymbol })
 
     // Take top results
     const budgeted = selectWithinTokenBudget(diversifiedResults, params.maxTokens, params.query, limit, params.purpose)
@@ -371,6 +375,11 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       results: (result as any).results ?? [],
       output: (result as any).output ?? "",
     })) / 4))
+    const evidence = assessEvidence(params.query, ((result as any).results ?? []).map((r: any) => ({
+      ...r, semanticScore: r.score ?? 0, metadata: r.metadata ?? {},
+    })))
+    if ((result as any).status && !["complete", "incomplete"].includes((result as any).status)) evidence.status = "not-assessed"
+    const weakWarning = "Weak evidence: returned candidates have little lexical support for this query. Refine the query or inspect related symbols; this does not prove absence from the repository."
     return {
       schemaVersion: 1,
       command: params.commandName ?? "search",
@@ -381,7 +390,10 @@ export const SenseGrepTool = Tool.define("sensegrep", {
         snapshotId: `${meta.tableName ?? "chunks"}:${meta.updatedAt}`,
       },
       ...result,
-      answerSufficiency: "not-assessed",
+      answerSufficiency: evidence.status,
+      evidenceAssessment: evidence,
+      warnings: [...((result as any).warnings ?? []), ...(evidence.status === "weak-evidence" ? [weakWarning] : [])],
+      output: evidence.status === "weak-evidence" ? `${weakWarning}\n\n${result.output}` : result.output,
       budget: {
         maxOutputBytes: params.maxOutputBytes,
         maxBytes: params.maxOutputBytes,

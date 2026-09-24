@@ -1,5 +1,14 @@
 # @sensegrep/cli
 
+## 1.17.3
+
+### Patch Changes
+
+- Improve implementation-aware ranking and token-bounded context selection, preserve complementary symbols with flexible default file diversity, and discover relevant local helpers through bounded call/import expansion. Add advisory weak-evidence diagnostics without discarding semantic results. Preserve the existing 12,000-token context default and explicit user limits.
+
+- Updated dependencies []:
+  - @sensegrep/core@1.17.3
+
 ## 1.17.2
 
 ### Patch Changes
