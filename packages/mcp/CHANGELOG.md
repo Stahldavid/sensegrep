@@ -1,5 +1,14 @@
 # @sensegrep/mcp
 
+## 1.17.1
+
+### Patch Changes
+
+- [`063d867`](https://github.com/Stahldavid/sensegrep/commit/063d867e85b36f7e3153f376fe9fceba0d1e50ad) Thanks [@Stahldavid](https://github.com/Stahldavid)! - Keep the active index consistent when incremental indexing is interrupted by staging vector changes before atomically switching metadata. Preserve the no-change fast path and reuse existing embeddings. Honor duplicate result limits in every CLI JSON projection with explicit output truncation. Improve default search file diversity and retain meaningful words in cluster labels.
+
+- Updated dependencies [[`063d867`](https://github.com/Stahldavid/sensegrep/commit/063d867e85b36f7e3153f376fe9fceba0d1e50ad)]:
+  - @sensegrep/core@1.17.1
+
 ## 1.17.0
 
 ### Minor Changes

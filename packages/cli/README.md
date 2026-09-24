@@ -51,3 +51,11 @@ structured warning instead of failing silently.
 - CLI reference: https://github.com/Stahldavid/sensegrep/blob/main/docs/cli-reference.md
 - Getting started: https://github.com/Stahldavid/sensegrep/blob/main/docs/getting-started.md
 - Issues: https://github.com/Stahldavid/sensegrep/issues
+
+### Reliability in 1.17.1
+
+Search defaults to one result per file; use `--max-per-file 2` for more snippets from each file. `--exact` preserves its two-per-file default and prefers exact symbols rather than excluding approximate matches.
+
+Duplicate JSON respects `--limit`. `summary.outputTruncated` means more groups were found than emitted; raise `--limit` to expose them. A continuation cursor advances the candidate scan, not output pagination. Candidate caps still require raising `--max-candidates` for full coverage.
+
+Incremental `index --no-watch` stages updates before atomically activating the new snapshot, preserving the old index if the process is interrupted. No-change runs avoid copying vectors. This protection does not yet extend to individual watcher updates.
