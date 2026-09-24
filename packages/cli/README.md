@@ -58,4 +58,4 @@ Search defaults to one result per file; use `--max-per-file 2` for more snippets
 
 Duplicate JSON respects `--limit`. `summary.outputTruncated` means more groups were found than emitted; raise `--limit` to expose them. A continuation cursor advances the candidate scan, not output pagination. Candidate caps still require raising `--max-candidates` for full coverage.
 
-Incremental `index --no-watch` stages updates before atomically activating the new snapshot, preserving the old index if the process is interrupted. No-change runs avoid copying vectors. This protection does not yet extend to individual watcher updates.
+Incremental `index --no-watch` stages updates before atomically activating the new snapshot, preserving the old index if the process is interrupted. No-change runs avoid copying vectors. Since 1.17.2 this protection also covers individual watcher updates and removals, including files that become non-indexable.
