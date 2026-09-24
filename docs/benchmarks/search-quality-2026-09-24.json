@@ -1,0 +1,25 @@
+{
+  "cache": "existing",
+  "totals": {
+    "baseline": {
+      "searches": 28,
+      "fileTop5": 26,
+      "symbolCases": 11,
+      "symbolTop5": 8,
+      "medianMs": 2536,
+      "p95Ms": 3415,
+      "falseWeakWarnings": 0,
+      "negativesFlagged": 0
+    },
+    "candidate": {
+      "searches": 28,
+      "fileTop5": 26,
+      "symbolCases": 11,
+      "symbolTop5": 10,
+      "medianMs": 2828,
+      "p95Ms": 3615,
+      "falseWeakWarnings": 0,
+      "negativesFlagged": 3
+    }
+  }
+}

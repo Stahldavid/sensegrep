@@ -7,13 +7,14 @@
 Usage:
 - `query` (required): Natural language description of what you're looking for
 - `pattern` (optional): Regex pattern to filter semantic results (case-insensitive)
-- `limit` (optional): Maximum results (default: 20)
+- `limit` (optional): Maximum results (default: 10)
 - `include` (optional): File pattern filter (e.g. "*.ts", "src/**/*.tsx")
-- `rerank` (optional): Compatibility flag. Remote-only mode keeps semantic ranking as-is
+- `rerank` (optional): Apply additional deterministic lexical/structural reranking
 - `minScore` (optional): Minimum relevance score 0-1 (filters low-confidence results)
 - `symbol` (optional): Filter by symbol name (e.g. "VectorStore")
-- `maxPerFile` (optional): Max results per file (default: 1)
-- `maxPerSymbol` (optional): Max results per symbol (default: 1)
+- `maxPerFile` (optional): Strict cap; by default retain a primary and a complementary symbol, preserving the first five file anchors
+- `maxPerSymbol` (optional): Max results per symbol (default: 2)
+- `maxTokens` (optional): Output token budget; context defaults to 12000, independent of embedding input limits
 
 Semantic Metadata Filters (optional):
 - `symbolType`: Filter by code structure type - "function", "class", "method", "interface", "type", "variable", "namespace", "enum"
@@ -28,8 +29,9 @@ Semantic Metadata Filters (optional):
 How it works:
 1. Semantic search finds conceptually relevant code chunks using AI embeddings
 2. If `pattern` provided, ripgrep filters to only chunks containing the pattern
-3. If `rerank` enabled, the current remote-only build keeps semantic ranking unchanged
-4. Top results returned with full code content
+3. Hybrid searches may expand relevant local helper calls by one hop within a bounded budget
+4. Optional reranking and evidence-aware diversity select results; context chooses complementary evidence within its token budget
+5. Weak lexical support produces an advisory warning, not proof of repository-wide absence; cross-language evidence can remain unassessed
 
 When to use semantic search vs literal search:
 - semantic search first: Discovery and conceptual questions ("find error handling", "authentication logic", "database queries")

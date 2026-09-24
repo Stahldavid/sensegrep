@@ -186,7 +186,8 @@ export function projectSearchAgentResponse(raw: any, options: AgentProjectionOpt
     : []
   const response: Record<string, unknown> = {
     ...baseEnvelope(raw, options),
-    answerSufficiency: "not-assessed",
+    answerSufficiency: raw.answerSufficiency ?? "not-assessed",
+    ...(raw.evidenceAssessment ? { evidenceAssessment: raw.evidenceAssessment } : {}),
     ...(raw.coverage ? {
       coverage: defined({
         changedFiles: raw.coverage.changedFiles,
