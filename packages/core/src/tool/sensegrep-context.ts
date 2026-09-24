@@ -249,7 +249,7 @@ export const SenseGrepContextTool = Tool.define("sensegrep-context", {
       ...result,
       schemaVersion: 1,
       command: params.commandName ?? "context",
-      status: finalCoverage?.exhaustive === false ? "incomplete" : "complete",
+      status: finalCoverage?.exhaustive === false || (result as any).status === "incomplete" ? "incomplete" : "complete",
       title: `Context: ${params.query}`,
       metadata: {
         ...result.metadata,

@@ -2,6 +2,23 @@ import { describe, expect, it } from "vitest"
 import { getGeneralChunkLimits } from "./chunk-limits.js"
 import { Chunking } from "./chunking.js"
 
+describe("small source files", () => {
+  const cases = [
+    ["caller.ts", "import { debit as allowDebit } from './rules';\nexport function purchase() { return allowDebit(); }", "typescript", "purchase"],
+    ["mail.py", "class MailQueue:\n    def retry_failed_delivery(self, attempts):\n        return 'retry' if attempts < 3 else 'manual_review'\n", "python", "retry_failed_delivery"],
+    ["Invoice.java", "class Invoice { public boolean isOverdue(int days) { return days > 30; } }", "java", "Invoice"],
+    ["Status.vue", '<script setup lang="ts">\nconst label = "Ready"\n</script>\n<template><span>{{ label }}</span></template>', "vue", undefined],
+  ] as const
+  it.each(cases)("preserves metadata in %s without padding", async (file, content, language, symbol) => {
+    expect(content.length).toBeLessThan(200)
+    for (const chunks of [await Chunking.chunkAsync(content, file), (await Chunking.analyzeAsync(content, file)).chunks]) {
+      expect(chunks.length).toBeGreaterThan(0)
+      expect(chunks.some((chunk) => chunk.language === language)).toBe(true)
+      if (symbol) expect(chunks.some((chunk) => chunk.symbolName === symbol)).toBe(true)
+    }
+  })
+})
+
 describe("Chunking oversized content", () => {
   it("splits very large single-line code into safe chunks", () => {
     const content = `const payload = "${"a".repeat(getGeneralChunkLimits().max * 2)}";`

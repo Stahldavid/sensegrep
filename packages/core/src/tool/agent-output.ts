@@ -150,7 +150,8 @@ export function projectAgentResult(entry: any, rank: number, options: AgentProje
       semanticKind: entry.semanticKind,
       framework: entry.framework,
       fileRole: entry.fileRole ?? entry.metadata?.fileRole,
-      confidence: entry.confidence,
+      rankingStrength: entry.rankingStrength ?? entry.confidence,
+      answerSufficiency: entry.answerSufficiency ?? "not-assessed",
       weakMatch: entry.isWeakMatch,
       why: entry.whyMatched,
       filterMatches: entry.filterMatches,
@@ -185,6 +186,7 @@ export function projectSearchAgentResponse(raw: any, options: AgentProjectionOpt
     : []
   const response: Record<string, unknown> = {
     ...baseEnvelope(raw, options),
+    answerSufficiency: "not-assessed",
     ...(raw.coverage ? {
       coverage: defined({
         changedFiles: raw.coverage.changedFiles,
@@ -336,6 +338,7 @@ export function projectDuplicateAgentResponse(raw: any, options: AgentProjection
     status: raw.status ?? "complete",
     warnings: projectWarnings(raw.warnings),
     summary,
+    ...(diagnostics ? { diagnostic: { metrics: raw.metrics } } : {}),
     duplicates: (raw.duplicates ?? []).map((group: any) => defined({
       level: group.level,
       similarity: group.similarity,
@@ -373,8 +376,13 @@ export function projectGraphAgentResponse(raw: any, options: AgentProjectionOpti
       definitions: (raw.definitions ?? []).map(projectGraphLocation),
       references: (raw.references ?? []).map((reference: any) => defined({
         fromId: reference.fromId,
+        toId: reference.toId,
+        source: reference.location ? projectGraphLocation(reference.location) : undefined,
+        target: reference.targetLocation ? projectGraphLocation(reference.targetLocation) : undefined,
         kind: reference.kind,
         confidence: reference.confidence,
+        resolution: reference.resolution,
+        callLine: reference.callLine,
       })),
       truncated: raw.truncated ?? false,
       graphCoverage: raw.metrics?.graphCoverage,
@@ -402,6 +410,7 @@ export function projectGraphAgentResponse(raw: any, options: AgentProjectionOpti
   if (diagnostics) {
     response.diagnostic = defined({
       metrics: raw.metrics,
+      coverageDefinition: "resolved edges / (resolved + unresolved + ambiguous); includes synthetic imports/table edges, not repository completeness",
       path: Array.isArray(raw.pathNodes) ? raw.pathNodes.map(projectGraphLocation) : undefined,
     })
   }
@@ -479,6 +488,7 @@ function truncateContent(entry: any, maxCharacters: number): any {
     content,
     contentTruncated: content.length < original.length,
     integrity: content.length < original.length ? "partial" : entry.integrity,
+    ...(entry.snippetIntegrity !== undefined ? { snippetIntegrity: content.length < original.length ? "partial" : entry.snippetIntegrity } : {}),
   }
 }
 

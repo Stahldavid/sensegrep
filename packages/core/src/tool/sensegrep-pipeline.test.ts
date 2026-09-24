@@ -15,6 +15,7 @@ import {
   decodeResultId,
   toStructuredSearchResult,
   deriveDomainLabel,
+  getGroupTitleSignal,
 } from "./sensegrep-pipeline.js"
 
 describe("sensegrep pipeline result metadata", () => {
@@ -162,6 +163,46 @@ describe("hybrid retrieval ranking", () => {
     ], 150)
     expect(selected.results).toHaveLength(1)
     expect(selected.estimatedTokens).toBeLessThanOrEqual(150)
+  })
+
+  it("selects a fitting implementation beyond the result limit", () => {
+    const selected = selectWithinTokenBudget([
+      result("large.ts", 0.95, "x".repeat(6000)),
+      result("implementation.ts", 0.9, "refresh token"),
+    ], 100, "refresh token", 1)
+    expect(selected.results.map((r) => r.file)).toEqual(["implementation.ts"])
+  })
+
+  it("does not let tiny wrappers displace a substantially stronger implementation", () => {
+    const selected = selectWithinTokenBudget([
+      result("rules.ts", 0.95, "check balance " + "x".repeat(1200)),
+      result("wrapper.ts", 0.7, "check balance"),
+    ], 350, "check balance")
+    expect(selected.results[0].file).toBe("rules.ts")
+  })
+
+  it("never exceeds a budget smaller than metadata alone", () => {
+    expect(selectWithinTokenBudget([result("a.ts", 0.9, "x")], 1).results).toEqual([])
+  })
+
+  it("reserves context for implementations but respects an explicit test purpose", () => {
+    const test = { ...result("rule.test.ts", 0.9, "x".repeat(250)), metadata: { fileRole: "test" } }
+    const implementation = { ...result("rule.ts", 0.8, "x".repeat(250)), metadata: { fileRole: "implementation" } }
+    expect(selectWithinTokenBudget([test, implementation], 100).results[0].file).toBe("rule.ts")
+    expect(selectWithinTokenBudget([test, implementation], 100, "", 2, "test").results[0].file).toBe("rule.test.ts")
+  })
+
+  it("retains a helper referenced by relevant code that is too large for the budget", () => {
+    const selected = selectWithinTokenBudget([
+      result("workflow.ts", 0.9, "return preservePendingContext();" + "x".repeat(3000), "processWorkflow"),
+      result("format.ts", 0.8, "x".repeat(150), "formatPayload"),
+      result("guard.ts", 0.75, "if (expected !== actual) return false", "preservePendingContext"),
+    ], 100, "", 1)
+    expect(selected.results[0].file).toBe("guard.ts")
+  })
+
+  it("uses a descriptive filename rather than shared test framework imports", () => {
+    expect(getGroupTitleSignal([{ ...result("tests/calendarWebhook.test.ts", 0.9, ""), metadata: { imports: "convex-test,vitest" } }], "calendar")).toBe("calendar webhook")
   })
 
   it("keeps compact complete implementations instead of exhausting context on a large prefix", () => {

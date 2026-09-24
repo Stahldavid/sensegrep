@@ -8,7 +8,7 @@ import {
   deriveDomainLabel,
   formatGroupedResultHeader,
   formatRepresentativeSnippets,
-  getDominantSymbolPhrases,
+  getGroupTitleSignal,
   getGroupingReasons,
   getImportHints,
   getQueryTokens,
@@ -51,7 +51,6 @@ type SurveyGroup = {
   dominantSymbolTypes: string[]
 }
 
-const GENERIC_TITLE_SIGNALS = new Set(["api", "client", "clients", "service", "services", "types", "contracts", "model", "models"])
 
 function buildSurveyGroups(results: WorkingResult[], query: string): SurveyGroup[] {
   const queryTokenSet = new Set(getQueryTokens(query))
@@ -100,12 +99,7 @@ function getSurveyWhyGrouped(group: SurveyGroup): string[] {
 }
 
 function chooseSurveyTitle(group: SurveyGroup, query: string): string {
-  const symbolPhrases = getDominantSymbolPhrases(group.members, query, 2, false)
-  const symbolHints = topCounts(group.symbolHints, 2, new Set(getQueryTokens(query)))
-  const importHints = topCounts(group.importHints, 2)
-  const importSignal = importHints.find((hint) => !GENERIC_TITLE_SIGNALS.has(hint)) ?? importHints[0]
-  const strongestSignal = symbolPhrases[0] ?? symbolHints[0] ??
-    (importSignal && !GENERIC_TITLE_SIGNALS.has(importSignal) ? importSignal : undefined)
+  const strongestSignal = getGroupTitleSignal(group.members, query)
 
   if (!strongestSignal) return group.title
   if (group.title.includes(strongestSignal)) return group.title

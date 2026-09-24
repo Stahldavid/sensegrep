@@ -1,7 +1,23 @@
 import { describe, expect, it } from "vitest"
-import { projectAgentResponse } from "./agent-output.js"
+import { projectAgentResponse, enforceAgentOutputBudget } from "./agent-output.js"
 
 describe("shared agent output projection", () => {
+  it("keeps ranking strength separate from answer sufficiency", () => {
+    const response = projectAgentResponse({ command: "search", results: [{ file: "test.ts", score: 0.9, confidence: "high" }] }, { detail: "diagnostic" })
+    expect(response.answerSufficiency).toBe("not-assessed")
+    expect(response.results[0].diagnostic.rankingStrength).toBe("high")
+    expect(response.results[0].diagnostic).not.toHaveProperty("confidence")
+  })
+
+  it.each([false, true])("enforces serialized bytes, including UTF-8 and pretty=%s", (pretty) => {
+    const response = enforceAgentOutputBudget({ command: "search", status: "complete", budget: { maxBytes: 512 },
+      results: [{ file: "ação.ts", lines: [1, 100], content: "ação 🐈\n".repeat(100) }] }, { pretty, trailingNewline: true })
+    const serialized = JSON.stringify(response, null, pretty ? 2 : undefined) + "\n"
+    expect(Buffer.byteLength(serialized)).toBeLessThanOrEqual(512)
+    expect(response.status).toBe("incomplete")
+    expect(response.budget.usedBytes).toBe(Buffer.byteLength(serialized))
+    expect(JSON.parse(serialized)).toEqual(response)
+  })
   it("makes grouped summaries compact and directly expandable", () => {
     const projected = projectAgentResponse({
       command: "survey",

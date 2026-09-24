@@ -25,6 +25,17 @@ function row(symbolName: string, content: string, startLine: number) {
 }
 
 describe("CodeGraph", () => {
+  it("attributes nested calls to the smallest enclosing symbol", async () => {
+    listDocuments.mockResolvedValue([
+      { content: "class Service {\n run() {\n target()\n }\n}", metadata: { file: "src/app.ts", startLine: 1, endLine: 5, symbolName: "Service" } },
+      { content: "run() {\n target()\n }", metadata: { file: "src/app.ts", startLine: 2, endLine: 4, symbolName: "run", parentScope: "Service" } },
+      row("target", "return true", 20),
+    ])
+    const { CodeGraph } = await import("./code-graph.js")
+    const references = (await CodeGraph.findReferences("target")).references
+    expect(references).toHaveLength(1)
+    expect(references[0]).toMatchObject({ from: "run", callLine: 3, resolution: "ast-name" })
+  })
   it("classifies only scheduler targets, ignoring comments and strings", async () => {
     listDocuments.mockResolvedValue([
       row("run", 'validate(); ctx.scheduler.runAfter(0, internal.jobs.deliver, {}); // cron validate()\nconst note = "scheduler validate()";', 1),

@@ -335,7 +335,7 @@ export namespace Chunking {
       if (isBoundary && currentChunk.length > 0 && !inBlock) {
         // Save current chunk
         const chunkContent = currentChunk.join("\n")
-        if (chunkContent.length >= getMinChunkSize()) {
+        if (chunkContent.trim().length > 0) {
           chunks.push({
             content: chunkContent,
             startLine: chunkStartLine + 1,
@@ -368,7 +368,7 @@ export namespace Chunking {
     // Don't forget the last chunk
     if (currentChunk.length > 0) {
       const chunkContent = currentChunk.join("\n")
-      if (chunkContent.length >= getMinChunkSize()) {
+      if (chunkContent.trim().length > 0) {
         chunks.push({
           content: chunkContent,
           startLine: chunkStartLine + 1,
@@ -378,7 +378,10 @@ export namespace Chunking {
       }
     }
 
-    const normalizedChunks = enforceMaxChunkSize(chunks)
+    const normalizedChunks = enforceMaxChunkSize(chunks.map((chunk) => ({
+      ...chunk,
+      language: getLanguageForFile(filePath)?.id,
+    })))
     log.info("chunked code file", { filePath, chunks: normalizedChunks.length })
     return normalizedChunks
   }
@@ -453,7 +456,7 @@ export namespace Chunking {
    * Chunk a file into semantic pieces (synchronous wrapper)
    */
   export function chunk(content: string, filePath: string): Chunk[] {
-    if (content.length < getMinChunkSize()) {
+    if (!isCodeFile(filePath) && content.length < getMinChunkSize()) {
       return [
         {
           content,
@@ -476,7 +479,7 @@ export namespace Chunking {
    * Async version that uses tree-sitter when possible
    */
   export async function chunkAsync(content: string, filePath: string): Promise<Chunk[]> {
-    if (content.length < getMinChunkSize()) {
+    if (!isCodeFile(filePath) && content.length < getMinChunkSize()) {
       return [
         {
           content,
@@ -497,16 +500,9 @@ export namespace Chunking {
     if (TreeSitterChunking.isSupported(filePath)) {
       try {
         const parsed = await TreeSitterChunking.analyze(content, filePath)
-        const chunks = content.length < getMinChunkSize()
-          ? [{
-              content,
-              startLine: 1,
-              endLine: parsed.lines.length,
-              type: "code" as const,
-            }]
-          : enforceMaxChunkSize(
-              parsed.chunks.length > 0 ? parsed.chunks : chunkCodeRegex(content, filePath),
-            )
+        const chunks = enforceMaxChunkSize(
+          parsed.chunks.length > 0 ? parsed.chunks : chunkCodeRegex(content, filePath),
+        )
         const collapsibleRegions = parsed.tree
           ? TreeShaker.findCollapsibleRegions(parsed.tree, parsed.lines)
           : []

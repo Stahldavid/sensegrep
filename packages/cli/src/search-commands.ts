@@ -143,6 +143,7 @@ export function buildCommonSearchParams(query: string, flags: Flags, defaults: O
   if (flags["no-shake"] !== undefined) params.shake = false
   assignNumberParam(params, flags, "minScore", ["min-score", "minScore"])
   assignNumberParam(params, flags, "maxTokens", ["max-tokens", "maxTokens"])
+  assignNumberParam(params, flags, "maxOutputBytes", ["max-output-bytes", "maxOutputBytes"])
   if (flags.hybrid !== undefined) params.hybrid = toBool(flags.hybrid) ?? true
   if (flags["no-hybrid"] !== undefined) params.hybrid = false
   assignStringParam(params, flags, "hybridMode", ["hybrid-mode", "hybridMode"])
@@ -193,6 +194,9 @@ export async function executeSearchLikeTool(input: {
       includeRendered,
       includeFilterExplanations: input.params.explainFilters === true,
     })
+    if (typeof input.params.maxOutputBytes === "number") {
+      payload.budget = { ...payload.budget, maxBytes: input.params.maxOutputBytes }
+    }
     const finalPayload = enforceActualOutputBudget(payload)
     if (input.params.requireCoverage === true && finalPayload.coverageSatisfied === false) process.exitCode = 2
     writeJson(finalPayload)
