@@ -860,7 +860,7 @@ async function run() {
 
     if (flags.json) {
       const detail = resolveJsonProjection(flags["json-detail"] ?? flags.jsonDetail, flags.diagnostic === true)
-      writeJson(projectDuplicateResponse(result, detail, showCode || fullCode))
+      writeJson(projectDuplicateResponse(result, detail, showCode || fullCode, limit))
       return
     }
 

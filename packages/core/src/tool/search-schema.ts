@@ -51,7 +51,7 @@ export const SenseGrepParametersSchema = z.object({
   ...CommonSearchShape,
   maxOutputBytes: z.number().int().min(256).max(100_000_000).optional().describe("Maximum serialized JSON response bytes (minimum 256)"),
   limit: z.number().int().positive().max(500).optional().describe("Maximum results (default: 10)"),
-  maxPerFile: z.number().int().nonnegative().optional().describe("Maximum results per file (default: 2)"),
+  maxPerFile: z.number().int().nonnegative().optional().describe("Maximum results per file (search default: 1; exact lookup: 2)"),
   maxPerSymbol: z.number().int().nonnegative().optional().describe("Maximum results per symbol (default: 2)"),
 })
 

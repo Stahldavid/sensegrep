@@ -152,7 +152,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     const dedupedResults = dedupeOverlapping(rankedResults)
 
     // Enforce diversity across file/symbol to avoid repeating the same source
-    const maxPerFile = typeof params.maxPerFile === "number" ? Math.max(0, params.maxPerFile) : 2
+    const maxPerFile = typeof params.maxPerFile === "number" ? Math.max(0, params.maxPerFile) : (params.exact ? 2 : 1)
     const maxPerSymbol = typeof params.maxPerSymbol === "number" ? Math.max(0, params.maxPerSymbol) : 2
     const diversifiedResults = diversifyResults(dedupedResults, { maxPerFile, maxPerSymbol })
 

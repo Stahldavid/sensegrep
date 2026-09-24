@@ -243,3 +243,14 @@ describe("SenseGrepClusterTool", () => {
     expect(listDocuments).toHaveBeenCalledTimes(1)
   })
 })
+
+it("keeps domain words in long labels and removes dangling prepositions", async () => {
+  const { getDominantSymbolPhrases } = await import("./sensegrep-pipeline.js")
+  const rows = [
+    { metadata: { symbolName: "updateOrderStatusByAsaasPayment" } },
+    { metadata: { symbolName: "recordPendingPaymentEventFor" } },
+  ] as any
+  const labels = getDominantSymbolPhrases(rows, "", 3, false)
+  expect(labels).toContain("update order status by asaas payment")
+  expect(labels.every(label => !/\b(?:by|for)$/.test(label))).toBe(true)
+})

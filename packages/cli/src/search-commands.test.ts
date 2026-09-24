@@ -120,6 +120,19 @@ describe("search command agent JSON contracts", () => {
     expect(projectDuplicateResponse(result, "minimal", true).duplicates[0].instances[0]).toHaveProperty("content", "secret code")
   })
 
+  it("limits every duplicate JSON projection without losing scan continuation", () => {
+    const raw = { status: "complete", summary: { totalDuplicates: 3, returnedDuplicates: 3, resumeCursor: "next" }, duplicates: [{ instances: [] }, { instances: [] }, { instances: [] }] }
+    for (const detail of ["minimal", "diagnostic", "full"] as const) {
+      const result = projectDuplicateResponse(raw, detail, false, 1)
+      expect(result.duplicates).toHaveLength(1)
+      expect(result.status).toBe("incomplete")
+      expect(result.summary.outputTruncated).toBe(true)
+      expect(detail === "full" ? result.summary.returnedDuplicates : result.summary.returned).toBe(1)
+      expect(detail === "full" ? result.summary.resumeCursor : result.continuation.cursor).toBe("next")
+    }
+    expect(raw.duplicates).toHaveLength(3)
+  })
+
   it("projects literal, graph, and show with canonical locations", () => {
     const literal = projectLiteralResponse({
       command: "literal",

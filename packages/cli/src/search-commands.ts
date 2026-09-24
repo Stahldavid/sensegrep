@@ -41,7 +41,11 @@ export function projectSearchResponse(res: any, detail: JsonProjection, includeR
   })
 }
 
-export function projectDuplicateResponse(res: any, detail: JsonProjection, includeCode: boolean): any {
+export function projectDuplicateResponse(res: any, detail: JsonProjection, includeCode: boolean, limit?: number): any {
+  if (limit !== undefined && res.duplicates.length > limit) {
+    res = { ...res, status: "incomplete", duplicates: res.duplicates.slice(0, limit),
+      summary: { ...res.summary, returnedDuplicates: limit, truncated: true, outputTruncated: true } }
+  }
   return projectDuplicateAgentResponse(res, { detail, diagnostics: detail === "diagnostic", includeCode })
 }
 
