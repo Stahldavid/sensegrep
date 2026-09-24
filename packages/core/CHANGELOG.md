@@ -1,5 +1,11 @@
 # @sensegrep/core
 
+## 1.17.0
+
+### Minor Changes
+
+- [`bde06a7`](https://github.com/Stahldavid/sensegrep/commit/bde06a75e8327c4a5c0a4c90db9b03f06c00a3b6) Thanks [@Stahldavid](https://github.com/Stahldavid)! - Preserve structural metadata in small files, improve token-budget context selection and cluster coherence, expose graph resolution evidence, accelerate bounded duplicate scans, and support serialized byte budgets for search. Distinguish ranking strength from answer sufficiency. Chunking policy changes trigger an atomic rebuild on the next explicit indexing command.
+
 ## 1.16.0
 
 ### Minor Changes
