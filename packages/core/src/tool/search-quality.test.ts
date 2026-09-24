@@ -89,4 +89,16 @@ describe("evidence quality regressions", () => {
     expect(pack.results.indexOf(encrypt)).toBeGreaterThanOrEqual(0)
     expect(pack.results.indexOf(encrypt)).toBeLessThan(pack.results.indexOf(ui))
   })
+  it("uses Jev contribution to retain a complementary helper within a tight context", () => {
+    const anchor = result("mainRule", "function", 0.9, "function mainRule() { return checkEligibility() }", 1, "main.ts")
+    const repeat = result("wrapper", "function", 0.8, "function wrapper() { return mainRule() }", 1, "wrapper.ts")
+    const complement = result("checkEligibility", "function", 0.7, "function checkEligibility() { return age > 30 }", 1, "helper.ts")
+    anchor.jev = { relevant: 1, evidence: 1, contradiction: 0, contribution: 0 }
+    repeat.jev = { relevant: 0.8, evidence: 0.7, contradiction: 0, contribution: 0 }
+    complement.jev = { relevant: 0.9, evidence: 0.9, contradiction: 0, contribution: 1 }
+    const selected = selectWithinTokenBudget([anchor, repeat, complement], 85, "eligibility", 2)
+    expect(selected.results.map(r => r.metadata.symbolName)).toEqual(["checkEligibility", "mainRule"])
+    expect(selected.estimatedTokens).toBeLessThanOrEqual(85)
+  })
+
 })

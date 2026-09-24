@@ -19,6 +19,7 @@ import {
 import { SenseGrepParametersSchema } from "./search-schema.js"
 import { embeddingConfigFingerprint } from "../semantic/embedding-config.js"
 import { assessEvidence, flexibleDiversity, rankEvidence } from "./search-quality.js"
+import { evaluateWithJev, assessJevPacket, mergeJevDiagnostics, jevResultKey } from "./jev.js"
 
 const DESCRIPTION = readFileSync(new URL("./sensegrep.txt", import.meta.url), "utf8")
 const MAX_LINE_LENGTH = 2000
@@ -70,6 +71,9 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       embedDim: meta.embeddings.dimension,
     }
 
+    const jevRequested = Boolean(params.jev && params.jev !== "off")
+    let jev: Awaited<ReturnType<typeof evaluateWithJev>> | undefined
+    let jevEvidence: Awaited<ReturnType<typeof assessJevPacket>> | undefined
     const run = async () => {
     if (
       meta.embeddings.configFingerprint &&
@@ -123,7 +127,8 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     metrics.estimatedInputTokens = Math.max(1, Math.ceil(params.query.length / 4))
     warnings.push(...collected.warnings)
     const useLexicalOnly = collected.lexicalOnly
-    let workingResults = collected.results
+    const jevHelpers = collected.results.filter(r => r.jevOnly)
+    let workingResults = collected.results.filter(r => !r.jevOnly)
 
     // Sort by semantic score initially
     workingResults.sort((a, b) => (b.rerankScore ?? b.semanticScore) - (a.rerankScore ?? a.semanticScore))
@@ -151,18 +156,51 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     }
 
     // Dedupe overlapping results within the same file (class vs method, etc.)
-    const dedupedResults = dedupeOverlapping(rankedResults)
+    const localDeduped = dedupeOverlapping(rankedResults)
+    const dedupedResults = [...localDeduped, ...jevHelpers.filter(helper => (minScore === undefined || (helper.rerankScore ?? helper.semanticScore) >= minScore) && !localDeduped.some(local =>
+      local.file === helper.file && local.startLine <= helper.endLine && helper.startLine <= local.endLine))]
+    const exactQuery = params.exact || params.symbol || params.name || /^[\w$]+(?:[.:/][\w$]+)*$/.test(params.query)
+    const jevStarted = Date.now()
+    const remainingJevMs = () => Math.max(0, (params.jevTimeoutMs ?? 8000) - (Date.now() - jevStarted))
+    jev = jevRequested && !exactQuery ? await evaluateWithJev(params.query, dedupedResults, {
+      mode: params.jev!, batchSize: params.jevBatchSize, ranking: params.jevRanking, candidates: params.jevCandidates, timeoutMs: params.jevTimeoutMs, signal: ctx.abort,
+    }) : undefined
+    if (jev && jev.diagnostics.status !== "complete") warnings.push(`Jev evaluation ${jev.diagnostics.status}: ${jev.diagnostics.reason ?? "unavailable"}; local ranking retained.`)
+    const evidenceResults = (jev?.results ?? dedupedResults).filter(r => !r.jevOnly ||
+      jev?.diagnostics.status === "complete" && (jev.scores.get(jevResultKey(r))?.evidence ?? 0) >= 0.65)
 
     // Enforce diversity across file/symbol to avoid repeating the same source
     const maxPerFile = typeof params.maxPerFile === "number" ? Math.max(0, params.maxPerFile) : (params.exact ? 2 : 1)
     const maxPerSymbol = typeof params.maxPerSymbol === "number" ? Math.max(0, params.maxPerSymbol) : 2
     const diversifiedResults = params.maxPerFile === undefined && !params.exact
-      ? flexibleDiversity(dedupedResults, params.query, maxPerSymbol)
-      : diversifyResults(dedupedResults, { maxPerFile, maxPerSymbol })
+      ? flexibleDiversity(evidenceResults, params.query, maxPerSymbol)
+      : diversifyResults(evidenceResults, { maxPerFile, maxPerSymbol })
 
+    // Judge marginal contribution against a fixed direct-evidence anchor. No generated snippets.
+    if (jev?.diagnostics.status === "complete" && params.jev === "both" && params.maxTokens && remainingJevMs() > 100) {
+      const contextJudgement = await evaluateWithJev(params.query, diversifiedResults, {
+        mode: "evidence", rubric: "context", batchSize: params.jevBatchSize, ranking: params.jevRanking, candidates: Math.min(6, params.jevCandidates ?? 20), selected: diversifiedResults.slice(0, 1),
+        timeoutMs: remainingJevMs(), signal: ctx.abort,
+      })
+      jev.diagnostics.contextStatus = contextJudgement.diagnostics.status
+      mergeJevDiagnostics(jev.diagnostics, contextJudgement.diagnostics)
+      if (contextJudgement.diagnostics.status === "complete") for (const r of diversifiedResults) {
+        const scores = contextJudgement.scores.get(jevResultKey(r))
+        if (scores) r.jev = scores
+      }
+    }
     // Take top results
     const budgeted = selectWithinTokenBudget(diversifiedResults, params.maxTokens, params.query, limit, params.purpose)
     const finalResults = budgeted.results
+    if (jev && params.jev !== "rerank" && remainingJevMs() > 100 && jev.diagnostics.status !== "fallback") {
+      jevEvidence = await assessJevPacket(params.query, finalResults, { mode: "evidence", timeoutMs: remainingJevMs(), signal: ctx.abort })
+      jev.diagnostics.packetStatus = jevEvidence.verdict
+      mergeJevDiagnostics(jev.diagnostics, jevEvidence.evaluation)
+    }
+    if (jev && params.jev !== "rerank" && !jevEvidence) {
+      jev.diagnostics.packetStatus = "not-assessed"
+      warnings.push("Jev final packet not assessed: remote evaluation unavailable or deadline exhausted.")
+    }
     finalResults.forEach((result, index) => {
       result.rankScore = Number(((finalResults.length - index) / Math.max(1, finalResults.length)).toFixed(6))
     })
@@ -375,11 +413,12 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       results: (result as any).results ?? [],
       output: (result as any).output ?? "",
     })) / 4))
-    const evidence = assessEvidence(params.query, ((result as any).results ?? []).map((r: any) => ({
+    const localEvidence = assessEvidence(params.query, ((result as any).results ?? []).map((r: any) => ({
       ...r, semanticScore: r.score ?? 0, metadata: r.metadata ?? {},
     })))
+    const evidence = jevEvidence?.fullyAssessed ? jevEvidence : localEvidence
     if ((result as any).status && !["complete", "incomplete"].includes((result as any).status)) evidence.status = "not-assessed"
-    const weakWarning = "Weak evidence: returned candidates have little lexical support for this query. Refine the query or inspect related symbols; this does not prove absence from the repository."
+    const weakWarning = "Weak evidence: evaluated source candidates provide little answer support for this query. Refine the query or inspect related symbols; this does not prove absence from the repository."
     return {
       schemaVersion: 1,
       command: params.commandName ?? "search",
@@ -391,7 +430,8 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       },
       ...result,
       answerSufficiency: evidence.status,
-      evidenceAssessment: evidence,
+      evidenceAssessment: { ...evidence, ...(jevEvidence && !jevEvidence.fullyAssessed ? { jevAssessment: jevEvidence } : {}) },
+      ...(jevRequested ? { jev: jev?.diagnostics ?? { status: "skipped", reason: "exact-query", mode: params.jev } } : {}),
       warnings: [...((result as any).warnings ?? []), ...(evidence.status === "weak-evidence" ? [weakWarning] : [])],
       output: evidence.status === "weak-evidence" ? `${weakWarning}\n\n${result.output}` : result.output,
       budget: {

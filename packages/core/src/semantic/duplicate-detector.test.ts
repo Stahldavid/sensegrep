@@ -211,4 +211,15 @@ describe("DuplicateDetector", () => {
     expect(result.summary.resumeCursor).toBe(0)
     expect(result.summary.processedCandidates).toBe(0)
   })
+  it("returns original source rather than embedding context in duplicate evidence", async () => {
+    const { DuplicateDetector } = await import("./duplicate-detector.js")
+    rows = baseRows.slice(0, 2).map(row => ({ ...row, content: "...unparseable previous chunk\n// embedding metadata\n" + row.contentRaw }))
+    const result = await DuplicateDetector.detect({ path: process.cwd(), minLines: 1, ignoreAcceptablePatterns: true })
+    expect(result.duplicates.length).toBeGreaterThan(0)
+    for (const instance of result.duplicates[0].instances) {
+      expect(instance.content).toBe(baseRows.find(row => row.metadata.symbolName === instance.symbol)?.contentRaw)
+      expect(instance.content).not.toContain("embedding metadata")
+    }
+  })
+
 })

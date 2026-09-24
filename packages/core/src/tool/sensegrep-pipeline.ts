@@ -15,10 +15,13 @@ import { fileRoleBoost, type FileRole, type SearchPurpose } from "../semantic/fi
 import { createResultId, decodeResultId } from "./result-id.js"
 import { expandHelpers } from "./helper-expansion.js"
 import { evidenceTerms, evidenceUtility } from "./search-quality.js"
+import { evaluateWithJev, jevResultKey } from "./jev.js"
 
 export type ResultMetadata = Record<string, string | number | boolean | string[] | undefined>
 
 export type WorkingResult = {
+  jev?: import("./jev.js").JevScores
+  jevOnly?: boolean
   id?: string
   file: string
   content: string
@@ -39,6 +42,7 @@ export type WorkingResult = {
 }
 
 export type StructuredSearchResult = {
+  jev?: import("./jev.js").JevScores
   resultId: string
   file: string
   startLine: number
@@ -73,6 +77,11 @@ export type StructuredSearchResult = {
 
 export type CommonSensegrepParams = {
   query: string
+  jev?: import("./jev.js").JevMode
+  jevBatchSize?: number
+  jevRanking?: import("./jev.js").JevRanking
+  jevCandidates?: number
+  jevTimeoutMs?: number
   pattern?: string
   limit?: number
   include?: string
@@ -718,6 +727,7 @@ export function selectWithinTokenBudget(results: WorkingResult[], maxTokens?: nu
   const strongest = Math.max(0, ...results.map((r) => r.rerankScore ?? r.semanticScore))
   const remaining = results.filter((r) => {
     const score = r.rerankScore ?? r.semanticScore
+    if (r.jev && Math.max(r.jev.evidence, r.jev.contradiction) >= 0.65) return true
     if (score >= strongest * 0.7) return true
     // A separately requested operation can sit just below the general cutoff.
     // Admit only bounded structural expansion with its own multi-term support.
@@ -758,6 +768,7 @@ export function selectWithinTokenBudget(results: WorkingResult[], maxTokens?: nu
           && symbolTerms.some((term) => evidenceQueryTerms.includes(term) && !evidenceTerms(String(s.metadata.symbolName ?? "")).includes(term))) ? 0.18 : 0
       return (r.rerankScore ?? r.semanticScore) + evidenceUtility(query, r) + novelty * 0.15 + supportBonus
         + companionBonus
+        + (r.jev?.contribution ?? 0) * 0.22
         + 0.2 * symbolHits / Math.max(1, evidenceQueryTerms.length)
         - contractPenalty - testPenalty - (redundant ? 0.3 : 0) - 0.12 * Math.sqrt(estimateResultTokens(r) / maxTokens)
     }
@@ -1428,7 +1439,7 @@ export async function collectWorkingResults(
   if (!params.exact && !params.pattern && params.hybrid !== false && !params.symbol && !params.name) {
     try {
       const expanded = await expandHelpers(resources, workingResults, params.query, filters,
-        new Set(lexicalCandidateFiles), options.signal)
+        new Set(lexicalCandidateFiles), options.signal, params.jev === "both" || params.jev === "rerank")
       workingResults = expanded.results
       metrics.helperExpansionMs = expanded.elapsedMs
       metrics.helperExpansionAdded = expanded.added
@@ -2036,7 +2047,7 @@ export function getGroupingReasons(input: {
   return reasons
 }
 
-export async function runGroupedSearch<TGroup>(input: {
+export async function runGroupedSearch<TGroup extends { members: WorkingResult[] }>(input: {
   params: CommonSensegrepParams & {
     limit?: number
     rawLimit?: number
@@ -2093,6 +2104,23 @@ export async function runGroupedSearch<TGroup>(input: {
       ? await input.prepareResults(resources, rawResults)
       : rawResults
     const candidateGroups = input.buildGroups(preparedResults).slice(0, limit)
+    const groupCandidates = candidateGroups.map((group, i): WorkingResult => ({
+      file: `group-${i}`, startLine: 1, endLine: 1, semanticScore: 0,
+      metadata: { symbolName: `group-${i}` },
+      content: selectRepresentatives(group.members, 3).map((r) => `${r.file}:${r.startLine}\n${r.content}`).join("\n\n"),
+    }))
+    const jev = input.params.jev && input.params.jev !== "off" ? await evaluateWithJev(input.params.query, groupCandidates, {
+      mode: "evidence", rubric: "groups", batchSize: input.params.jevBatchSize, ranking: input.params.jevRanking, candidates: input.params.jevCandidates,
+      timeoutMs: input.params.jevTimeoutMs, signal: input.signal,
+    }) : undefined
+    const annotation = (group: TGroup) => {
+      const candidate = groupCandidates[candidateGroups.indexOf(group)]
+      const scores = candidate && jev?.scores.get(jevResultKey(candidate))
+      if (!scores) return undefined
+      return { category: scores.domain, confidence: scores.domainConfidence, relevant: scores.relevant,
+        evidence: scores.evidence, role: scores.role, roleProbabilities: scores.roleProbabilities, domainProbabilities: scores.domainProbabilities, advisory: true, sourceTruncated: jev!.truncated.has(jevResultKey(candidate)) }
+    }
+    if (jev && jev.diagnostics.status !== "complete") collected.warnings.push("Jev group classification incomplete; local labels retained where unassessed.")
     const fileCount = new Set(preparedResults.map((result) => result.file)).size
     const outputLines = [
       `${input.heading} for: ${input.params.query}`,
@@ -2105,6 +2133,10 @@ export async function runGroupedSearch<TGroup>(input: {
     let estimatedTokens = Math.ceil(outputLines.join("\n").length / 4)
     for (const group of candidateGroups) {
       const groupLines = await input.formatGroup(resources, group)
+      const judgement = annotation(group)
+      if (judgement?.category && judgement.category !== "other" && (judgement.confidence ?? 0) >= 0.75 && !judgement.sourceTruncated) {
+        groupLines[0] = `## ${judgement.category.replaceAll("_", " ")} / ${String(input.mapGroup(group).title ?? "group")}`
+      }
       const groupTokens = Math.ceil(groupLines.join("\n").length / 4)
       if (input.params.maxTokens && groups.length > 0 && estimatedTokens + groupTokens > input.params.maxTokens) continue
       groups.push(group)
@@ -2133,7 +2165,14 @@ export async function runGroupedSearch<TGroup>(input: {
       retrieval: collected.retrieval,
       warnings: collected.warnings,
       budget: { tokensRequested: input.params.maxTokens, tokensUsed: estimatedTokens },
-      [input.resultKey]: groups.map(input.mapGroup),
+      ...(jev ? { jev: jev.diagnostics } : {}),
+      [input.resultKey]: groups.map((group) => {
+        const mapped = input.mapGroup(group)
+        const judgement = annotation(group)
+        return { ...mapped, ...(judgement ? { jev: judgement } : {}),
+          ...(judgement?.category && judgement.category !== "other" && (judgement.confidence ?? 0) >= 0.75 && !judgement.sourceTruncated
+            ? { title: `${judgement.category.replaceAll("_", " ")} / ${mapped.title ?? "group"}`, originalTitle: mapped.title } : {}) }
+      }),
       output: prependFreshnessWarning(outputLines.join("\n"), resources.freshness),
     }
   })
@@ -2216,6 +2255,7 @@ export async function reconstructSymbolResults(
 export function toStructuredSearchResult(result: WorkingResult): StructuredSearchResult {
   const metadata = result.metadata
   return {
+    jev: result.jev,
     resultId: createResultId({
       file: canonicalizeProjectFilePath(result.file),
       startLine: result.startLine,

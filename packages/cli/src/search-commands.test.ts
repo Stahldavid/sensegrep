@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   compactSearchResult,
+  parseJevOptions,
   enforceActualOutputBudget,
   projectDuplicateResponse,
   projectGraphResponse,
@@ -41,6 +42,18 @@ const rawSearchResult = {
 }
 
 describe("search command agent JSON contracts", () => {
+  it("validates Jev flags before remote work", () => {
+    expect(parseJevOptions({ jev: true, "jev-candidates": "4", "jev-timeout": "1000" })).toEqual({ jev: "both", jevCandidates: 4, jevTimeoutMs: 1000 })
+    const invalid: Record<string, string | boolean>[] = [{ jev: "invalid" }, { "jev-candidates": "0" }, { "jev-candidates": "41" }, { "jev-timeout": true }]
+    for (const flags of invalid) expect(() => parseJevOptions(flags)).toThrow()
+  })
+  it("preserves optional duplicate judgements in minimal output", () => {
+    const jev = { status: "complete", evaluated: 1 }
+    const judgement = { relationship: "different-behavior", advisory: true }
+    const out = projectDuplicateResponse({ summary: {}, jev, duplicates: [{ jev: judgement, instances: [] }] }, "minimal", false)
+    expect(out.jev).toEqual(jev)
+    expect(out.duplicates[0].jev).toEqual(judgement)
+  })
   it("uses one canonical minimal card vocabulary", () => {
     const card = compactSearchResult(rawSearchResult.results[0])
 
@@ -195,4 +208,11 @@ describe("search command agent JSON contracts", () => {
     expect(Buffer.byteLength(`${JSON.stringify(payload)}\n`)).toBeLessThanOrEqual(maxBytes)
     expect(payload.schemaVersion).toBe(2)
   })
+  it("validates Jev batch and ranking controls", () => {
+    expect(parseJevOptions({ "jev-batch-size": "10", "jev-ranking": "rrf" })).toMatchObject({ jevBatchSize: 10, jevRanking: "rrf" })
+    expect(() => parseJevOptions({ "jev-batch-size": "0" })).toThrow()
+    expect(() => parseJevOptions({ "jev-batch-size": "11" })).toThrow()
+    expect(() => parseJevOptions({ "jev-ranking": "unknown" })).toThrow()
+  })
+
 })

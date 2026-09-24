@@ -1,5 +1,18 @@
 # @sensegrep/mcp
 
+## 1.18.0
+
+### Minor Changes
+
+- Add opt-in Jev evaluation through OpenRouter System One: evidence-aware reranking, weak-evidence assessment, closed-taxonomy group labels and advisory duplicate behavior comparisons. Preserve local retrieval, exact lookup, output budgets and fallback ranking. Bound remote work with candidate limits, concurrency, deadlines and a source-free judgement cache. Expose diagnostics through CLI and MCP and add a reproducible same-snapshot evaluation mode.
+
+  Batch candidate decisions with bounded requests, validated Score/Choice distributions, selectable ordinal fusion, final-packet evidence checks, contribution-aware context selection and scoped helper expansion. Decompose duplicate judgments into behavior dimensions and prioritize source over optional diagnostics under output budgets.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @sensegrep/core@1.18.0
+
 ## 1.17.3
 
 ### Patch Changes

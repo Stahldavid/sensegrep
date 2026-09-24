@@ -29,6 +29,7 @@ export function parseArgs(argv: string[]): { flags: Flags; positional: string[] 
 const GLOBAL_FLAGS = new Set(["help", "h", "root", "profile", "json", "log-format", "pretty", "diagnostic", "json-detail", "jsonDetail"])
 const EMBEDDING_FLAGS = new Set(["provider", "embed-model", "embedModel", "embed-dim", "embedDim"])
 const INDEX_RUN_FLAGS = new Set(["timeout", "max-files", "maxFiles", "verbose"])
+const JEV_FLAGS = ["jev", "jev-candidates", "jev-timeout", "jev-batch-size", "jev-ranking"]
 const SEARCH_FILTER_FLAGS = new Set([
   "query", "pattern", "limit", "include", "exclude", "type", "symbolType", "variant", "decorator",
   "symbol", "name", "exact", "exported", "async", "static", "abstract", "min-complexity",
@@ -50,25 +51,29 @@ const ALLOWED_FLAGS_BY_COMMAND: Record<string, Set<string>> = {
   ]),
   verify: new Set([...GLOBAL_FLAGS, "strict"]),
   status: new Set([...GLOBAL_FLAGS, "verbose", "verify"]),
-  search: new Set([...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, ...SEARCH_FILTER_FLAGS, "max-output-bytes", "maxOutputBytes"]),
+  search: new Set([...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, ...SEARCH_FILTER_FLAGS, ...JEV_FLAGS, "max-output-bytes", "maxOutputBytes"]),
   literal: new Set([...GLOBAL_FLAGS, "query", "include", "exclude", "limit", "regex", "ignore-case", "ignoreCase", "filesystem", "max-output-bytes", "maxOutputBytes", "include-rendered-output", "dry-run"]),
-  context: new Set([...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, ...SEARCH_FILTER_FLAGS, "require-coverage", "requireCoverage", "max-output-bytes", "maxOutputBytes"]),
+  context: new Set([...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, ...SEARCH_FILTER_FLAGS, ...JEV_FLAGS, "require-coverage", "requireCoverage", "max-output-bytes", "maxOutputBytes"]),
   audit: new Set([
+    ...JEV_FLAGS,
     ...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, ...SEARCH_FILTER_FLAGS,
     "require-coverage", "requireCoverage", "continue-uncovered", "continueUncovered",
     "batch-tokens", "batchTokens", "max-total-tokens", "maxTotalTokens",
     "max-output-bytes", "maxOutputBytes", "max-batches", "maxBatches",
   ]),
   survey: new Set([
+    ...JEV_FLAGS,
     ...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, ...SEARCH_FILTER_FLAGS,
     "raw-limit", "rawLimit", "per-group", "perGroup", "json-detail", "jsonDetail",
   ]),
   cluster: new Set([
+    ...JEV_FLAGS,
     ...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, ...SEARCH_FILTER_FLAGS,
     "raw-limit", "rawLimit", "per-cluster", "perCluster", "cluster-threshold", "clusterThreshold",
     "min-cluster-size", "minClusterSize", "json-detail", "jsonDetail",
   ]),
   "detect-duplicates": new Set([
+    ...JEV_FLAGS,
     ...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, ...INDEX_RUN_FLAGS, "ensure-fresh", "ensureFresh", "threshold",
     "scope", "language", "include", "exclude", "cross-language", "ignore-tests", "cross-file-only",
     "only-exported", "exclude-pattern", "min-lines", "min-complexity", "max-candidates",

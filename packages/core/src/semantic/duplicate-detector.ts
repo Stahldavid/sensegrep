@@ -1,4 +1,5 @@
 import { Log } from "../util/log.js"
+import { TreeSitterChunking } from "./chunking-treesitter.js"
 import { Chunking } from "./chunking.js"
 import { getLanguageForFile, isSupported as isLanguageSupported } from "./language/index.js"
 import { VectorStore } from "./lancedb.js"
@@ -7,6 +8,7 @@ import * as path from "path"
 import picomatch from "picomatch"
 import { createHash } from "node:crypto"
 import os from "node:os"
+import { evaluateWithJev, jevResultKey, type JevMode, type JevDiagnostics } from "../tool/jev.js"
 
 const log = Log.create({ service: "semantic.duplicate-detector" })
 
@@ -30,6 +32,7 @@ export namespace DuplicateDetector {
   }
 
   export interface DuplicateGroup {
+    jev?: { literalOperatorDifference?: boolean | null; dimensions?: Record<string, number>; relationship: string; sameRule: number; differentBehavior: number; similarStructure: number; advisory: true; sourceTruncated: boolean }
     level: DuplicateLevel
     similarity: number
     instances: CodeInstance[]
@@ -51,6 +54,11 @@ export namespace DuplicateDetector {
   }
 
   export interface DetectOptions {
+    jev?: JevMode
+    jevBatchSize?: number
+    jevRanking?: import("../tool/jev.js").JevRanking
+    jevCandidates?: number
+    jevTimeoutMs?: number
     path: string
     thresholds?: {
       exact?: number
@@ -86,6 +94,7 @@ export namespace DuplicateDetector {
   }
 
   export interface DetectResult {
+    jev?: JevDiagnostics
     schemaVersion: 1
     command: "detect-duplicates"
     status: "complete" | "incomplete"
@@ -1173,7 +1182,7 @@ export namespace DuplicateDetector {
         .map((c) => ({
           file: c!.file,
           symbol: c!.symbol,
-          content: c!.content,
+          content: c!.rawContent || c!.content,
           startLine: c!.startLine,
           endLine: c!.endLine,
           complexity: c!.complexity,
@@ -1246,6 +1255,28 @@ export namespace DuplicateDetector {
     const totalSavings = duplicates.reduce((sum, dup) => sum + dup.impact.estimatedSavings, 0)
     const filesAffected = new Set(duplicates.flatMap((d) => d.instances.map((i) => i.file))).size
 
+    const jevCandidates = duplicates.map((group, i) => ({
+      file: `duplicate-${i}`, startLine: 1, endLine: 1, semanticScore: 0,
+      metadata: { symbolName: `duplicate-${i}` },
+      content: group.instances.map((r) => `${r.file}:${r.startLine} ${r.symbol}\n${r.content}`).join("\n\n"),
+    }))
+    const jev = options.jev && options.jev !== "off" ? await evaluateWithJev("Compare the supplied duplicate candidates by behavior, not syntax alone.", jevCandidates, {
+      mode: "evidence", rubric: "duplicates", batchSize: options.jevBatchSize, ranking: options.jevRanking, candidates: options.jevCandidates,
+      timeoutMs: options.jevTimeoutMs, signal: options.signal,
+    }) : undefined
+    for (const [i, group] of duplicates.entries()) {
+      const key = jevResultKey(jevCandidates[i])
+      const scores = jev?.scores.get(key)
+      if (!scores) continue
+      const signatures = group.instances.length <= 10 ? await Promise.all(group.instances.map(instance =>
+        TreeSitterChunking.literalOperatorSignature(instance.content, instance.file).catch(() => undefined))) : []
+      const literalOperatorDifference = signatures.length === group.instances.length && signatures.every(s => s !== undefined)
+        ? new Set(signatures).size > 1 : null
+      const sourceTruncated = jev!.truncated.has(key)
+      group.jev = { literalOperatorDifference, dimensions: scores.dimensions, relationship: sourceTruncated ? "review" : scores.contradiction >= 0.7 ? "different-behavior"
+        : literalOperatorDifference === false && scores.evidence >= 0.8 && scores.contradiction < 0.2 && Object.values(scores.dimensions ?? {}).length === 5 && Object.values(scores.dimensions ?? {}).every(v => v >= 0.8) ? "same-rule-candidate" : "review",
+        sameRule: scores.evidence, differentBehavior: scores.contradiction, similarStructure: scores.relevant, advisory: true, sourceTruncated }
+    }
     const elapsed = Date.now() - startTime
     log.info("detection complete", {
       duplicates: duplicates.length,
@@ -1276,6 +1307,7 @@ export namespace DuplicateDetector {
         elapsedMs: elapsed,
       },
       metrics,
+      ...(jev ? { jev: jev.diagnostics } : {}),
       duplicates,
       acceptableDuplicates: acceptableDuplicates.length > 0 ? acceptableDuplicates : undefined,
     }

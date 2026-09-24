@@ -734,6 +734,11 @@ export async function callSensegrepTool(
         },
         scopeFilter,
         ignoreTests: duplicateArgs.ignoreTests,
+        jev: duplicateArgs.jev,
+        jevCandidates: duplicateArgs.jevCandidates,
+        jevBatchSize: duplicateArgs.jevBatchSize,
+        jevRanking: duplicateArgs.jevRanking,
+        jevTimeoutMs: duplicateArgs.jevTimeoutMs,
         crossFileOnly: duplicateArgs.crossFileOnly,
         crossLanguage: duplicateArgs.crossLanguage,
         language: duplicateArgs.language,
@@ -792,6 +797,7 @@ export async function callSensegrepTool(
         lines.push("DUPLICATE DETECTION RESULTS");
         lines.push("━".repeat(80));
         lines.push(`Total duplicates: ${result.summary.totalDuplicates}`);
+        if (result.jev) lines.push(`Jev: ${result.jev.status}, evaluated ${result.jev.evaluated}/${result.jev.candidates} groups (advisory)`);
         const formatPct = (value: number) => (value * 100).toFixed(1);
         const thresholds = options.thresholds;
         const critical = result.duplicates.filter((d: any) => d.similarity >= thresholds.exact).length;
@@ -867,6 +873,7 @@ export async function callSensegrepTool(
         }
 
         lines.push(`${emoji} #${i + 1} - ${label} (${(similarity * 100).toFixed(1)}% similar)`);
+        if (dup.jev) lines.push(`Jev: ${dup.jev.relationship} (advisory; not proof of equivalence)`);
         if (verbose) {
           lines.push(
             `   Impact: ${dup.impact.totalLines} lines × ${dup.impact.complexity.toFixed(1)} complexity × ${dup.impact.fileCount} files = ${dup.impact.score.toFixed(0)} score`,
@@ -939,7 +946,7 @@ export function createStdioMcpServer(): Server {
   const server = new Server(
     {
       name: "sensegrep",
-      version: "1.17.3",
+      version: "1.18.0",
     },
     {
       capabilities: {

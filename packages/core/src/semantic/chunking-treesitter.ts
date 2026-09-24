@@ -82,6 +82,31 @@ const tsxParser = lazy(async () => {
 })
 
 export namespace TreeSitterChunking {
+  /** Conservative duplicate guard: matching literals/operators is necessary, not equivalence proof. */
+  export async function literalOperatorSignature(content: string, file: string): Promise<string | undefined> {
+    if (!/\.[cm]?[jt]sx?$/.test(file) || content.length > 128_000) return undefined
+    const parser = await (/\.[jt]sx$/.test(file) ? tsxParser() : tsParser())
+    const tree = parser.parse(content)
+    if (!tree) return undefined
+    try {
+      const root = tree.rootNode as any
+      if (typeof root.hasError === "function" ? root.hasError() : root.hasError) return undefined
+      const values: string[] = []
+      const operators = new Set(["===", "!==", "==", "!=", "<", ">", "<=", ">=", "&&", "||", "??", "!", "+", "-", "*", "/", "%", "=", "+=", "-=", "++", "--", "&", "|", "^"])
+      const visit = (node: SyntaxNode) => {
+        if (node.type === "comment") return
+        if (["string", "number", "true", "false", "null", "regex", "template_string"].includes(node.type)) {
+          values.push(`${node.type}:${node.text}`)
+          return
+        }
+        if (node.childCount === 0 && operators.has(node.text)) values.push(`operator:${node.text}`)
+        for (let i = 0; i < node.childCount; i++) { const child = node.child(i); if (child) visit(child) }
+      }
+      visit(root)
+      return JSON.stringify(values)
+    } finally { tree.delete() }
+  }
+
   /** Call-site evidence; strings/comments and unrelated scheduler calls never classify an edge. */
   export async function graphCalls(content: string, file: string): Promise<Array<{ target: string; scheduled: boolean; line: number; module?: string }>> {
     const parser = await (/\.[jt]sx$/.test(file) ? tsxParser() : tsParser())

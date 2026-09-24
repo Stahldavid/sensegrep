@@ -1,0 +1,47 @@
+{
+  "fallbackSameIds": true,
+  "scopePreserved": true,
+  "timeout": {
+    "status": "fallback",
+    "mode": "both",
+    "model": "typesafe/jev-1.13",
+    "models": [],
+    "evaluated": 0,
+    "candidates": 4,
+    "cacheHits": 0,
+    "requests": 1,
+    "inputTokens": 0,
+    "outputTokens": 0,
+    "cost": 0,
+    "elapsedMs": 115,
+    "batchSize": 5,
+    "ranking": "score",
+    "splitRequests": 0,
+    "reason": "deadline",
+    "packetStatus": "not-assessed"
+  },
+  "missing": {
+    "status": "fallback",
+    "mode": "both",
+    "model": "typesafe/jev-1.13",
+    "models": [],
+    "evaluated": 0,
+    "candidates": 4,
+    "cacheHits": 0,
+    "requests": 0,
+    "inputTokens": 0,
+    "outputTokens": 0,
+    "cost": 0,
+    "elapsedMs": 0,
+    "batchSize": 5,
+    "ranking": "score",
+    "splitRequests": 0,
+    "reason": "missing-api-key",
+    "packetStatus": "not-assessed"
+  },
+  "exact": {
+    "status": "skipped",
+    "reason": "exact-query",
+    "mode": "both"
+  }
+}
