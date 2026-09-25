@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { assessEvidence, flexibleDiversity, rankEvidence } from "./search-quality.js"
-import { selectWithinTokenBudget, diversifyResults, type WorkingResult } from "./sensegrep-pipeline.js"
+import { selectWithinTokenBudget, diversifyResults, dedupeOverlapping, type WorkingResult } from "./sensegrep-pipeline.js"
 import { projectSearchAgentResponse } from "./agent-output.js"
 import { SenseGrepContextParametersSchema } from "./sensegrep-context.js"
 
@@ -14,6 +14,18 @@ const helper = result("shouldIgnoreMinimumPayout", "function", 0.60,
 const query = "When can an old small doctor balance be paid even if below the minimum payout amount?"
 
 describe("evidence quality regressions", () => {
+  it("preserves global rank across files before a candidate limit is applied", () => {
+    const anchor = result("flow", "function", .9, "flow", 1, "flow.ts")
+    const useful = result("helper", "function", .8, "helper", 1, "helper.ts")
+    const sibling = result("unrelated", "function", .2, "unrelated", 20, "flow.ts")
+    expect(dedupeOverlapping([anchor, useful, sibling]).slice(0, 2)).toEqual([anchor, useful])
+  })
+  it("keeps the winning overlapping symbol without regrouping other files", () => {
+    const parent = {...result("Parent", "class", .81, "class Parent", 1), endLine: 40}
+    const other = result("other", "function", .8, "other", 1, "other.ts")
+    const method = result("method", "method", .80, "method", 10)
+    expect(dedupeOverlapping([parent, other, method])).toEqual([other, method])
+  })
   it("keeps the rule and its constant within top five without filling the page with one file", () => {
     const other = result("configureAccount", "function", 0.59, "configure payout account", 20)
     const rows = flexibleDiversity(rankEvidence(query, [constant, other, helper]), query)

@@ -129,6 +129,7 @@ export function projectAgentResult(entry: any, rank: number, options: AgentProje
     kind: entry.semanticKind ?? entry.symbolType ?? entry.kind ?? entry.type,
     rank,
     relevance: entry.score ?? entry.relevance,
+    evidenceCategory: entry.jev?.category ? contentTruncated ? 'unassessed' : entry.jev.category : undefined,
     ...(includeContent ? {
       content: entry.content,
       integrity: entry.snippetIntegrity,
@@ -190,7 +191,7 @@ export function projectSearchAgentResponse(raw: any, options: AgentProjectionOpt
     ...baseEnvelope(raw, options),
     answerSufficiency: raw.answerSufficiency ?? "not-assessed",
     ...(raw.evidenceAssessment ? { evidenceAssessment: raw.evidenceAssessment } : {}),
-    ...(raw.jev ? { jev: raw.jev } : {}),
+    ...(raw.jev ? { jev: diagnostics ? raw.jev : Object.fromEntries(Object.entries(raw.jev).filter(([k]) => k !== "trace" && k !== "selection")) } : {}),
     ...(raw.coverage ? {
       coverage: defined({
         changedFiles: raw.coverage.changedFiles,
@@ -502,6 +503,9 @@ function truncateContent(entry: any, maxCharacters: number): any {
     ...(lines ? { contentLines: [lines[0], Math.min(lines[1], lines[0] + emittedLines - 1)] } : {}),
     content,
     contentTruncated: content.length < original.length,
+    ...(content.length < original.length && entry.evidenceCategory ? { evidenceCategory:'unassessed' } : {}),
+    ...(content.length < original.length && entry.jev ? {jev:{...entry.jev,category:'unassessed'}} : {}),
+    ...(content.length < original.length && entry.diagnostic?.jev ? {diagnostic:{...entry.diagnostic,jev:{...entry.diagnostic.jev,category:'unassessed'}}} : {}),
     integrity: content.length < original.length ? "partial" : entry.integrity,
     ...(entry.snippetIntegrity !== undefined ? { snippetIntegrity: content.length < original.length ? "partial" : entry.snippetIntegrity } : {}),
   }
@@ -539,6 +543,10 @@ export function enforceAgentOutputBudget(payload: any, options: AgentBudgetOptio
     if (compact.evidenceAssessment?.evaluation) {
       const { evaluation, ...assessment } = compact.evidenceAssessment
       compact.evidenceAssessment = assessment
+    }
+    if (compact.jev?.trace) {
+      const { trace, ...jev } = compact.jev
+      compact.jev = { ...jev, traceOmitted: true }
     }
     projected = withAgentOutputMetrics(compact, options)
     if (projected.budget.usedBytes <= maxBytes) return projected

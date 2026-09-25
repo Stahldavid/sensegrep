@@ -1,0 +1,622 @@
+{
+  "method": "Manually reviewed source requirements per fact. Complete source containment is a provenance proxy, not independent semantic judgment.",
+  "bindings": {
+    "payout-age": {
+      "payout-age-1": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "shouldIgnoreMinimumPayout"
+        }
+      ],
+      "payout-age-2": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "shouldIgnoreMinimumPayout"
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "MAX_SMALL_BALANCE_AGE_MS"
+        }
+      ]
+    },
+    "crypto-key": {
+      "crypto-key-1": [
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "getEncryptionKey"
+        }
+      ],
+      "crypto-key-2": [
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "getEncryptionKey"
+        }
+      ]
+    },
+    "crypto-format": {
+      "crypto-format-1": [
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "encryptPayoutDestination"
+        },
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "ALGORITHM"
+        }
+      ],
+      "crypto-format-2": [
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "encryptPayoutDestination"
+        },
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "VERSION"
+        }
+      ],
+      "crypto-format-3": [
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "decryptPayoutDestination"
+        }
+      ]
+    },
+    "working-parser": {
+      "working-parser-1": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "parseTimeToMinutes"
+        }
+      ],
+      "working-parser-2": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "parseTimeToMinutes"
+        }
+      ],
+      "working-parser-3": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "parseTimeToMinutes"
+        }
+      ]
+    },
+    "working-boundaries": {
+      "working-boundaries-1": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "isWithinWorkingHours"
+        }
+      ],
+      "working-boundaries-2": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "isWithinWorkingHours"
+        },
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "parseTimeToMinutes"
+        }
+      ],
+      "working-boundaries-3": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "isWithinWorkingHours"
+        }
+      ],
+      "working-boundaries-4": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "isWithinWorkingHours"
+        }
+      ]
+    },
+    "sms-status": {
+      "sms-status-1": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "mapGtiSmsStatusToDeliveryStatus"
+        }
+      ],
+      "sms-status-2": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "mapGtiSmsStatusToDeliveryStatus"
+        }
+      ],
+      "sms-status-3": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "mapGtiSmsStatusToDeliveryStatus"
+        }
+      ]
+    },
+    "sms-sanitize": {
+      "sms-sanitize-1": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "sanitizeSmsMessage"
+        }
+      ],
+      "sms-sanitize-2": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "sanitizeSmsMessage"
+        }
+      ],
+      "sms-sanitize-3": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "sanitizeSmsMessage"
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "MAX_SMS_LENGTH"
+        }
+      ]
+    },
+    "sms-negative": {
+      "sms-negative-1": []
+    },
+    "clerk-success": {
+      "clerk-success-1": [
+        {
+          "file": "apps/web/lib/auth/syncClerkRoleSession.ts",
+          "symbol": "syncClerkRoleSession"
+        }
+      ],
+      "clerk-success-2": [
+        {
+          "file": "apps/web/lib/auth/syncClerkRoleSession.ts",
+          "symbol": "syncClerkRoleSession"
+        }
+      ],
+      "clerk-success-3": [
+        {
+          "file": "apps/web/lib/auth/syncClerkRoleSession.ts",
+          "symbol": "syncClerkRoleSession"
+        }
+      ]
+    },
+    "clerk-failure": {
+      "clerk-failure-1": [
+        {
+          "file": "apps/web/lib/auth/syncClerkRoleSession.ts",
+          "symbol": "syncClerkRoleSession"
+        }
+      ],
+      "clerk-failure-2": [
+        {
+          "file": "apps/web/lib/auth/syncClerkRoleSession.ts",
+          "symbol": "syncClerkRoleSession"
+        }
+      ]
+    },
+    "payout-enable": {
+      "payout-enable-1": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "areDoctorPayoutsEnabled"
+        }
+      ],
+      "payout-enable-2": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "areDoctorPayoutsEnabled"
+        }
+      ]
+    },
+    "payout-hold": {
+      "payout-hold-1": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "getCommissionHoldMs"
+        }
+      ],
+      "payout-hold-2": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "getCommissionHoldMs"
+        }
+      ],
+      "payout-hold-3": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "getCommissionHoldMs"
+        }
+      ]
+    },
+    "payout-snapshot": {
+      "payout-snapshot-1": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "calculateCommissionAmounts"
+        }
+      ],
+      "payout-snapshot-2": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "calculateCommissionAmounts"
+        }
+      ],
+      "payout-snapshot-3": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "calculateCommissionAmounts"
+        }
+      ]
+    },
+    "payout-fees": {
+      "payout-fees-1": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "calculateCommissionAmounts"
+        }
+      ],
+      "payout-fees-2": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "calculateCommissionAmounts"
+        }
+      ],
+      "payout-fees-3": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "calculateCommissionAmounts"
+        }
+      ]
+    },
+    "payout-calendar": {
+      "payout-calendar-1": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "initialNextPayoutAt"
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "MANUAL_PAYOUT_TIMESTAMP"
+        }
+      ],
+      "payout-calendar-2": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "initialNextPayoutAt"
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "nextMonthlyNoonSaoPaulo"
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "SAO_PAULO_UTC_HOUR"
+        }
+      ],
+      "payout-calendar-3": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "initialNextPayoutAt"
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "nextTuesdayNoonSaoPaulo"
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "SAO_PAULO_UTC_HOUR"
+        }
+      ],
+      "payout-calendar-4": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "nextMonthlyNoonSaoPaulo"
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "nextTuesdayNoonSaoPaulo"
+        },
+        {
+          "file": "convex/lib/timestampHelpers.ts",
+          "symbol": "Time"
+        }
+      ]
+    },
+    "working-json": {
+      "working-json-1": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "parseWorkingHours"
+        }
+      ],
+      "working-json-2": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "parseWorkingHours"
+        }
+      ],
+      "working-json-3": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "parseWorkingHours"
+        }
+      ]
+    },
+    "working-timezone": {
+      "working-timezone-1": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "resolveWorkingHoursTimezone"
+        },
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "DEFAULT_TIMEZONE"
+        }
+      ],
+      "working-timezone-2": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "resolveWorkingHoursTimezone"
+        }
+      ],
+      "working-timezone-3": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "resolveWorkingHoursTimezone"
+        },
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "DEFAULT_TIMEZONE"
+        }
+      ]
+    },
+    "working-local-clock": {
+      "working-local-clock-1": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "getZonedWorkingTime"
+        },
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "resolveWorkingHoursTimezone"
+        },
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "DEFAULT_TIMEZONE"
+        }
+      ],
+      "working-local-clock-2": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "getZonedWorkingTime"
+        },
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "DAY_KEY_BY_WEEKDAY"
+        }
+      ],
+      "working-local-clock-3": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "getZonedWorkingTime"
+        }
+      ]
+    },
+    "working-break-premise": {
+      "working-break-premise-1": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "isWithinWorkingHours"
+        }
+      ],
+      "working-break-premise-2": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "isWithinWorkingHours"
+        }
+      ]
+    },
+    "working-parser-extra-fields": {
+      "working-parser-extra-fields-1": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "parseTimeToMinutes"
+        }
+      ],
+      "working-parser-extra-fields-2": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "parseTimeToMinutes"
+        }
+      ]
+    },
+    "inbox-noop": {
+      "inbox-noop-1": [
+        {
+          "file": "convex/lib/notificationInboxes.ts",
+          "symbol": "adjustNotificationUnreadCount"
+        }
+      ],
+      "inbox-noop-2": [
+        {
+          "file": "convex/lib/notificationInboxes.ts",
+          "symbol": "adjustNotificationUnreadCount"
+        }
+      ]
+    },
+    "inbox-floor": {
+      "inbox-floor-1": [
+        {
+          "file": "convex/lib/notificationInboxes.ts",
+          "symbol": "adjustNotificationUnreadCount"
+        }
+      ],
+      "inbox-floor-2": [
+        {
+          "file": "convex/lib/notificationInboxes.ts",
+          "symbol": "adjustNotificationUnreadCount"
+        }
+      ],
+      "inbox-floor-3": [
+        {
+          "file": "convex/lib/notificationInboxes.ts",
+          "symbol": "adjustNotificationUnreadCount"
+        }
+      ]
+    },
+    "iti-status": {
+      "iti-status-1": [
+        {
+          "file": "convex/lib/itiValidationResult.ts",
+          "symbol": "parseItiSimpleValidation"
+        }
+      ],
+      "iti-status-2": [
+        {
+          "file": "convex/lib/itiValidationResult.ts",
+          "symbol": "parseItiSimpleValidation"
+        }
+      ],
+      "iti-status-3": [
+        {
+          "file": "convex/lib/itiValidationResult.ts",
+          "symbol": "parseItiSimpleValidation"
+        }
+      ]
+    },
+    "iti-hash": {
+      "iti-hash-1": [
+        {
+          "file": "convex/lib/itiValidationResult.ts",
+          "symbol": "parseItiSimpleValidation"
+        }
+      ],
+      "iti-hash-2": [
+        {
+          "file": "convex/lib/itiValidationResult.ts",
+          "symbol": "parseItiSimpleValidation"
+        }
+      ]
+    },
+    "iti-sncr": {
+      "iti-sncr-1": [
+        {
+          "file": "convex/lib/itiValidationResult.ts",
+          "symbol": "isElectronicValidationApproved"
+        }
+      ],
+      "iti-sncr-2": [
+        {
+          "file": "convex/lib/itiValidationResult.ts",
+          "symbol": "isElectronicValidationApproved"
+        }
+      ],
+      "iti-sncr-3": [
+        {
+          "file": "convex/lib/itiValidationResult.ts",
+          "symbol": "describeItiValidation"
+        }
+      ]
+    },
+    "sms-recipient": {
+      "sms-recipient-1": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "normalizeBrazilianSmsRecipient"
+        }
+      ],
+      "sms-recipient-2": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "normalizeBrazilianSmsRecipient"
+        }
+      ],
+      "sms-recipient-3": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "normalizeBrazilianSmsRecipient"
+        }
+      ]
+    },
+    "sms-dryrun": {
+      "sms-dryrun-1": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "sendGtiSms"
+        }
+      ],
+      "sms-dryrun-2": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "sendGtiSms"
+        }
+      ],
+      "sms-dryrun-3": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "isGtiSmsDryRun"
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "isGtiSmsEnabled"
+        }
+      ]
+    },
+    "sms-token-precedence": {
+      "sms-token-precedence-1": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "getGtiSmsApiToken"
+        }
+      ],
+      "sms-token-precedence-2": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "getGtiSmsApiToken"
+        }
+      ]
+    },
+    "sms-transport-uncertain": {
+      "sms-transport-uncertain-1": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "sendGtiSms"
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "GTI_SMS_TIMEOUT_MS"
+        }
+      ],
+      "sms-transport-uncertain-2": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "sendGtiSms"
+        }
+      ],
+      "sms-transport-uncertain-3": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "sendGtiSms"
+        }
+      ]
+    },
+    "sms-nonjson": {
+      "sms-nonjson-1": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "parseGtiSmsJson"
+        }
+      ],
+      "sms-nonjson-2": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "getGtiSmsStatus"
+        }
+      ],
+      "sms-nonjson-3": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "buildGtiError"
+        }
+      ]
+    }
+  }
+}

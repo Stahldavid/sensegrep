@@ -1,0 +1,272 @@
+[
+  {
+    "name": "dev-2-1",
+    "group": "payout-crypto",
+    "query": "Como o destino de repasse e criptografado?",
+    "required": [
+      {
+        "file": "convex/lib/payoutDestinationCrypto.ts",
+        "symbol": "encryptPayoutDestination"
+      },
+      {
+        "file": "convex/lib/payoutDestinationCrypto.ts",
+        "symbol": "getEncryptionKey"
+      }
+    ],
+    "args": [
+      "context",
+      "Como o destino de repasse e criptografado?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ],
+    "split": "dev"
+  },
+  {
+    "name": "dev-3-1",
+    "group": "payout-crypto",
+    "query": "Onde a chave de criptografia e decodificada e rejeitada por tamanho invalido?",
+    "required": [
+      {
+        "file": "convex/lib/payoutDestinationCrypto.ts",
+        "symbol": "getEncryptionKey"
+      }
+    ],
+    "args": [
+      "context",
+      "Onde a chave de criptografia e decodificada e rejeitada por tamanho invalido?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ],
+    "split": "dev"
+  },
+  {
+    "name": "dev-7-0",
+    "group": "sms",
+    "query": "Where are international phone numbers outside Brazil rejected?",
+    "required": [
+      {
+        "file": "convex/lib/gtiSms.ts",
+        "symbol": "normalizeBrazilianSmsRecipient"
+      }
+    ],
+    "args": [
+      "context",
+      "Where are international phone numbers outside Brazil rejected?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ],
+    "split": "dev"
+  },
+  {
+    "name": "dev-7-1",
+    "group": "sms",
+    "query": "Onde sao rejeitados telefones internacionais fora do Brasil?",
+    "required": [
+      {
+        "file": "convex/lib/gtiSms.ts",
+        "symbol": "normalizeBrazilianSmsRecipient"
+      }
+    ],
+    "args": [
+      "context",
+      "Onde sao rejeitados telefones internacionais fora do Brasil?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ],
+    "split": "dev"
+  },
+  {
+    "name": "no-cassandra",
+    "group": "no-cassandra",
+    "negative": true,
+    "query": "Where is Apache Cassandra hinted handoff and quorum repair implemented?",
+    "args": [
+      "context",
+      "Where is Apache Cassandra hinted handoff and quorum repair implemented?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ],
+    "split": "negative"
+  },
+  {
+    "name": "no-vulkan",
+    "group": "no-vulkan",
+    "negative": true,
+    "query": "How does this repository implement Vulkan shader compilation and GPU command buffer submission?",
+    "args": [
+      "context",
+      "How does this repository implement Vulkan shader compilation and GPU command buffer submission?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ],
+    "split": "negative"
+  },
+  {
+    "name": "new-working-hours-0",
+    "group": "working-hours",
+    "split": "test",
+    "query": "How are configured working-hour bounds checked against the local weekday and time?",
+    "required": [
+      {
+        "file": "convex/lib/workingHours.ts",
+        "symbol": "isWithinWorkingHours",
+        "role": "rule"
+      },
+      {
+        "file": "convex/lib/workingHours.ts",
+        "symbol": "getZonedWorkingTime",
+        "role": "helper"
+      },
+      {
+        "file": "convex/lib/workingHours.ts",
+        "symbol": "parseTimeToMinutes",
+        "role": "helper"
+      }
+    ],
+    "args": [
+      "context",
+      "How are configured working-hour bounds checked against the local weekday and time?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ]
+  },
+  {
+    "name": "new-working-hours-1",
+    "group": "working-hours",
+    "split": "test",
+    "query": "Como o horario de trabalho configurado e comparado ao dia e horario local?",
+    "required": [
+      {
+        "file": "convex/lib/workingHours.ts",
+        "symbol": "isWithinWorkingHours",
+        "role": "rule"
+      },
+      {
+        "file": "convex/lib/workingHours.ts",
+        "symbol": "getZonedWorkingTime",
+        "role": "helper"
+      },
+      {
+        "file": "convex/lib/workingHours.ts",
+        "symbol": "parseTimeToMinutes",
+        "role": "helper"
+      }
+    ],
+    "args": [
+      "context",
+      "Como o horario de trabalho configurado e comparado ao dia e horario local?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ]
+  },
+  {
+    "name": "new-consent-validation-0",
+    "group": "consent-validation",
+    "split": "test",
+    "query": "How does consent validation reject an outdated terms version and an acceptance timestamp too far in the future?",
+    "required": [
+      {
+        "file": "convex/lib/patientConsent.ts",
+        "symbol": "assertPatientConsentIsValid",
+        "role": "rule"
+      },
+      {
+        "file": "convex/lib/patientConsent.ts",
+        "symbol": "CURRENT_CONSENT_TERMS_VERSION",
+        "role": "helper"
+      }
+    ],
+    "args": [
+      "context",
+      "How does consent validation reject an outdated terms version and an acceptance timestamp too far in the future?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ]
+  },
+  {
+    "name": "new-consent-validation-1",
+    "group": "consent-validation",
+    "split": "test",
+    "query": "Como a validacao do consentimento rejeita uma versao antiga dos termos e um aceite com horario futuro?",
+    "required": [
+      {
+        "file": "convex/lib/patientConsent.ts",
+        "symbol": "assertPatientConsentIsValid",
+        "role": "rule"
+      },
+      {
+        "file": "convex/lib/patientConsent.ts",
+        "symbol": "CURRENT_CONSENT_TERMS_VERSION",
+        "role": "helper"
+      }
+    ],
+    "args": [
+      "context",
+      "Como a validacao do consentimento rejeita uma versao antiga dos termos e um aceite com horario futuro?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ]
+  },
+  {
+    "name": "new-patient-lookup-0",
+    "group": "patient-lookup",
+    "split": "test",
+    "query": "Where is a patient found using the indexed Clerk user identifier?",
+    "required": [
+      {
+        "file": "convex/lib/patientLookup.ts",
+        "symbol": "findPatientByClerkUserId",
+        "role": "rule"
+      }
+    ],
+    "args": [
+      "context",
+      "Where is a patient found using the indexed Clerk user identifier?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ]
+  },
+  {
+    "name": "new-patient-lookup-1",
+    "group": "patient-lookup",
+    "split": "test",
+    "query": "Onde um paciente e localizado pelo indice do identificador de usuario Clerk?",
+    "required": [
+      {
+        "file": "convex/lib/patientLookup.ts",
+        "symbol": "findPatientByClerkUserId",
+        "role": "rule"
+      }
+    ],
+    "args": [
+      "context",
+      "Onde um paciente e localizado pelo indice do identificador de usuario Clerk?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ]
+  }
+]

@@ -1,0 +1,266 @@
+{
+  "schemaVersion": 2,
+  "status": "source-reviewed-not-executed",
+  "repository": "CuraAI",
+  "sourceCommit": "0712a2548c51fceb884e4e2ee9bb5ee379411342",
+  "reservationNote": "Consumed regression cases checking removal of candidate priority from selection-only; not a holdout.",
+  "cases": [
+    {
+      "id": "clerk-success",
+      "group": "clerk-session",
+      "split": "dev",
+      "query": "Após salvar o papel do usuário, como esta função atualiza a sessão e em qual ordem?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "apps/web/lib/auth/syncClerkRoleSession.ts",
+          "symbol": "syncClerkRoleSession",
+          "line": 8
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "clerk-success-1",
+          "description": "POST /api/auth/set-role com JSON role e cache no-store."
+        },
+        {
+          "id": "clerk-success-2",
+          "description": "Após sucesso, aguarda reloadUser opcional e depois getToken opcional."
+        },
+        {
+          "id": "clerk-success-3",
+          "description": "getToken recebe template convex e skipCache true."
+        }
+      ],
+      "notes": "Chamadas opcionais: não prometer refresh caso callbacks não tenham sido fornecidos.",
+      "sourceSha256": "93b23956afdc34bff7ba8c521ca2393025f66d21243965f07fbdf79ff64b64b9",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "apps/web/lib/auth/syncClerkRoleSession.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "apps/web/lib/auth/syncClerkRoleSession.ts",
+          "sha256": "93b23956afdc34bff7ba8c521ca2393025f66d21243965f07fbdf79ff64b64b9"
+        }
+      ]
+    },
+    {
+      "id": "clerk-failure",
+      "group": "clerk-session",
+      "split": "dev",
+      "query": "Se salvar o papel falhar, esta função ainda chama reloadUser ou getToken?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "apps/web/lib/auth/syncClerkRoleSession.ts",
+          "symbol": "syncClerkRoleSession",
+          "line": 8
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "clerk-failure-1",
+          "description": "Se response.ok for falso, tenta ler payload JSON e lança erro com payload.error ou mensagem padrão."
+        },
+        {
+          "id": "clerk-failure-2",
+          "description": "O throw ocorre antes das chamadas de reloadUser e getToken."
+        }
+      ],
+      "notes": "Resposta negativa comprovada por código; não confundir com pergunta sem evidência.",
+      "sourceSha256": "93b23956afdc34bff7ba8c521ca2393025f66d21243965f07fbdf79ff64b64b9",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "apps/web/lib/auth/syncClerkRoleSession.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "apps/web/lib/auth/syncClerkRoleSession.ts",
+          "sha256": "93b23956afdc34bff7ba8c521ca2393025f66d21243965f07fbdf79ff64b64b9"
+        }
+      ]
+    },
+    {
+      "id": "payout-hold",
+      "group": "payouts",
+      "split": "dev",
+      "query": "Como é calculado o prazo de retenção de comissão quando a configuração é zero, negativa ou inválida?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "getCommissionHoldMs",
+          "line": 18
+        },
+        {
+          "file": "convex/lib/timestampHelpers.ts",
+          "symbol": "Time",
+          "line": 110
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "payout-hold-1",
+          "description": "DOCTOR_PAYOUT_HOLD_HOURS ausente assume 24."
+        },
+        {
+          "id": "payout-hold-2",
+          "description": "Valores numéricos finitos maiores ou iguais a zero são aceitos; zero não vira 24."
+        },
+        {
+          "id": "payout-hold-3",
+          "description": "Negativo ou não finito usa 24; o retorno multiplica por Time.HOUR."
+        }
+      ],
+      "notes": null,
+      "sourceSha256": "1edaf5986d26f833a3148ed501591e55b1f8bae52394c5f7f09db5e7eff697ae",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/payoutPolicy.ts",
+        "convex/lib/timestampHelpers.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "sha256": "1edaf5986d26f833a3148ed501591e55b1f8bae52394c5f7f09db5e7eff697ae"
+        },
+        {
+          "file": "convex/lib/timestampHelpers.ts",
+          "sha256": "3c8927f707ec62445777c930146cafc70f2bd21dee31f9d54724d5cb117e79d0"
+        }
+      ]
+    },
+    {
+      "id": "sms-dryrun",
+      "group": "sms",
+      "split": "dev",
+      "query": "A simulação de envio SMS exige token e ainda envia uma requisição ao provedor?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "sendGtiSms",
+          "line": 151
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "isGtiSmsDryRun",
+          "line": 85
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "isGtiSmsEnabled",
+          "line": 81
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "sms-dryrun-1",
+          "description": "Normalização, sanitização e flag de habilitação são verificadas antes do dry-run."
+        },
+        {
+          "id": "sms-dryrun-2",
+          "description": "Dry-run retorna ok true, uid dry-run e providerStatus Sent antes de buscar token ou executar fetch."
+        },
+        {
+          "id": "sms-dryrun-3",
+          "description": "As flags aceitam 1, true, yes e on após lowercase, sem trim."
+        }
+      ],
+      "notes": null,
+      "sourceSha256": "b786d9744a6a9ce2c674b49892f7f90e82774686c2765e90105c22b9b88a6db8",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/gtiSms.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "sha256": "b786d9744a6a9ce2c674b49892f7f90e82774686c2765e90105c22b9b88a6db8"
+        }
+      ]
+    },
+    {
+      "id": "sms-transport-uncertain",
+      "group": "sms",
+      "split": "dev",
+      "query": "O que o cliente devolve quando a requisição de envio de SMS falha por timeout ou erro de transporte?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "sendGtiSms",
+          "line": 151
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "GTI_SMS_TIMEOUT_MS",
+          "line": 3
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "sms-transport-uncertain-1",
+          "description": "fetch usa AbortSignal.timeout de 15000 ms."
+        },
+        {
+          "id": "sms-transport-uncertain-2",
+          "description": "O catch retorna ok false e deliveryUncertain true, preservando destinatário normalizado e mensagem sanitizada."
+        },
+        {
+          "id": "sms-transport-uncertain-3",
+          "description": "Esse catch não executa uma segunda tentativa."
+        }
+      ],
+      "notes": "Não generalizar a ausência de retry para camadas externas ao cliente.",
+      "sourceSha256": "b786d9744a6a9ce2c674b49892f7f90e82774686c2765e90105c22b9b88a6db8",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/gtiSms.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "sha256": "b786d9744a6a9ce2c674b49892f7f90e82774686c2765e90105c22b9b88a6db8"
+        }
+      ]
+    }
+  ],
+  "splitCounts": {
+    "dev": 15,
+    "reserved": 10,
+    "validation": 5
+  },
+  "evaluationNotes": [
+    "30 queries, not 30 independent implementation families. Report metrics by family as well as by query.",
+    "Positive cases search the repository; negative absence claims apply only to their explicit file scope.",
+    "Labels manually reviewed; no retrieval, model inference or behavioral tests performed.",
+    "New cases are distinct questions, not generated paraphrases. Freeze policy before reserved evaluation."
+  ],
+  "familyCounts": {
+    "dev": 3,
+    "validation": 2,
+    "reserved": 2
+  }
+}

@@ -13,12 +13,49 @@ describe("bounded helper discovery", () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "sensegrep-helpers-"))
     const content = 'import { encryptDestination as protect } from "./crypto.js"\nexport function saveAccount() { return protect(account) }\n'
     await fs.writeFile(path.join(root, "account.ts"), content)
+    await fs.writeFile(path.join(root,"crypto.ts"), "export function encryptDestination(account) {\n  return encrypt(account)\n}\n")
     try {
       await run(root, { file: "account.ts", content, startLine: 2, endLine: 2, semanticScore: 0.7, metadata: { symbolName: "saveAccount" } })
     } finally { await fs.rm(root, { recursive: true, force: true }) }
   }
   const row = { id: "helper", content: "export function encryptDestination(account) { return encrypt(account) }", distance: 0,
     metadata: { file: "crypto.ts", symbolName: "encryptDestination", symbolType: "function", startLine: 1, endLine: 3 } }
+  it('reports incomplete inspection when a known imported definition is missing from the index',async()=>{
+    await fixture(async(root,anchor)=>{
+      vi.spyOn(VectorStore,'listDocuments').mockResolvedValue([])
+      const result=await expandHelpers({projectDirectory:root,collection:{}} as SearchResources,[anchor],'secret',{},new Set(['account.ts','crypto.ts']),undefined,true)
+      expect(result.added).toBe(0)
+      expect(result.truncated).toBe(true)
+    })
+  })
+  it('does not make callback parameters or built-in functions into unresolved local definitions',async()=>{
+    await fixture(async(root,anchor)=>{
+      const content='export function saveAccount(callback) { callback(); return String(12) }'
+      await fs.writeFile(path.join(root,'account.ts'),content)
+      const list=vi.spyOn(VectorStore,'listDocuments')
+      const result=await expandHelpers({projectDirectory:root,collection:{}} as SearchResources,[{...anchor,content,startLine:1,endLine:1}],'secret',{},new Set(['account.ts']),undefined,true)
+      expect(result.truncated).toBe(false)
+      expect(list).not.toHaveBeenCalled()
+    })
+  })
+  it('uses verified helper lines rather than embedding neighbours or metadata text',async()=>{
+    await fixture(async(root,anchor)=>{
+      vi.spyOn(VectorStore,'listDocuments').mockResolvedValue([{...row,content:'Embedding context: unrelated function deleteRecords() { wipeDatabase() }'}] as any)
+      const expanded=await expandHelpers({projectDirectory:root,collection:{}} as SearchResources,[anchor],'encrypt destination',{},new Set(['account.ts','crypto.ts']),undefined,true)
+      const helper=expanded.results.find(r=>r.file==='crypto.ts')!
+      expect(helper.content).toBe('export function encryptDestination(account) {\n  return encrypt(account)\n}')
+      expect(helper.content).not.toContain('wipeDatabase')
+      expect(helper.contentTruncated).toBe(false)
+    })
+  })
+  it('does not invent source when indexed helper ranges are out of bounds',async()=>{
+    await fixture(async(root,anchor)=>{
+      vi.spyOn(VectorStore,'listDocuments').mockResolvedValue([{...row,metadata:{...row.metadata,endLine:999}}] as any)
+      const expanded=await expandHelpers({projectDirectory:root,collection:{}} as SearchResources,[anchor],'encrypt destination',{},new Set(['account.ts','crypto.ts']),undefined,true)
+      expect(expanded.added).toBe(0)
+      expect(expanded.truncated).toBe(true)
+    })
+  })
   it("resolves an aliased relative import and preserves structural filters", async () => {
     await fixture(async (root, anchor) => {
       const list = vi.spyOn(VectorStore, "listDocuments").mockResolvedValue([row] as any)
@@ -97,7 +134,9 @@ describe("bounded helper discovery", () => {
         content: "complete original implementation", semanticScore: 0.9, metadata: row.metadata }
       const expanded = await expandHelpers({ projectDirectory: root, collection: {} } as SearchResources,
         [anchor, existing], "protect financial secrets", {}, new Set(["account.ts", "crypto.ts"]), undefined, true)
-      expect(expanded.results.find(r => r.file === "crypto.ts")).toBe(existing)
+      const retained = expanded.results.find(r => r.file === "crypto.ts")!
+      expect({...retained, evidenceRelations:undefined}).toEqual({...existing, evidenceRelations:undefined})
+      expect(retained.evidenceRelations?.[0]).toMatchObject({resolved:true, callerTruncated:false})
     })
   })
 

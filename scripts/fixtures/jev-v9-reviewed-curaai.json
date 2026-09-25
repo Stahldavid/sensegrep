@@ -1,0 +1,1430 @@
+{
+  "schemaVersion": 2,
+  "status": "source-reviewed-not-executed",
+  "repository": "CuraAI",
+  "sourceCommit": "0712a2548c51fceb884e4e2ee9bb5ee379411342",
+  "reservationNote": "reserved families are excluded from tuning; manually reviewed labels are not a blind external holdout. Never feed labels to Jev.",
+  "cases": [
+    {
+      "id": "payout-age",
+      "group": "payouts",
+      "split": "dev",
+      "query": "Quando a idade do saldo permite ignorar o mínimo de repasse? O limite é inclusivo?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "shouldIgnoreMinimumPayout",
+          "line": 110
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "MAX_SMALL_BALANCE_AGE_MS",
+          "line": 6
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "payout-age-1",
+          "description": "A decisão compara nowMs - oldestAvailableAt >= MAX_SMALL_BALANCE_AGE_MS."
+        },
+        {
+          "id": "payout-age-2",
+          "description": "A constante corresponde a 30 * Time.DAY; igualdade permite ignorar o mínimo."
+        }
+      ],
+      "notes": "Caso histórico; para converter Time.DAY em milissegundos é necessário acrescentar timestampHelpers.ts, fora desta pergunta.",
+      "sourceSha256": "1edaf5986d26f833a3148ed501591e55b1f8bae52394c5f7f09db5e7eff697ae",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/payoutPolicy.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "sha256": "1edaf5986d26f833a3148ed501591e55b1f8bae52394c5f7f09db5e7eff697ae"
+        }
+      ]
+    },
+    {
+      "id": "crypto-key",
+      "group": "payout-crypto",
+      "split": "dev",
+      "query": "Como a chave usada na criptografia do destino de repasse é carregada e validada?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "getEncryptionKey",
+          "line": 8
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "crypto-key-1",
+          "description": "Lê PAYOUT_DESTINATION_ENCRYPTION_KEY e aplica trim."
+        },
+        {
+          "id": "crypto-key-2",
+          "description": "Ausência lança erro; decodifica base64 e exige 32 bytes."
+        }
+      ],
+      "notes": null,
+      "sourceSha256": "d9669cbb80a7f4a697276afe2e5214f9b9f5f88d21849466ef976f49c16c7a02",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/payoutDestinationCrypto.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "sha256": "d9669cbb80a7f4a697276afe2e5214f9b9f5f88d21849466ef976f49c16c7a02"
+        }
+      ]
+    },
+    {
+      "id": "crypto-format",
+      "group": "payout-crypto",
+      "split": "dev",
+      "query": "Qual algoritmo, IV e formato são usados para cifrar e decifrar o destino de repasse?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "encryptPayoutDestination",
+          "line": 21
+        },
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "decryptPayoutDestination",
+          "line": 34
+        },
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "getEncryptionKey",
+          "line": 8
+        },
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "ALGORITHM",
+          "line": 5
+        },
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "VERSION",
+          "line": 6
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "crypto-format-1",
+          "description": "Algoritmo aes-256-gcm, IV aleatório de 12 bytes."
+        },
+        {
+          "id": "crypto-format-2",
+          "description": "Formato v1.iv.tag.ciphertext separado por pontos, componentes binários em base64url."
+        },
+        {
+          "id": "crypto-format-3",
+          "description": "Decifragem valida versão/componentes, define auth tag e finaliza a decifragem."
+        }
+      ],
+      "notes": null,
+      "sourceSha256": "d9669cbb80a7f4a697276afe2e5214f9b9f5f88d21849466ef976f49c16c7a02",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/payoutDestinationCrypto.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "sha256": "d9669cbb80a7f4a697276afe2e5214f9b9f5f88d21849466ef976f49c16c7a02"
+        }
+      ]
+    },
+    {
+      "id": "working-parser",
+      "group": "working-hours",
+      "split": "dev",
+      "query": "Quais faixas de horas e minutos o parser aceita e como converte o horário?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "parseTimeToMinutes",
+          "line": 40
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "working-parser-1",
+          "description": "Entrada ausente retorna null."
+        },
+        {
+          "id": "working-parser-2",
+          "description": "Hour e minute precisam ser inteiros; horas 0 a 23 e minutos 0 a 59."
+        },
+        {
+          "id": "working-parser-3",
+          "description": "Retorna hour * 60 + minute."
+        }
+      ],
+      "notes": "Não afirmar validação estrita HH:mm: split considera somente os dois primeiros campos, e Number aceita representações mais amplas.",
+      "sourceSha256": "068b091383059c9b48447b63527ddcb42ff7d00e4c95ba080492a878182c714b",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/workingHours.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "sha256": "068b091383059c9b48447b63527ddcb42ff7d00e4c95ba080492a878182c714b"
+        }
+      ]
+    },
+    {
+      "id": "working-boundaries",
+      "group": "working-hours",
+      "split": "dev",
+      "query": "Na regra de horário de trabalho, o início e o fim são inclusivos? Quando uma janela é rejeitada?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "isWithinWorkingHours",
+          "line": 80
+        },
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "parseTimeToMinutes",
+          "line": 40
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "working-boundaries-1",
+          "description": "Dia com enabled diferente de true é rejeitado."
+        },
+        {
+          "id": "working-boundaries-2",
+          "description": "Horário inicial/final inválido ou start >= end é rejeitado."
+        },
+        {
+          "id": "working-boundaries-3",
+          "description": "Início inclusivo e fim exclusivo."
+        },
+        {
+          "id": "working-boundaries-4",
+          "description": "Quando parseWorkingHours retorna null, a função permite o horário."
+        }
+      ],
+      "notes": "Para explicar timezone ou desserialização integral, são necessários outros helpers; esses detalhes não foram perguntados.",
+      "sourceSha256": "068b091383059c9b48447b63527ddcb42ff7d00e4c95ba080492a878182c714b",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/workingHours.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "sha256": "068b091383059c9b48447b63527ddcb42ff7d00e4c95ba080492a878182c714b"
+        }
+      ]
+    },
+    {
+      "id": "sms-status",
+      "group": "sms",
+      "split": "reserved",
+      "query": "Como os status de entrega do provedor de SMS são traduzidos, inclusive um status desconhecido?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "mapGtiSmsStatusToDeliveryStatus",
+          "line": 143
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "sms-status-1",
+          "description": "Delivered vira delivered."
+        },
+        {
+          "id": "sms-status-2",
+          "description": "Failed, Rejected e Expired viram failed."
+        },
+        {
+          "id": "sms-status-3",
+          "description": "Demais valores, inclusive undefined/desconhecido, viram sent."
+        }
+      ],
+      "notes": null,
+      "sourceSha256": "b786d9744a6a9ce2c674b49892f7f90e82774686c2765e90105c22b9b88a6db8",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/gtiSms.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "sha256": "b786d9744a6a9ce2c674b49892f7f90e82774686c2765e90105c22b9b88a6db8"
+        }
+      ]
+    },
+    {
+      "id": "sms-sanitize",
+      "group": "sms",
+      "split": "reserved",
+      "query": "Como o texto de SMS é normalizado e qual o limite final de caracteres?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "sanitizeSmsMessage",
+          "line": 115
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "MAX_SMS_LENGTH",
+          "line": 2
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "sms-sanitize-1",
+          "description": "Normaliza NFD, remove marcas combinantes e substitui caracteres fora dos filtros por espaço."
+        },
+        {
+          "id": "sms-sanitize-2",
+          "description": "Compacta espaços e aplica trim."
+        },
+        {
+          "id": "sms-sanitize-3",
+          "description": "Corta a string resultante com slice(0, 160)."
+        }
+      ],
+      "notes": "Não afirmar que a função detecta ou remove informações clínicas: os filtros são de caracteres.",
+      "sourceSha256": "b786d9744a6a9ce2c674b49892f7f90e82774686c2765e90105c22b9b88a6db8",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/gtiSms.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "sha256": "b786d9744a6a9ce2c674b49892f7f90e82774686c2765e90105c22b9b88a6db8"
+        }
+      ]
+    },
+    {
+      "id": "sms-negative",
+      "group": "sms",
+      "split": "reserved",
+      "query": "Onde este módulo implementa a verificação HMAC da assinatura de um webhook de SMS?",
+      "answerExistsInScope": false,
+      "scope": {
+        "files": [
+          "convex/lib/gtiSms.ts"
+        ]
+      },
+      "required": [],
+      "expectedFacts": [
+        {
+          "id": "sms-negative-1",
+          "description": "O arquivo fornecido não contém uma implementação dessa verificação; não declarar que a encontrou."
+        }
+      ],
+      "notes": "Negativo limitado ao arquivo indicado. Não implica ausência em todo o repositório nem ausência de suporte no provedor.",
+      "sourceSha256": "b786d9744a6a9ce2c674b49892f7f90e82774686c2765e90105c22b9b88a6db8",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/gtiSms.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "sha256": "b786d9744a6a9ce2c674b49892f7f90e82774686c2765e90105c22b9b88a6db8"
+        }
+      ]
+    },
+    {
+      "id": "clerk-success",
+      "group": "clerk-session",
+      "split": "reserved",
+      "query": "Após salvar o papel do usuário, como esta função atualiza a sessão e em qual ordem?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "apps/web/lib/auth/syncClerkRoleSession.ts",
+          "symbol": "syncClerkRoleSession",
+          "line": 8
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "clerk-success-1",
+          "description": "POST /api/auth/set-role com JSON role e cache no-store."
+        },
+        {
+          "id": "clerk-success-2",
+          "description": "Após sucesso, aguarda reloadUser opcional e depois getToken opcional."
+        },
+        {
+          "id": "clerk-success-3",
+          "description": "getToken recebe template convex e skipCache true."
+        }
+      ],
+      "notes": "Chamadas opcionais: não prometer refresh caso callbacks não tenham sido fornecidos.",
+      "sourceSha256": "93b23956afdc34bff7ba8c521ca2393025f66d21243965f07fbdf79ff64b64b9",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "apps/web/lib/auth/syncClerkRoleSession.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "apps/web/lib/auth/syncClerkRoleSession.ts",
+          "sha256": "93b23956afdc34bff7ba8c521ca2393025f66d21243965f07fbdf79ff64b64b9"
+        }
+      ]
+    },
+    {
+      "id": "clerk-failure",
+      "group": "clerk-session",
+      "split": "reserved",
+      "query": "Se salvar o papel falhar, esta função ainda chama reloadUser ou getToken?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "apps/web/lib/auth/syncClerkRoleSession.ts",
+          "symbol": "syncClerkRoleSession",
+          "line": 8
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "clerk-failure-1",
+          "description": "Se response.ok for falso, tenta ler payload JSON e lança erro com payload.error ou mensagem padrão."
+        },
+        {
+          "id": "clerk-failure-2",
+          "description": "O throw ocorre antes das chamadas de reloadUser e getToken."
+        }
+      ],
+      "notes": "Resposta negativa comprovada por código; não confundir com pergunta sem evidência.",
+      "sourceSha256": "93b23956afdc34bff7ba8c521ca2393025f66d21243965f07fbdf79ff64b64b9",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "apps/web/lib/auth/syncClerkRoleSession.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "apps/web/lib/auth/syncClerkRoleSession.ts",
+          "sha256": "93b23956afdc34bff7ba8c521ca2393025f66d21243965f07fbdf79ff64b64b9"
+        }
+      ]
+    },
+    {
+      "id": "payout-enable",
+      "group": "payouts",
+      "split": "dev",
+      "query": "Qual valor de configuração habilita os repasses médicos? 1 também habilita?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "areDoctorPayoutsEnabled",
+          "line": 9
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "payout-enable-1",
+          "description": "A variável ENABLE_DOCTOR_PAYOUTS passa por trim e toLowerCase."
+        },
+        {
+          "id": "payout-enable-2",
+          "description": "Somente a string true normalizada habilita; 1 não habilita."
+        }
+      ],
+      "notes": null,
+      "sourceSha256": "1edaf5986d26f833a3148ed501591e55b1f8bae52394c5f7f09db5e7eff697ae",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/payoutPolicy.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "sha256": "1edaf5986d26f833a3148ed501591e55b1f8bae52394c5f7f09db5e7eff697ae"
+        }
+      ]
+    },
+    {
+      "id": "payout-hold",
+      "group": "payouts",
+      "split": "dev",
+      "query": "Como é calculado o prazo de retenção de comissão quando a configuração é zero, negativa ou inválida?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "getCommissionHoldMs",
+          "line": 18
+        },
+        {
+          "file": "convex/lib/timestampHelpers.ts",
+          "symbol": "Time",
+          "line": 110
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "payout-hold-1",
+          "description": "DOCTOR_PAYOUT_HOLD_HOURS ausente assume 24."
+        },
+        {
+          "id": "payout-hold-2",
+          "description": "Valores numéricos finitos maiores ou iguais a zero são aceitos; zero não vira 24."
+        },
+        {
+          "id": "payout-hold-3",
+          "description": "Negativo ou não finito usa 24; o retorno multiplica por Time.HOUR."
+        }
+      ],
+      "notes": null,
+      "sourceSha256": "1edaf5986d26f833a3148ed501591e55b1f8bae52394c5f7f09db5e7eff697ae",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/payoutPolicy.ts",
+        "convex/lib/timestampHelpers.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "sha256": "1edaf5986d26f833a3148ed501591e55b1f8bae52394c5f7f09db5e7eff697ae"
+        },
+        {
+          "file": "convex/lib/timestampHelpers.ts",
+          "sha256": "3c8927f707ec62445777c930146cafc70f2bd21dee31f9d54724d5cb117e79d0"
+        }
+      ]
+    },
+    {
+      "id": "payout-snapshot",
+      "group": "payouts",
+      "split": "dev",
+      "query": "Como o snapshot de preço altera a base e o cálculo da comissão médica?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "calculateCommissionAmounts",
+          "line": 24
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "payout-snapshot-1",
+          "description": "Com snapshot, rate é doctorAmountCents / totalAmountCents; taxa deve ser finita e estritamente entre zero e um."
+        },
+        {
+          "id": "payout-snapshot-2",
+          "description": "Total do snapshot deve ser igual a payment.amount."
+        },
+        {
+          "id": "payout-snapshot-3",
+          "description": "Snapshot força base gross e usa doctorAmountCents diretamente; sem snapshot, base padrão é net e o valor é arredondado com Math.round."
+        }
+      ],
+      "notes": null,
+      "sourceSha256": "1edaf5986d26f833a3148ed501591e55b1f8bae52394c5f7f09db5e7eff697ae",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/payoutPolicy.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "sha256": "1edaf5986d26f833a3148ed501591e55b1f8bae52394c5f7f09db5e7eff697ae"
+        }
+      ]
+    },
+    {
+      "id": "payout-fees",
+      "group": "payouts",
+      "split": "dev",
+      "query": "Como a comissão trata a receita líquida do provedor e taxas que excedem a parte da plataforma?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "calculateCommissionAmounts",
+          "line": 24
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "payout-fees-1",
+          "description": "netAmount é o menor entre bruto e providerNetAmount, usando bruto se o líquido estiver ausente."
+        },
+        {
+          "id": "payout-fees-2",
+          "description": "providerFeeAmount é max(0, bruto - líquido)."
+        },
+        {
+          "id": "payout-fees-3",
+          "description": "Se doctorAmount exceder netAmount, lança erro; platformAmount é líquido menos doctorAmount."
+        }
+      ],
+      "notes": null,
+      "sourceSha256": "1edaf5986d26f833a3148ed501591e55b1f8bae52394c5f7f09db5e7eff697ae",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/payoutPolicy.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "sha256": "1edaf5986d26f833a3148ed501591e55b1f8bae52394c5f7f09db5e7eff697ae"
+        }
+      ]
+    },
+    {
+      "id": "payout-calendar",
+      "group": "payouts",
+      "split": "dev",
+      "query": "Como o primeiro repasse é agendado para mensal, semanal e manual, inclusive no instante do corte?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "initialNextPayoutAt",
+          "line": 90
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "nextMonthlyNoonSaoPaulo",
+          "line": 78
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "nextTuesdayNoonSaoPaulo",
+          "line": 63
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "MANUAL_PAYOUT_TIMESTAMP",
+          "line": 13
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "SAO_PAULO_UTC_HOUR",
+          "line": 14
+        },
+        {
+          "file": "convex/lib/timestampHelpers.ts",
+          "symbol": "Time",
+          "line": 110
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "payout-calendar-1",
+          "description": "Manual retorna Date.UTC(3000, 0, 1)."
+        },
+        {
+          "id": "payout-calendar-2",
+          "description": "Mensal escolhe dia 1 às 15 UTC se o candidato for estritamente futuro; caso contrário, mês seguinte."
+        },
+        {
+          "id": "payout-calendar-3",
+          "description": "Semanal e quinzenal entram no helper de terça ao meio-dia local; na terça a partir das 12h, avança sete dias."
+        },
+        {
+          "id": "payout-calendar-4",
+          "description": "Helpers usam deslocamento fixo de três horas; não afirmar consulta a banco de fusos."
+        }
+      ],
+      "notes": null,
+      "sourceSha256": "1edaf5986d26f833a3148ed501591e55b1f8bae52394c5f7f09db5e7eff697ae",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/payoutPolicy.ts",
+        "convex/lib/timestampHelpers.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "sha256": "1edaf5986d26f833a3148ed501591e55b1f8bae52394c5f7f09db5e7eff697ae"
+        },
+        {
+          "file": "convex/lib/timestampHelpers.ts",
+          "sha256": "3c8927f707ec62445777c930146cafc70f2bd21dee31f9d54724d5cb117e79d0"
+        }
+      ]
+    },
+    {
+      "id": "working-json",
+      "group": "working-hours",
+      "split": "dev",
+      "query": "Como a configuração de horários é carregada quando vem como JSON inválido, objeto ou valor vazio?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "parseWorkingHours",
+          "line": 27
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "working-json-1",
+          "description": "Valor falsy retorna null."
+        },
+        {
+          "id": "working-json-2",
+          "description": "String passa por JSON.parse e chamada recursiva; falha retorna null."
+        },
+        {
+          "id": "working-json-3",
+          "description": "Objeto não nulo é retornado por cast sem validação profunda."
+        }
+      ],
+      "notes": "Não afirmar que arrays são rejeitados: passam no teste typeof object.",
+      "sourceSha256": "068b091383059c9b48447b63527ddcb42ff7d00e4c95ba080492a878182c714b",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/workingHours.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "sha256": "068b091383059c9b48447b63527ddcb42ff7d00e4c95ba080492a878182c714b"
+        }
+      ]
+    },
+    {
+      "id": "working-timezone",
+      "group": "working-hours",
+      "split": "dev",
+      "query": "Que fuso é usado quando o fuso configurado está ausente ou não é reconhecido?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "resolveWorkingHoursTimezone",
+          "line": 50
+        },
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "DEFAULT_TIMEZONE",
+          "line": 16
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "working-timezone-1",
+          "description": "Ausência retorna America/Sao_Paulo."
+        },
+        {
+          "id": "working-timezone-2",
+          "description": "Tenta Intl.DateTimeFormat com timeZone informado; sucesso preserva o valor."
+        },
+        {
+          "id": "working-timezone-3",
+          "description": "Exceção retorna o fuso padrão."
+        }
+      ],
+      "notes": null,
+      "sourceSha256": "068b091383059c9b48447b63527ddcb42ff7d00e4c95ba080492a878182c714b",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/workingHours.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "sha256": "068b091383059c9b48447b63527ddcb42ff7d00e4c95ba080492a878182c714b"
+        }
+      ]
+    },
+    {
+      "id": "working-local-clock",
+      "group": "working-hours",
+      "split": "dev",
+      "query": "Como o timestamp é convertido na chave do dia da semana e nos minutos do horário de trabalho?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "getZonedWorkingTime",
+          "line": 60
+        },
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "resolveWorkingHoursTimezone",
+          "line": 50
+        },
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "DAY_KEY_BY_WEEKDAY",
+          "line": 17
+        },
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "DEFAULT_TIMEZONE",
+          "line": 16
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "working-local-clock-1",
+          "description": "Resolve o fuso pelo helper, depois usa formatToParts com locale en-US, weekday long e hourCycle h23."
+        },
+        {
+          "id": "working-local-clock-2",
+          "description": "Mapeia o weekday inglês para chave minúscula como monday."
+        },
+        {
+          "id": "working-local-clock-3",
+          "description": "minutes é hour * 60 + minute; retorna também o fuso resolvido."
+        }
+      ],
+      "notes": null,
+      "sourceSha256": "068b091383059c9b48447b63527ddcb42ff7d00e4c95ba080492a878182c714b",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/workingHours.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "sha256": "068b091383059c9b48447b63527ddcb42ff7d00e4c95ba080492a878182c714b"
+        }
+      ]
+    },
+    {
+      "id": "working-break-premise",
+      "group": "working-hours",
+      "split": "dev",
+      "query": "A checagem de horário de trabalho desconta os intervalos definidos em breaks?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "isWithinWorkingHours",
+          "line": 80
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "working-break-premise-1",
+          "description": "A implementação verifica configuração, dia habilitado e janela start/end."
+        },
+        {
+          "id": "working-break-premise-2",
+          "description": "Não consulta breaks: não afirmar que um intervalo interno bloqueia o horário."
+        }
+      ],
+      "notes": "Premissa falsa com resposta negativa demonstrável no corpo da função; não é ausência de evidência.",
+      "sourceSha256": "068b091383059c9b48447b63527ddcb42ff7d00e4c95ba080492a878182c714b",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/workingHours.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "sha256": "068b091383059c9b48447b63527ddcb42ff7d00e4c95ba080492a878182c714b"
+        }
+      ]
+    },
+    {
+      "id": "working-parser-extra-fields",
+      "group": "working-hours",
+      "split": "dev",
+      "query": "O parser de horários rejeita 12:30:59 por conter um terceiro campo?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "parseTimeToMinutes",
+          "line": 40
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "working-parser-extra-fields-1",
+          "description": "Desestrutura apenas hourRaw e minuteRaw de split, ignorando campos restantes."
+        },
+        {
+          "id": "working-parser-extra-fields-2",
+          "description": "Para essa entrada, converte 12 e 30 e retorna 750."
+        }
+      ],
+      "notes": "Resultado derivado estaticamente da implementação; nenhum exemplo foi executado.",
+      "sourceSha256": "068b091383059c9b48447b63527ddcb42ff7d00e4c95ba080492a878182c714b",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/workingHours.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "sha256": "068b091383059c9b48447b63527ddcb42ff7d00e4c95ba080492a878182c714b"
+        }
+      ]
+    },
+    {
+      "id": "inbox-noop",
+      "group": "notification-inbox",
+      "split": "validation",
+      "query": "Quando o ajuste de contagem de notificações retorna sem sequer consultar o banco?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/notificationInboxes.ts",
+          "symbol": "adjustNotificationUnreadCount",
+          "line": 3
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "inbox-noop-1",
+          "description": "Retorna se userId for falsy ou delta === 0."
+        },
+        {
+          "id": "inbox-noop-2",
+          "description": "O retorno antecede a query de notificationInboxes."
+        }
+      ],
+      "notes": null,
+      "sourceSha256": "b2f9940c62e941e94296fb4fff420ce3f13c61aa374ccce08415f27413306160",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/notificationInboxes.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/notificationInboxes.ts",
+          "sha256": "b2f9940c62e941e94296fb4fff420ce3f13c61aa374ccce08415f27413306160"
+        }
+      ]
+    },
+    {
+      "id": "inbox-floor",
+      "group": "notification-inbox",
+      "split": "validation",
+      "query": "Como a contagem de não lidas é criada ou atualizada sem ficar negativa?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/notificationInboxes.ts",
+          "symbol": "adjustNotificationUnreadCount",
+          "line": 3
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "inbox-floor-1",
+          "description": "Busca pelo índice by_user, filtrando userId, e usa first."
+        },
+        {
+          "id": "inbox-floor-2",
+          "description": "Sem registro, insere unreadCount max(0, delta)."
+        },
+        {
+          "id": "inbox-floor-3",
+          "description": "Com registro, aplica patch de max(0, existing.unreadCount + delta); ambos gravam updatedAt fornecido."
+        }
+      ],
+      "notes": null,
+      "sourceSha256": "b2f9940c62e941e94296fb4fff420ce3f13c61aa374ccce08415f27413306160",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/notificationInboxes.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/notificationInboxes.ts",
+          "sha256": "b2f9940c62e941e94296fb4fff420ce3f13c61aa374ccce08415f27413306160"
+        }
+      ]
+    },
+    {
+      "id": "iti-status",
+      "group": "iti-report",
+      "split": "validation",
+      "query": "Como o parser decide o resultado de um relatório com assinaturas aprovadas, indeterminadas ou reprovadas?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/itiValidationResult.ts",
+          "symbol": "parseItiSimpleValidation",
+          "line": 8
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "iti-status-1",
+          "description": "Normaliza status com trim e lowercase e usa allowlist exata aprovada/aprovado e indeterminada/indeterminado."
+        },
+        {
+          "id": "iti-status-2",
+          "description": "Status fora dessas opções conta como rejeitado; não aprovada não corresponde a aprovada."
+        },
+        {
+          "id": "iti-status-3",
+          "description": "Nenhuma assinatura ou qualquer rejeitada produz rejected; todas aprovadas produz validated; o restante produz pending."
+        }
+      ],
+      "notes": null,
+      "sourceSha256": "126a7c3fdb3b36cced0284bbc536ab380f565c471fae04cebc9cca16756183b0",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/itiValidationResult.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/itiValidationResult.ts",
+          "sha256": "126a7c3fdb3b36cced0284bbc536ab380f565c471fae04cebc9cca16756183b0"
+        }
+      ]
+    },
+    {
+      "id": "iti-hash",
+      "group": "iti-report",
+      "split": "validation",
+      "query": "O hash ausente ou vazio torna o relatório de validação rejeitado? Como esse campo é normalizado?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/itiValidationResult.ts",
+          "symbol": "parseItiSimpleValidation",
+          "line": 8
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "iti-hash-1",
+          "description": "signatureHash só é preservado quando report.hash é string e trim não fica vazio."
+        },
+        {
+          "id": "iti-hash-2",
+          "description": "A classificação sncrStatus depende das assinaturas, não da presença do hash."
+        }
+      ],
+      "notes": "O parser não verifica criptografia; limitar a resposta ao processamento do relatório.",
+      "sourceSha256": "126a7c3fdb3b36cced0284bbc536ab380f565c471fae04cebc9cca16756183b0",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/itiValidationResult.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/itiValidationResult.ts",
+          "sha256": "126a7c3fdb3b36cced0284bbc536ab380f565c471fae04cebc9cca16756183b0"
+        }
+      ]
+    },
+    {
+      "id": "iti-sncr",
+      "group": "iti-report",
+      "split": "validation",
+      "query": "A aprovação no relatório ITI é suficiente para a aprovação eletrônica quando o registro SNCR está pendente?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/itiValidationResult.ts",
+          "symbol": "isElectronicValidationApproved",
+          "line": 47
+        },
+        {
+          "file": "convex/lib/itiValidationResult.ts",
+          "symbol": "describeItiValidation",
+          "line": 34
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "iti-sncr-1",
+          "description": "isElectronicValidationApproved exige validatedWithIti verdadeiro e sncrStatus validated ou not_required."
+        },
+        {
+          "id": "iti-sncr-2",
+          "description": "SNCR pending ou rejected não passa nesse predicado."
+        },
+        {
+          "id": "iti-sncr-3",
+          "description": "describeItiValidation acrescenta aviso de controle separado do SNCR quando requiresSncr é verdadeiro."
+        }
+      ],
+      "notes": null,
+      "sourceSha256": "126a7c3fdb3b36cced0284bbc536ab380f565c471fae04cebc9cca16756183b0",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/itiValidationResult.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/itiValidationResult.ts",
+          "sha256": "126a7c3fdb3b36cced0284bbc536ab380f565c471fae04cebc9cca16756183b0"
+        }
+      ]
+    },
+    {
+      "id": "sms-recipient",
+      "group": "sms",
+      "split": "reserved",
+      "query": "Quais formatos de telefone o normalizador de SMS brasileiro aceita e o que faz com um prefixo internacional diferente de +55?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "normalizeBrazilianSmsRecipient",
+          "line": 97
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "sms-recipient-1",
+          "description": "Se a entrada após trim começa com + e não +55, retorna null."
+        },
+        {
+          "id": "sms-recipient-2",
+          "description": "Remove não dígitos; 10/11 dígitos sem começar por 55 recebem prefixo 55."
+        },
+        {
+          "id": "sms-recipient-3",
+          "description": "12/13 dígitos começando por 55 são preservados; demais formatos retornam null."
+        }
+      ],
+      "notes": "Descrever a implementação literalmente; números locais começando por 55 não entram no primeiro ramo.",
+      "sourceSha256": "b786d9744a6a9ce2c674b49892f7f90e82774686c2765e90105c22b9b88a6db8",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/gtiSms.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "sha256": "b786d9744a6a9ce2c674b49892f7f90e82774686c2765e90105c22b9b88a6db8"
+        }
+      ]
+    },
+    {
+      "id": "sms-dryrun",
+      "group": "sms",
+      "split": "reserved",
+      "query": "A simulação de envio SMS exige token e ainda envia uma requisição ao provedor?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "sendGtiSms",
+          "line": 151
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "isGtiSmsDryRun",
+          "line": 85
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "isGtiSmsEnabled",
+          "line": 81
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "sms-dryrun-1",
+          "description": "Normalização, sanitização e flag de habilitação são verificadas antes do dry-run."
+        },
+        {
+          "id": "sms-dryrun-2",
+          "description": "Dry-run retorna ok true, uid dry-run e providerStatus Sent antes de buscar token ou executar fetch."
+        },
+        {
+          "id": "sms-dryrun-3",
+          "description": "As flags aceitam 1, true, yes e on após lowercase, sem trim."
+        }
+      ],
+      "notes": null,
+      "sourceSha256": "b786d9744a6a9ce2c674b49892f7f90e82774686c2765e90105c22b9b88a6db8",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/gtiSms.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "sha256": "b786d9744a6a9ce2c674b49892f7f90e82774686c2765e90105c22b9b88a6db8"
+        }
+      ]
+    },
+    {
+      "id": "sms-token-precedence",
+      "group": "sms",
+      "split": "reserved",
+      "query": "Em que ordem o cliente SMS procura as variáveis de token e como trata valores vazios?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "getGtiSmsApiToken",
+          "line": 89
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "sms-token-precedence-1",
+          "description": "Ordem: GTI_SMS_API_TOKEN, GTI_SMS_TOKEN, GTI_SMS_BEARER_TOKEN."
+        },
+        {
+          "id": "sms-token-precedence-2",
+          "description": "Aplica trim em cada opção e escolhe a primeira truthy; se todas vazias ou ausentes, retorna null."
+        }
+      ],
+      "notes": null,
+      "sourceSha256": "b786d9744a6a9ce2c674b49892f7f90e82774686c2765e90105c22b9b88a6db8",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/gtiSms.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "sha256": "b786d9744a6a9ce2c674b49892f7f90e82774686c2765e90105c22b9b88a6db8"
+        }
+      ]
+    },
+    {
+      "id": "sms-transport-uncertain",
+      "group": "sms",
+      "split": "reserved",
+      "query": "O que o cliente devolve quando a requisição de envio de SMS falha por timeout ou erro de transporte?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "sendGtiSms",
+          "line": 151
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "GTI_SMS_TIMEOUT_MS",
+          "line": 3
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "sms-transport-uncertain-1",
+          "description": "fetch usa AbortSignal.timeout de 15000 ms."
+        },
+        {
+          "id": "sms-transport-uncertain-2",
+          "description": "O catch retorna ok false e deliveryUncertain true, preservando destinatário normalizado e mensagem sanitizada."
+        },
+        {
+          "id": "sms-transport-uncertain-3",
+          "description": "Esse catch não executa uma segunda tentativa."
+        }
+      ],
+      "notes": "Não generalizar a ausência de retry para camadas externas ao cliente.",
+      "sourceSha256": "b786d9744a6a9ce2c674b49892f7f90e82774686c2765e90105c22b9b88a6db8",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/gtiSms.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "sha256": "b786d9744a6a9ce2c674b49892f7f90e82774686c2765e90105c22b9b88a6db8"
+        }
+      ]
+    },
+    {
+      "id": "sms-nonjson",
+      "group": "sms",
+      "split": "reserved",
+      "query": "Como a consulta de status de SMS lida com resposta HTTP não JSON?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "getGtiSmsStatus",
+          "line": 252
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "parseGtiSmsJson",
+          "line": 126
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "buildGtiError",
+          "line": 137
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "sms-nonjson-1",
+          "description": "parseGtiSmsJson captura falha de response.json e produz status error com mensagem contendo o código HTTP."
+        },
+        {
+          "id": "sms-nonjson-2",
+          "description": "getGtiSmsStatus retorna ok false se HTTP falhar, status não for success ou faltar data.status."
+        },
+        {
+          "id": "sms-nonjson-3",
+          "description": "buildGtiError prefere envelope.message após trim e usa mensagem padrão se ausente."
+        }
+      ],
+      "notes": null,
+      "sourceSha256": "b786d9744a6a9ce2c674b49892f7f90e82774686c2765e90105c22b9b88a6db8",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/gtiSms.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "sha256": "b786d9744a6a9ce2c674b49892f7f90e82774686c2765e90105c22b9b88a6db8"
+        }
+      ]
+    }
+  ],
+  "splitCounts": {
+    "dev": 15,
+    "reserved": 10,
+    "validation": 5
+  },
+  "evaluationNotes": [
+    "30 queries, not 30 independent implementation families. Report metrics by family as well as by query.",
+    "Positive cases search the repository; negative absence claims apply only to their explicit file scope.",
+    "Labels manually reviewed; no retrieval, model inference or behavioral tests performed.",
+    "New cases are distinct questions, not generated paraphrases. Freeze policy before reserved evaluation."
+  ],
+  "familyCounts": {
+    "dev": 3,
+    "validation": 2,
+    "reserved": 2
+  }
+}

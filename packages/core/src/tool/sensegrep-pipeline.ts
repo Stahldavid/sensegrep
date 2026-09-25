@@ -20,6 +20,11 @@ import { evaluateWithJev, jevResultKey } from "./jev.js"
 export type ResultMetadata = Record<string, string | number | boolean | string[] | undefined>
 
 export type WorkingResult = {
+  evidenceState?: import('./jev-witness.js').EvidenceState
+  bundleSources?: Array<{file: string; symbol: string; startLine: number; endLine: number; content: string}>
+  requiredBy?: string[]
+  retrievalSources?: Array<"vector" | "lexical" | "helper">
+  evidenceRelations?: import("./jev-coverage.js").EvidenceRelation[]
   jev?: import("./jev.js").JevScores
   jevOnly?: boolean
   id?: string
@@ -79,8 +84,12 @@ export type CommonSensegrepParams = {
   query: string
   jev?: import("./jev.js").JevMode
   jevBatchSize?: number
+  jevPanel?: import("./jev.js").JevPanel
   jevRanking?: import("./jev.js").JevRanking
   jevCandidates?: number
+  jevAspects?: string[]
+  jevBlocks?: boolean
+  jevBundles?: boolean
   jevTimeoutMs?: number
   pattern?: string
   limit?: number
@@ -656,7 +665,7 @@ export function fuseHybridResults(semantic: WorkingResult[], lexical: WorkingRes
     const score = result.semanticScore > 1
       ? result.semanticScore
       : Math.min(1, result.semanticScore * 0.65 + rrf * 0.35)
-    return { ...result, semanticScore: score }
+    return { ...result, semanticScore: score, retrievalSources: [semanticPosition ? "vector" : undefined, lexicalPosition ? "lexical" : undefined].filter((s): s is "vector" | "lexical" => !!s) }
   }).sort((a, b) => b.semanticScore - a.semanticScore)
 }
 
@@ -1154,7 +1163,6 @@ export function dedupeOverlapping<T extends { file: string; startLine: number; e
   const overlapThreshold = options?.overlapThreshold ?? 0.6
   const scoreSlack = options?.scoreSlack ?? 0.02
   const byFile = new Map<string, T[]>()
-  const kept: T[] = []
 
   for (const result of results) {
     const list = byFile.get(result.file) ?? []
@@ -1198,11 +1206,11 @@ export function dedupeOverlapping<T extends { file: string; startLine: number; e
     }
   }
 
-  for (const list of byFile.values()) {
-    kept.push(...list)
-  }
-
-  return kept
+  // Grouping is only for overlap detection. Preserve the incoming global rank:
+  // flattening by file lets low-ranked siblings consume the candidate budget
+  // before stronger evidence in other files can reach selection or Jev.
+  const survivors = new Set([...byFile.values()].flat())
+  return results.filter(result => survivors.has(result))
 }
 
 export function diversifyResults<T extends { file: string; metadata: Record<string, unknown> }>(
@@ -1240,7 +1248,7 @@ export async function collectWorkingResults(
   resources: SearchResources,
   params: CommonSensegrepParams,
   options: CollectWorkingResultsOptions,
-): Promise<{ results: WorkingResult[]; filters: VectorStore.SearchFilters; candidateFiles?: string[]; lexicalOnly: boolean; warnings: string[]; metrics: Record<string, number>; retrieval: RetrievalSummary } | ToolLikeResult> {
+): Promise<{ results: WorkingResult[]; preDedupeResults: WorkingResult[]; allowedFiles: string[]; filters: VectorStore.SearchFilters; candidateFiles?: string[]; lexicalOnly: boolean; warnings: string[]; metrics: Record<string, number>; retrieval: RetrievalSummary } | ToolLikeResult> {
   const metrics: Record<string, number> = { semanticSearchMs: 0 }
   const warnings: string[] = []
   if (!resources.schema.schemaCompatible) warnings.push(`Index schema migration recommended; missing fields: ${resources.schema.missingFields.join(", ")}.`)
@@ -1502,6 +1510,8 @@ export async function collectWorkingResults(
 
   return {
     results: processedResults,
+    preDedupeResults: workingResults,
+    allowedFiles: lexicalCandidateFiles,
     filters,
     candidateFiles: fileFiltering.candidateFiles,
     lexicalOnly,

@@ -24,11 +24,29 @@ export function parseJevOptions(flags: Flags) {
     if (typeof flags[name] === "boolean" || !Number.isInteger(value) || value < min || value > max) throw new CliUsageError(`--${name} must be an integer from ${min} to ${max}`)
     return value
   }
+  const panel = flags["jev-panel"]
+  if (panel !== undefined && !["staged", "composite", "score", "noul"].includes(String(panel))) throw new CliUsageError("--jev-panel must be staged, composite, score, or noul")
   const ranking = flags["jev-ranking"]
-  if (ranking !== undefined && !["legacy", "score", "rrf"].includes(String(ranking))) throw new CliUsageError("--jev-ranking must be legacy, score, or rrf")
-  return { jevBatchSize: integer("jev-batch-size", 1, 10), jevRanking: ranking as "legacy" | "score" | "rrf" | undefined,
+  for (const name of ["jev-blocks", "jev-bundles", "jev-verify-aspects"]) if (flags[name] !== undefined && ![true,false,"true","false"].includes(flags[name])) throw new CliUsageError(`--${name} must be true or false`)
+  const stages=flags['jev-stages']===undefined ? undefined : String(flags['jev-stages']).split(',')
+  if(stages && (!stages.length || stages.some(s=>!['rerank','evidence','recovery'].includes(s)) || new Set(stages).size!==stages.length || !jev || jev==='off')) throw new CliUsageError('--jev-stages requires enabled --jev and unique comma-separated rerank,evidence,recovery stages')
+  let jevAspects: string[] | undefined
+  if (flags["jev-aspects"] !== undefined) {
+    try {
+      const parsed = JSON.parse(String(flags["jev-aspects"]))
+      if (!Array.isArray(parsed) || !parsed.length || parsed.length > 6 || parsed.some(v => typeof v !== "string" || !v.trim() || v.trim().length > 240)) throw new Error()
+      jevAspects = parsed.map((v: string) => v.trim())
+    } catch { throw new CliUsageError("--jev-aspects must be a JSON array of 1 to 6 nonempty strings, at most 240 characters each") }
+  }
+  if (ranking !== undefined && !["eligible", "legacy", "score", "rrf", "useful", "noul", "confidence-baseline"].includes(String(ranking))) throw new CliUsageError("--jev-ranking must be eligible, legacy, score, rrf, useful, noul, or confidence-baseline")
+  return { jevPanel: panel as "staged" | "composite" | "score" | "noul" | undefined, jevBatchSize: integer("jev-batch-size", 1, 10), jevRanking: ranking as "eligible" | "legacy" | "score" | "rrf" | "useful" | "noul" | "confidence-baseline" | undefined,
     jev: jev as "off" | "evidence" | "rerank" | "both" | undefined,
-    jevCandidates: integer("jev-candidates", 1, 40), jevTimeoutMs: integer("jev-timeout", 100, 60_000) }
+    jevStages:stages as Array<'rerank'|'evidence'|'recovery'> | undefined,
+    jevRecoveryDepth:integer('jev-recovery-depth',1,3), jevBeamWidth:integer('jev-beam-width',1,3),
+    ...(flags['jev-verify-aspects']===undefined ? {} : {jevVerifyAspects:flags['jev-verify-aspects']===true || flags['jev-verify-aspects']==='true'}),
+    jevAspects, ...(flags["jev-blocks"] === undefined ? {} : { jevBlocks: flags["jev-blocks"] === true || flags["jev-blocks"] === "true" }),
+    ...(flags["jev-bundles"] === undefined ? {} : { jevBundles: flags["jev-bundles"] === true || flags["jev-bundles"] === "true" }),
+    jevCandidates: integer("jev-candidates", 1, 80), jevTimeoutMs: integer("jev-timeout", 100, 60_000) }
 }
 type CoreModule = typeof import("@sensegrep/core")
 

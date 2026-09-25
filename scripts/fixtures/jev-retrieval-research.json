@@ -1,0 +1,590 @@
+{
+  "labelSource": "Agent reviewed against frozen source. New holdout families declared before inspecting their retrieval outcomes. Previous test families excluded; not claimed unseen again.",
+  "cases": [
+    {
+      "id": "dev-0-0",
+      "group": "payout-policy",
+      "split": "dev",
+      "query": "When is a small payout balance old enough to bypass the minimum?",
+      "required": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "shouldIgnoreMinimumPayout"
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "MAX_SMALL_BALANCE_AGE_MS"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "areDoctorPayoutsEnabled"
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "calculateCommissionAmounts"
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "initialNextPayoutAt"
+        }
+      ]
+    },
+    {
+      "id": "dev-0-1",
+      "group": "payout-policy",
+      "split": "dev",
+      "query": "Quando a idade do saldo permite ignorar o minimo do repasse?",
+      "required": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "shouldIgnoreMinimumPayout"
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "MAX_SMALL_BALANCE_AGE_MS"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "areDoctorPayoutsEnabled"
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "calculateCommissionAmounts"
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "initialNextPayoutAt"
+        }
+      ]
+    },
+    {
+      "id": "dev-1-0",
+      "group": "payout-policy",
+      "split": "dev",
+      "query": "How is the commission hold duration read from configuration?",
+      "required": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "getCommissionHoldMs"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "shouldIgnoreMinimumPayout"
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "areDoctorPayoutsEnabled"
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "initialNextPayoutAt"
+        }
+      ]
+    },
+    {
+      "id": "dev-1-1",
+      "group": "payout-policy",
+      "split": "dev",
+      "query": "Como a duracao de retencao da comissao e lida da configuracao?",
+      "required": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "getCommissionHoldMs"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "shouldIgnoreMinimumPayout"
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "areDoctorPayoutsEnabled"
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "initialNextPayoutAt"
+        }
+      ]
+    },
+    {
+      "id": "dev-2-0",
+      "group": "payout-crypto",
+      "split": "dev",
+      "query": "How is a payout destination encrypted?",
+      "required": [
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "encryptPayoutDestination"
+        },
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "getEncryptionKey"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "decryptPayoutDestination"
+        }
+      ]
+    },
+    {
+      "id": "dev-2-1",
+      "group": "payout-crypto",
+      "split": "dev",
+      "query": "Como o destino de repasse e criptografado?",
+      "required": [
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "encryptPayoutDestination"
+        },
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "getEncryptionKey"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "decryptPayoutDestination"
+        }
+      ]
+    },
+    {
+      "id": "dev-3-0",
+      "group": "payout-crypto",
+      "split": "dev",
+      "query": "Where is the encryption key decoded and rejected when its byte length is invalid?",
+      "required": [
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "getEncryptionKey"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "ALGORITHM"
+        },
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "VERSION"
+        }
+      ]
+    },
+    {
+      "id": "dev-3-1",
+      "group": "payout-crypto",
+      "split": "dev",
+      "query": "Onde a chave de criptografia e decodificada e rejeitada por tamanho invalido?",
+      "required": [
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "getEncryptionKey"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "ALGORITHM"
+        },
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "VERSION"
+        }
+      ]
+    },
+    {
+      "id": "dev-4-0",
+      "group": "email",
+      "split": "dev",
+      "query": "How is a stable email idempotency key derived from a notification identifier?",
+      "required": [
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getNotificationEmailIdempotencyKey"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getResendClient"
+        },
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getResendFromEmail"
+        },
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getResendReplyToEmail"
+        }
+      ]
+    },
+    {
+      "id": "dev-4-1",
+      "group": "email",
+      "split": "dev",
+      "query": "Como gerar uma chave estavel para impedir emails duplicados da mesma notificacao?",
+      "required": [
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getNotificationEmailIdempotencyKey"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getResendClient"
+        },
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getResendFromEmail"
+        },
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getResendReplyToEmail"
+        }
+      ]
+    },
+    {
+      "id": "dev-5-0",
+      "group": "email",
+      "split": "dev",
+      "query": "How is the configured reply-to email read?",
+      "required": [
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getResendReplyToEmail"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getResendFromEmail"
+        },
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getNotificationEmailIdempotencyKey"
+        },
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getResendClient"
+        }
+      ]
+    },
+    {
+      "id": "dev-5-1",
+      "group": "email",
+      "split": "dev",
+      "query": "Como e lido o endereco de resposta configurado para email?",
+      "required": [
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getResendReplyToEmail"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getResendFromEmail"
+        },
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getNotificationEmailIdempotencyKey"
+        },
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getResendClient"
+        }
+      ]
+    },
+    {
+      "id": "dev-6-0",
+      "group": "sms",
+      "split": "dev",
+      "query": "How are accents removed from an SMS message?",
+      "required": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "sanitizeSmsMessage"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "normalizeBrazilianSmsRecipient"
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "mapGtiSmsStatusToDeliveryStatus"
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "getGtiSmsBaseUrl"
+        }
+      ]
+    },
+    {
+      "id": "dev-6-1",
+      "group": "sms",
+      "split": "dev",
+      "query": "Como sao removidos acentos do texto de SMS?",
+      "required": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "sanitizeSmsMessage"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "normalizeBrazilianSmsRecipient"
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "mapGtiSmsStatusToDeliveryStatus"
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "getGtiSmsBaseUrl"
+        }
+      ]
+    },
+    {
+      "id": "dev-7-0",
+      "group": "sms",
+      "split": "dev",
+      "query": "Where are international phone numbers outside Brazil rejected?",
+      "required": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "normalizeBrazilianSmsRecipient"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "sanitizeSmsMessage"
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "mapGtiSmsStatusToDeliveryStatus"
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "getGtiSmsBaseUrl"
+        }
+      ]
+    },
+    {
+      "id": "dev-7-1",
+      "group": "sms",
+      "split": "dev",
+      "query": "Onde sao rejeitados telefones internacionais fora do Brasil?",
+      "required": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "normalizeBrazilianSmsRecipient"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "sanitizeSmsMessage"
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "mapGtiSmsStatusToDeliveryStatus"
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "getGtiSmsBaseUrl"
+        }
+      ]
+    },
+    {
+      "id": "dev-8-0",
+      "group": "sms",
+      "split": "dev",
+      "query": "How is a provider status mapped into sent delivered or failed?",
+      "required": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "mapGtiSmsStatusToDeliveryStatus"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "normalizeBrazilianSmsRecipient"
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "sanitizeSmsMessage"
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "getGtiSmsBaseUrl"
+        }
+      ]
+    },
+    {
+      "id": "dev-8-1",
+      "group": "sms",
+      "split": "dev",
+      "query": "Como o status do provedor e convertido em enviado entregue ou falhou?",
+      "required": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "mapGtiSmsStatusToDeliveryStatus"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "normalizeBrazilianSmsRecipient"
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "sanitizeSmsMessage"
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "getGtiSmsBaseUrl"
+        }
+      ]
+    },
+    {
+      "id": "dev-crypto-composition",
+      "group": "payout-crypto",
+      "split": "dev",
+      "query": "How is the payout destination encrypted and how is its encryption key validated?",
+      "required": [
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "encryptPayoutDestination"
+        },
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "getEncryptionKey",
+          "role": "helper"
+        }
+      ]
+    },
+    {
+      "id": "new-working-hours-0",
+      "group": "working-hours",
+      "split": "test",
+      "query": "How are configured working-hour bounds checked against the local weekday and time?",
+      "required": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "isWithinWorkingHours",
+          "role": "rule"
+        },
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "getZonedWorkingTime",
+          "role": "helper"
+        },
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "parseTimeToMinutes",
+          "role": "helper"
+        }
+      ]
+    },
+    {
+      "id": "new-working-hours-1",
+      "group": "working-hours",
+      "split": "test",
+      "query": "Como o horario de trabalho configurado e comparado ao dia e horario local?",
+      "required": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "isWithinWorkingHours",
+          "role": "rule"
+        },
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "getZonedWorkingTime",
+          "role": "helper"
+        },
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "parseTimeToMinutes",
+          "role": "helper"
+        }
+      ]
+    },
+    {
+      "id": "new-consent-validation-0",
+      "group": "consent-validation",
+      "split": "test",
+      "query": "How does consent validation reject an outdated terms version and an acceptance timestamp too far in the future?",
+      "required": [
+        {
+          "file": "convex/lib/patientConsent.ts",
+          "symbol": "assertPatientConsentIsValid",
+          "role": "rule"
+        },
+        {
+          "file": "convex/lib/patientConsent.ts",
+          "symbol": "CURRENT_CONSENT_TERMS_VERSION",
+          "role": "helper"
+        }
+      ]
+    },
+    {
+      "id": "new-consent-validation-1",
+      "group": "consent-validation",
+      "split": "test",
+      "query": "Como a validacao do consentimento rejeita uma versao antiga dos termos e um aceite com horario futuro?",
+      "required": [
+        {
+          "file": "convex/lib/patientConsent.ts",
+          "symbol": "assertPatientConsentIsValid",
+          "role": "rule"
+        },
+        {
+          "file": "convex/lib/patientConsent.ts",
+          "symbol": "CURRENT_CONSENT_TERMS_VERSION",
+          "role": "helper"
+        }
+      ]
+    },
+    {
+      "id": "new-patient-lookup-0",
+      "group": "patient-lookup",
+      "split": "test",
+      "query": "Where is a patient found using the indexed Clerk user identifier?",
+      "required": [
+        {
+          "file": "convex/lib/patientLookup.ts",
+          "symbol": "findPatientByClerkUserId",
+          "role": "rule"
+        }
+      ]
+    },
+    {
+      "id": "new-patient-lookup-1",
+      "group": "patient-lookup",
+      "split": "test",
+      "query": "Onde um paciente e localizado pelo indice do identificador de usuario Clerk?",
+      "required": [
+        {
+          "file": "convex/lib/patientLookup.ts",
+          "symbol": "findPatientByClerkUserId",
+          "role": "rule"
+        }
+      ]
+    }
+  ]
+}

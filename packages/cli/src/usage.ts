@@ -48,10 +48,18 @@ Search options:
   --imports <name>          Filter by imported module name
   --rerank <true|false>     Apply deterministic lexical/structural reranking
   --no-rerank               Disable reranking
-  --jev <mode>              OpenRouter Jev: evidence|rerank|both|off (default off; sends source)
-  --jev-candidates <n>      Maximum remote candidate evaluations (default 20, max 40)
-  --jev-batch-size <n>      Candidates per request: 1-10 (default 5; also byte-bounded)
-  --jev-ranking <strategy>  score (default), legacy weights, or rrf ordinal fusion
+  --jev <mode>              Jev: evidence|rerank|both|off (search/context: both when configured; sends source)
+  --jev-candidates <n>      Maximum remote candidate evaluations (default 20, max 80)
+  --jev-aspects <json>      Explicit query requirements: JSON array of 1-6 strings
+  --jev-blocks              Experimental whole AST excerpts for oversized functions
+  --jev-bundles             Experimental same-file literal constant judging context
+  --jev-batch-size <n>      Candidates per request: 1-10 (default 1; also byte-bounded)
+  --jev-panel <panel>       staged (default), composite, score, or noul
+  --jev-stages <list>       Enabled stages: rerank,evidence,recovery (requires --jev)
+  --jev-verify-aspects      Experimental supports/contradicts/says_nothing per requirement
+  --jev-recovery-depth <n>  Resolved-call traversal depth 1-3 (default 1)
+  --jev-beam-width <n>      Recovery frontier width 1-3 (default 3)
+  --jev-ranking <strategy>  eligible (default), score, useful, noul, rrf, legacy, confidence-baseline
   --jev-timeout <ms>        Whole Jev stage deadline (default 8000ms); local fallback
   --hybrid <true|false>     Fuse lexical and vector retrieval (default: true)
   --no-hybrid               Disable lexical/vector fusion

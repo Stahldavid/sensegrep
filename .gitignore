@@ -40,6 +40,9 @@ bench/
 
 # Temporary files
 temp_audio.*
+__pycache__/
+.jev-local/
+.test-indexer/
 
 # Demo generated artifacts
 demo/out/

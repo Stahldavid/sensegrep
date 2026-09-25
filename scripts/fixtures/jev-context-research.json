@@ -1,0 +1,531 @@
+{
+  "labelSource": "agent-source-reviewed-2026-09-24; prior inspected cases dev; new behavior families test; unknown candidates unlabeled",
+  "cases": [
+    {
+      "id": "dev-0-0",
+      "group": "payout-policy",
+      "split": "dev",
+      "query": "When is a small payout balance old enough to bypass the minimum?",
+      "required": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "shouldIgnoreMinimumPayout"
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "MAX_SMALL_BALANCE_AGE_MS"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "areDoctorPayoutsEnabled"
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "calculateCommissionAmounts"
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "initialNextPayoutAt"
+        }
+      ]
+    },
+    {
+      "id": "dev-0-1",
+      "group": "payout-policy",
+      "split": "dev",
+      "query": "Quando a idade do saldo permite ignorar o minimo do repasse?",
+      "required": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "shouldIgnoreMinimumPayout"
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "MAX_SMALL_BALANCE_AGE_MS"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "areDoctorPayoutsEnabled"
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "calculateCommissionAmounts"
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "initialNextPayoutAt"
+        }
+      ]
+    },
+    {
+      "id": "dev-1-0",
+      "group": "payout-policy",
+      "split": "dev",
+      "query": "How is the commission hold duration read from configuration?",
+      "required": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "getCommissionHoldMs"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "shouldIgnoreMinimumPayout"
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "areDoctorPayoutsEnabled"
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "initialNextPayoutAt"
+        }
+      ]
+    },
+    {
+      "id": "dev-1-1",
+      "group": "payout-policy",
+      "split": "dev",
+      "query": "Como a duracao de retencao da comissao e lida da configuracao?",
+      "required": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "getCommissionHoldMs"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "shouldIgnoreMinimumPayout"
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "areDoctorPayoutsEnabled"
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "initialNextPayoutAt"
+        }
+      ]
+    },
+    {
+      "id": "dev-2-0",
+      "group": "payout-crypto",
+      "split": "dev",
+      "query": "How is a payout destination encrypted?",
+      "required": [
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "encryptPayoutDestination"
+        },
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "getEncryptionKey"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "decryptPayoutDestination"
+        }
+      ]
+    },
+    {
+      "id": "dev-2-1",
+      "group": "payout-crypto",
+      "split": "dev",
+      "query": "Como o destino de repasse e criptografado?",
+      "required": [
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "encryptPayoutDestination"
+        },
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "getEncryptionKey"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "decryptPayoutDestination"
+        }
+      ]
+    },
+    {
+      "id": "dev-3-0",
+      "group": "payout-crypto",
+      "split": "dev",
+      "query": "Where is the encryption key decoded and rejected when its byte length is invalid?",
+      "required": [
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "getEncryptionKey"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "ALGORITHM"
+        },
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "VERSION"
+        }
+      ]
+    },
+    {
+      "id": "dev-3-1",
+      "group": "payout-crypto",
+      "split": "dev",
+      "query": "Onde a chave de criptografia e decodificada e rejeitada por tamanho invalido?",
+      "required": [
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "getEncryptionKey"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "ALGORITHM"
+        },
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "VERSION"
+        }
+      ]
+    },
+    {
+      "id": "dev-4-0",
+      "group": "email",
+      "split": "dev",
+      "query": "How is a stable email idempotency key derived from a notification identifier?",
+      "required": [
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getNotificationEmailIdempotencyKey"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getResendClient"
+        },
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getResendFromEmail"
+        },
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getResendReplyToEmail"
+        }
+      ]
+    },
+    {
+      "id": "dev-4-1",
+      "group": "email",
+      "split": "dev",
+      "query": "Como gerar uma chave estavel para impedir emails duplicados da mesma notificacao?",
+      "required": [
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getNotificationEmailIdempotencyKey"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getResendClient"
+        },
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getResendFromEmail"
+        },
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getResendReplyToEmail"
+        }
+      ]
+    },
+    {
+      "id": "dev-5-0",
+      "group": "email",
+      "split": "dev",
+      "query": "How is the configured reply-to email read?",
+      "required": [
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getResendReplyToEmail"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getResendFromEmail"
+        },
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getNotificationEmailIdempotencyKey"
+        },
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getResendClient"
+        }
+      ]
+    },
+    {
+      "id": "dev-5-1",
+      "group": "email",
+      "split": "dev",
+      "query": "Como e lido o endereco de resposta configurado para email?",
+      "required": [
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getResendReplyToEmail"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getResendFromEmail"
+        },
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getNotificationEmailIdempotencyKey"
+        },
+        {
+          "file": "convex/lib/resend.ts",
+          "symbol": "getResendClient"
+        }
+      ]
+    },
+    {
+      "id": "dev-6-0",
+      "group": "sms",
+      "split": "dev",
+      "query": "How are accents removed from an SMS message?",
+      "required": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "sanitizeSmsMessage"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "normalizeBrazilianSmsRecipient"
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "mapGtiSmsStatusToDeliveryStatus"
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "getGtiSmsBaseUrl"
+        }
+      ]
+    },
+    {
+      "id": "dev-6-1",
+      "group": "sms",
+      "split": "dev",
+      "query": "Como sao removidos acentos do texto de SMS?",
+      "required": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "sanitizeSmsMessage"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "normalizeBrazilianSmsRecipient"
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "mapGtiSmsStatusToDeliveryStatus"
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "getGtiSmsBaseUrl"
+        }
+      ]
+    },
+    {
+      "id": "dev-7-0",
+      "group": "sms",
+      "split": "dev",
+      "query": "Where are international phone numbers outside Brazil rejected?",
+      "required": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "normalizeBrazilianSmsRecipient"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "sanitizeSmsMessage"
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "mapGtiSmsStatusToDeliveryStatus"
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "getGtiSmsBaseUrl"
+        }
+      ]
+    },
+    {
+      "id": "dev-7-1",
+      "group": "sms",
+      "split": "dev",
+      "query": "Onde sao rejeitados telefones internacionais fora do Brasil?",
+      "required": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "normalizeBrazilianSmsRecipient"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "sanitizeSmsMessage"
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "mapGtiSmsStatusToDeliveryStatus"
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "getGtiSmsBaseUrl"
+        }
+      ]
+    },
+    {
+      "id": "dev-8-0",
+      "group": "sms",
+      "split": "dev",
+      "query": "How is a provider status mapped into sent delivered or failed?",
+      "required": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "mapGtiSmsStatusToDeliveryStatus"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "normalizeBrazilianSmsRecipient"
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "sanitizeSmsMessage"
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "getGtiSmsBaseUrl"
+        }
+      ]
+    },
+    {
+      "id": "dev-8-1",
+      "group": "sms",
+      "split": "dev",
+      "query": "Como o status do provedor e convertido em enviado entregue ou falhou?",
+      "required": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "mapGtiSmsStatusToDeliveryStatus"
+        }
+      ],
+      "negative": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "normalizeBrazilianSmsRecipient"
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "sanitizeSmsMessage"
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "getGtiSmsBaseUrl"
+        }
+      ]
+    },
+    {
+      "id": "dev-crypto-composition",
+      "group": "payout-crypto",
+      "split": "dev",
+      "query": "How is the payout destination encrypted and how is its encryption key validated?",
+      "required": [
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "encryptPayoutDestination"
+        },
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "getEncryptionKey",
+          "role": "helper"
+        }
+      ]
+    },
+    {
+      "id": "test-rate-limit",
+      "group": "rate-limit",
+      "split": "test",
+      "query": "How does the token bucket refill with elapsed seconds and reject a request with no token?",
+      "required": [
+        {
+          "file": "convex/lib/rateLimitBucket.ts",
+          "symbol": "consumeRateLimitToken",
+          "role": "rule"
+        }
+      ]
+    },
+    {
+      "id": "test-utc-range",
+      "group": "utc-range",
+      "split": "test",
+      "query": "How are the inclusive UTC day start and exclusive next-day end computed for a timestamp?",
+      "required": [
+        {
+          "file": "convex/lib/timestampHelpers.ts",
+          "symbol": "utcDayRangeMs",
+          "role": "rule"
+        },
+        {
+          "file": "convex/lib/timestampHelpers.ts",
+          "symbol": "startOfUtcDayMs",
+          "role": "helper"
+        },
+        {
+          "file": "convex/lib/timestampHelpers.ts",
+          "symbol": "startOfNextUtcDayMs",
+          "role": "helper"
+        }
+      ]
+    },
+    {
+      "id": "test-order-signature",
+      "group": "order-signature",
+      "split": "test",
+      "query": "How are product quantities and prices turned into an order-independent medical order signature?",
+      "required": [
+        {
+          "file": "convex/lib/medicalOrderItems.ts",
+          "symbol": "getMedicalOrderItemsSignature",
+          "role": "rule"
+        }
+      ]
+    }
+  ]
+}
