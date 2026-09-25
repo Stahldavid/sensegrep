@@ -1,0 +1,48 @@
+[
+  {
+    "name": "reserved-privacy-0",
+    "group": "analytics-privacy",
+    "query": "How are analytics identifiers hashed with a salt, and what makes the salt valid?",
+    "required": [
+      {
+        "file": "convex/lib/posthogPrivacy.ts",
+        "symbol": "hashAnalyticsIdentifier"
+      },
+      {
+        "file": "convex/lib/posthogPrivacy.ts",
+        "symbol": "getAnalyticsHashSalt"
+      }
+    ],
+    "args": [
+      "context",
+      "How are analytics identifiers hashed with a salt, and what makes the salt valid?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ]
+  },
+  {
+    "name": "reserved-privacy-1",
+    "group": "analytics-privacy",
+    "query": "Como URLs de analytics removem query strings e fragmentos e mascaram segmentos de identificadores?",
+    "required": [
+      {
+        "file": "convex/lib/posthogPrivacy.ts",
+        "symbol": "sanitizeUrlLikeValue"
+      },
+      {
+        "file": "convex/lib/posthogPrivacy.ts",
+        "symbol": "sanitizePathname"
+      }
+    ],
+    "args": [
+      "context",
+      "Como URLs de analytics removem query strings e fragmentos e mascaram segmentos de identificadores?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ]
+  }
+]

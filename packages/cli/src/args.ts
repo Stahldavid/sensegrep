@@ -29,7 +29,7 @@ export function parseArgs(argv: string[]): { flags: Flags; positional: string[] 
 const GLOBAL_FLAGS = new Set(["help", "h", "root", "profile", "json", "log-format", "pretty", "diagnostic", "json-detail", "jsonDetail"])
 const EMBEDDING_FLAGS = new Set(["provider", "embed-model", "embedModel", "embed-dim", "embedDim"])
 const INDEX_RUN_FLAGS = new Set(["timeout", "max-files", "maxFiles", "verbose"])
-const JEV_FLAGS = ["jev", "jev-candidates", "jev-timeout", "jev-batch-size", "jev-ranking"]
+const JEV_FLAGS = ["jev", "jev-candidates", "jev-timeout", "jev-batch-size", "jev-ranking", "jev-panel", "jev-aspects", "jev-blocks", "jev-bundles", "jev-stages", "jev-verify-aspects", "jev-recovery-depth", "jev-beam-width"]
 const SEARCH_FILTER_FLAGS = new Set([
   "query", "pattern", "limit", "include", "exclude", "type", "symbolType", "variant", "decorator",
   "symbol", "name", "exact", "exported", "async", "static", "abstract", "min-complexity",

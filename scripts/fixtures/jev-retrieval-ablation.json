@@ -1,0 +1,110 @@
+[
+  {
+    "name": "dev-2-1",
+    "group": "payout-crypto",
+    "query": "Como o destino de repasse e criptografado?",
+    "required": [
+      {
+        "file": "convex/lib/payoutDestinationCrypto.ts",
+        "symbol": "encryptPayoutDestination"
+      },
+      {
+        "file": "convex/lib/payoutDestinationCrypto.ts",
+        "symbol": "getEncryptionKey"
+      }
+    ],
+    "args": [
+      "context",
+      "Como o destino de repasse e criptografado?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ]
+  },
+  {
+    "name": "dev-3-1",
+    "group": "payout-crypto",
+    "query": "Onde a chave de criptografia e decodificada e rejeitada por tamanho invalido?",
+    "required": [
+      {
+        "file": "convex/lib/payoutDestinationCrypto.ts",
+        "symbol": "getEncryptionKey"
+      }
+    ],
+    "args": [
+      "context",
+      "Onde a chave de criptografia e decodificada e rejeitada por tamanho invalido?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ]
+  },
+  {
+    "name": "dev-7-0",
+    "group": "sms",
+    "query": "Where are international phone numbers outside Brazil rejected?",
+    "required": [
+      {
+        "file": "convex/lib/gtiSms.ts",
+        "symbol": "normalizeBrazilianSmsRecipient"
+      }
+    ],
+    "args": [
+      "context",
+      "Where are international phone numbers outside Brazil rejected?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ]
+  },
+  {
+    "name": "dev-7-1",
+    "group": "sms",
+    "query": "Onde sao rejeitados telefones internacionais fora do Brasil?",
+    "required": [
+      {
+        "file": "convex/lib/gtiSms.ts",
+        "symbol": "normalizeBrazilianSmsRecipient"
+      }
+    ],
+    "args": [
+      "context",
+      "Onde sao rejeitados telefones internacionais fora do Brasil?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ]
+  },
+  {
+    "name": "no-cassandra",
+    "group": "no-cassandra",
+    "negative": true,
+    "query": "Where is Apache Cassandra hinted handoff and quorum repair implemented?",
+    "args": [
+      "context",
+      "Where is Apache Cassandra hinted handoff and quorum repair implemented?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ]
+  },
+  {
+    "name": "no-vulkan",
+    "group": "no-vulkan",
+    "negative": true,
+    "query": "How does this repository implement Vulkan shader compilation and GPU command buffer submission?",
+    "args": [
+      "context",
+      "How does this repository implement Vulkan shader compilation and GPU command buffer submission?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ]
+  }
+]

@@ -107,6 +107,163 @@ export namespace TreeSitterChunking {
     } finally { tree.delete() }
   }
 
+  /** Bounded same-file constants, including inert arithmetic, referenced in an exact interval. */
+  export async function evidenceConstants(content: string, file: string, startLine: number, endLine: number) {
+    const empty: Array<{ symbol: string; startLine: number; endLine: number; content: string }> = []
+    if (!/\.[cm]?[jt]sx?$/.test(file) || content.length > 128_000) return empty
+    const parser = await (/\.[jt]sx$/.test(file) ? tsxParser() : tsParser())
+    const tree = parser.parse(content)
+    if (!tree) return empty
+    try {
+      const root = tree.rootNode as any
+      if (typeof root.hasError === "function" ? root.hasError() : root.hasError) return empty
+      const used = new Set<string>(), shadowed = new Set<string>()
+      const collectBindings = (node: SyntaxNode) => {
+        if (node.childCount === 0 && /^[A-Z][A-Z0-9_]*$/.test(node.text)) shadowed.add(node.text)
+        for (let i=0;i<node.childCount;i++) { const child=node.child(i); if(child) collectBindings(child) }
+      }
+      const visit = (node: SyntaxNode) => {
+        if (node.endPosition.row + 1 < startLine || node.startPosition.row + 1 > endLine) return
+        if (["required_parameter", "optional_parameter", "formal_parameters"].includes(node.type)) collectBindings(node)
+        if (node.type === "arrow_function") { const parameter=node.childForFieldName("parameter"); if(parameter) collectBindings(parameter) }
+        if (node.type === "variable_declarator") { const binding=node.childForFieldName("name"); if(binding) collectBindings(binding) }
+        if (node.type === "identifier" && /^[A-Z][A-Z0-9_]*$/.test(node.text)) {
+          used.add(node.text)
+        }
+        for(let i=0;i<node.childCount;i++){ const child=node.child(i); if(child) visit(child) }
+      }
+      visit(root)
+      const inert = (node: SyntaxNode): boolean => {
+        if (["number", "string", "true", "false"].includes(node.type)) return true
+        if (node.type === "member_expression") {
+          const object = node.childForFieldName("object"), property = node.childForFieldName("property")
+          return object?.type === "identifier" && /^[A-Z][\w$]*$/.test(object.text)
+            && property?.type === "property_identifier"
+        }
+        if (node.type === "binary_expression") {
+          const left=node.childForFieldName("left"), right=node.childForFieldName("right"), operator=node.childForFieldName("operator")
+          return !!left && !!right && !!operator && ["+","-","*","/","%"].includes(operator.text) && inert(left) && inert(right)
+        }
+        return false
+      }
+      for(let i=0;i<root.childCount && empty.length<6;i++) {
+        let node=root.child(i) as SyntaxNode | null
+        if(node?.type==="export_statement") node=node.childForFieldName("declaration")
+        if(!node || node.type!=="lexical_declaration" || !node.text.startsWith("const ")) continue
+        for(let j=0;j<node.childCount && empty.length<6;j++) {
+          const declaration=node.child(j), name=declaration?.childForFieldName("name"), value=declaration?.childForFieldName("value")
+          if(!name || !value || !used.has(name.text) || shadowed.has(name.text) || !inert(value) || node.text.length>1200) continue
+          empty.push({symbol:name.text,startLine:node.startPosition.row+1,endLine:node.endPosition.row+1,content:node.text})
+        }
+      }
+      return empty
+    } finally { tree.delete() }
+  }
+
+  /** Exact line ranges of whole statements in a single function. Never cuts a guard/try/loop. */
+  export async function evidenceBlocks(content: string, file: string): Promise<Array<{ startLine: number; endLine: number; guard: boolean; signature: boolean }>> {
+    if (!/\.[cm]?[jt]sx?$/.test(file) || content.length > 128_000) return []
+    const parser = await (/\.[jt]sx$/.test(file) ? tsxParser() : tsParser())
+    const tree = parser.parse(content)
+    if (!tree) return []
+    try {
+      const root = tree.rootNode as any
+      if (typeof root.hasError === "function" ? root.hasError() : root.hasError) return []
+      const functions: SyntaxNode[] = []
+      const visit = (node: SyntaxNode) => {
+        if (["function_declaration", "arrow_function", "function_expression", "method_definition"].includes(node.type)) { functions.push(node); return }
+        for (let i = 0; i < node.childCount; i++) { const child = node.child(i); if (child) visit(child) }
+      }
+      visit(root)
+      if (functions.length !== 1) return []
+      const fn = functions[0], body = fn.childForFieldName("body")
+      if (!body || body.type !== "statement_block") return []
+      const blocks = [{ startLine: 1, endLine: body.startPosition.row + 1, guard: false, signature: true }]
+      for (let i = 0; i < body.childCount; i++) {
+        const child = body.child(i)
+        if (!child || ["{", "}", "comment"].includes(child.type)) continue
+        const startLine = child.startPosition.row + 1, endLine = child.endPosition.row + 1
+        // Multiple statements on one line cannot be represented as independent line snippets.
+        if (startLine <= blocks.at(-1)!.endLine) return []
+        blocks.push({ startLine, endLine, guard: ["if_statement", "throw_statement", "return_statement", "try_statement"].includes(child.type), signature: false })
+      }
+      return blocks.length <= 40 ? blocks : []
+    } finally { tree.delete() }
+  }
+
+  /** Read references to named imports and top-level values. Conservative shadow
+   * handling intentionally omits ambiguous bindings instead of inventing edges. */
+  export async function evidenceReferences(content:string,file:string):Promise<Array<{target:string;line:number;module?:string;scheduled:boolean;reference:boolean}>> {
+    const parser=await (/\.[jt]sx$/.test(file)?tsxParser():tsParser())
+    const tree=parser.parse(content)
+    if(!tree) return []
+    const bindings=new Map<string,{target:string;module?:string}>(),refs:Array<{target:string;line:number;module?:string;scheduled:boolean;reference:boolean}>=[]
+    const children=(node:SyntaxNode)=>Array.from({length:node.childCount},(_,i)=>node.child(i)).filter((n):n is SyntaxNode=>!!n)
+    const names=(node:SyntaxNode|undefined|null):string[]=>!node?[]:node.type==='identifier'?[node.text]:children(node).flatMap(names)
+    const functionTypes=new Set(['function_declaration','function_expression','arrow_function','method_definition','generator_function_declaration'])
+    const locals=(node:SyntaxNode,root=true):string[]=>!root&&functionTypes.has(node.type)?[]:
+      [...(['variable_declarator','required_parameter','optional_parameter'].includes(node.type)?names(node.childForFieldName('name')):[]),
+        ...children(node).flatMap(child=>locals(child,false))]
+    const visit=(node:SyntaxNode,shadow:Set<string>)=>{
+      if(['import_statement','type_annotation','type_alias_declaration','interface_declaration'].includes(node.type)) return
+      if(functionTypes.has(node.type)) shadow=new Set([...shadow,...locals(node),...names(node.childForFieldName('parameters')),...names(node.childForFieldName('parameter'))])
+      if(node.type==='identifier'&&bindings.has(node.text)&&!shadow.has(node.text)) {
+        const parent=node.parent
+        const declaration=parent&&['variable_declarator','function_declaration'].includes(parent.type)&&parent.childForFieldName('name')?.startPosition.row===node.startPosition.row && parent.childForFieldName('name')?.startPosition.column===node.startPosition.column
+        const callee=parent?.type==='call_expression'&&parent.childForFieldName('function')?.startPosition.row===node.startPosition.row && parent.childForFieldName('function')?.startPosition.column===node.startPosition.column
+        if(!declaration&&!callee) refs.push({...bindings.get(node.text)!,line:node.startPosition.row+1,scheduled:false,reference:true})
+      }
+      for(const child of children(node)) visit(child,shadow)
+    }
+    try {
+      for(let node of children(tree.rootNode)) {
+        if(node.type==='import_statement') {
+          const module=node.childForFieldName('source')?.text.slice(1,-1)
+          const collect=(n:SyntaxNode)=>{
+            if(n.type==='import_specifier'&&module) {
+              const target=n.childForFieldName('name')?.text,alias=n.childForFieldName('alias')?.text??target
+              if(target&&alias&&!n.text.startsWith('type ')) bindings.set(alias,{target,module})
+            }
+            children(n).forEach(collect)
+          }
+          collect(node)
+        }
+        if(node.type==='export_statement') node=node.childForFieldName('declaration')??node
+        if(node.type==='lexical_declaration') for(const declaration of children(node)) {
+          const name=declaration.childForFieldName('name')
+          if(name?.type==='identifier') bindings.set(name.text,{target:name.text})
+        }
+      }
+      visit(tree.rootNode,new Set())
+      return refs
+    } finally {tree.delete()}
+  }
+
+  /** Names actually declared at file scope; excludes built-ins and callback parameters. */
+  export async function evidenceDeclaredSymbols(content:string,file:string):Promise<string[]> {
+    const parser=await (/\.[jt]sx$/.test(file)?tsxParser():tsParser())
+    const tree=parser.parse(content)
+    if(!tree) return []
+    try {
+      const names:string[]=[]
+      const root=tree.rootNode
+      for(let i=0;i<root.childCount;i++) {
+        let node=root.child(i)
+        if(node?.type==='export_statement') node=node.childForFieldName('declaration')
+        if(!node) continue
+        if(['lexical_declaration','variable_declaration'].includes(node.type)) {
+          for(let j=0;j<node.childCount;j++) {
+            const name=node.child(j)?.childForFieldName('name')
+            if(name?.type==='identifier') names.push(name.text)
+          }
+        } else if(['function_declaration','class_declaration','enum_declaration'].includes(node.type)) {
+          const name=node.childForFieldName('name');if(name) names.push(name.text)
+        }
+      }
+      return names
+    } finally {tree.delete()}
+  }
+
   /** Call-site evidence; strings/comments and unrelated scheduler calls never classify an edge. */
   export async function graphCalls(content: string, file: string): Promise<Array<{ target: string; scheduled: boolean; line: number; module?: string }>> {
     const parser = await (/\.[jt]sx$/.test(file) ? tsxParser() : tsParser())

@@ -1,0 +1,305 @@
+{
+  "schemaVersion": 2,
+  "status": "source-reviewed-not-executed",
+  "repository": "CuraAI",
+  "sourceCommit": "0712a2548c51fceb884e4e2ee9bb5ee379411342",
+  "reservationNote": "Previously consumed diagnostic cases; targeted regression, not holdout.",
+  "cases": [
+    {
+      "id": "payout-age",
+      "group": "payouts",
+      "split": "dev",
+      "query": "Quando a idade do saldo permite ignorar o mínimo de repasse? O limite é inclusivo?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "shouldIgnoreMinimumPayout",
+          "line": 110
+        },
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "MAX_SMALL_BALANCE_AGE_MS",
+          "line": 6
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "payout-age-1",
+          "description": "A decisão compara nowMs - oldestAvailableAt >= MAX_SMALL_BALANCE_AGE_MS."
+        },
+        {
+          "id": "payout-age-2",
+          "description": "A constante corresponde a 30 * Time.DAY; igualdade permite ignorar o mínimo."
+        }
+      ],
+      "notes": "Caso histórico; para converter Time.DAY em milissegundos é necessário acrescentar timestampHelpers.ts, fora desta pergunta.",
+      "sourceSha256": "1edaf5986d26f833a3148ed501591e55b1f8bae52394c5f7f09db5e7eff697ae",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/payoutPolicy.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "sha256": "1edaf5986d26f833a3148ed501591e55b1f8bae52394c5f7f09db5e7eff697ae"
+        }
+      ]
+    },
+    {
+      "id": "crypto-key",
+      "group": "payout-crypto",
+      "split": "dev",
+      "query": "Como a chave usada na criptografia do destino de repasse é carregada e validada?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "symbol": "getEncryptionKey",
+          "line": 8
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "crypto-key-1",
+          "description": "Lê PAYOUT_DESTINATION_ENCRYPTION_KEY e aplica trim."
+        },
+        {
+          "id": "crypto-key-2",
+          "description": "Ausência lança erro; decodifica base64 e exige 32 bytes."
+        }
+      ],
+      "notes": null,
+      "sourceSha256": "d9669cbb80a7f4a697276afe2e5214f9b9f5f88d21849466ef976f49c16c7a02",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/payoutDestinationCrypto.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/payoutDestinationCrypto.ts",
+          "sha256": "d9669cbb80a7f4a697276afe2e5214f9b9f5f88d21849466ef976f49c16c7a02"
+        }
+      ]
+    },
+    {
+      "id": "working-boundaries",
+      "group": "working-hours",
+      "split": "dev",
+      "query": "Na regra de horário de trabalho, o início e o fim são inclusivos? Quando uma janela é rejeitada?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "isWithinWorkingHours",
+          "line": 80
+        },
+        {
+          "file": "convex/lib/workingHours.ts",
+          "symbol": "parseTimeToMinutes",
+          "line": 40
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "working-boundaries-1",
+          "description": "Dia com enabled diferente de true é rejeitado."
+        },
+        {
+          "id": "working-boundaries-2",
+          "description": "Horário inicial/final inválido ou start >= end é rejeitado."
+        },
+        {
+          "id": "working-boundaries-3",
+          "description": "Início inclusivo e fim exclusivo."
+        },
+        {
+          "id": "working-boundaries-4",
+          "description": "Quando parseWorkingHours retorna null, a função permite o horário."
+        }
+      ],
+      "notes": "Para explicar timezone ou desserialização integral, são necessários outros helpers; esses detalhes não foram perguntados.",
+      "sourceSha256": "068b091383059c9b48447b63527ddcb42ff7d00e4c95ba080492a878182c714b",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/workingHours.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/workingHours.ts",
+          "sha256": "068b091383059c9b48447b63527ddcb42ff7d00e4c95ba080492a878182c714b"
+        }
+      ]
+    },
+    {
+      "id": "sms-status",
+      "group": "sms",
+      "split": "dev",
+      "query": "Como os status de entrega do provedor de SMS são traduzidos, inclusive um status desconhecido?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "mapGtiSmsStatusToDeliveryStatus",
+          "line": 143
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "sms-status-1",
+          "description": "Delivered vira delivered."
+        },
+        {
+          "id": "sms-status-2",
+          "description": "Failed, Rejected e Expired viram failed."
+        },
+        {
+          "id": "sms-status-3",
+          "description": "Demais valores, inclusive undefined/desconhecido, viram sent."
+        }
+      ],
+      "notes": null,
+      "sourceSha256": "b786d9744a6a9ce2c674b49892f7f90e82774686c2765e90105c22b9b88a6db8",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/gtiSms.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "sha256": "b786d9744a6a9ce2c674b49892f7f90e82774686c2765e90105c22b9b88a6db8"
+        }
+      ]
+    },
+    {
+      "id": "payout-snapshot",
+      "group": "payouts",
+      "split": "dev",
+      "query": "Como o snapshot de preço altera a base e o cálculo da comissão médica?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "symbol": "calculateCommissionAmounts",
+          "line": 24
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "payout-snapshot-1",
+          "description": "Com snapshot, rate é doctorAmountCents / totalAmountCents; taxa deve ser finita e estritamente entre zero e um."
+        },
+        {
+          "id": "payout-snapshot-2",
+          "description": "Total do snapshot deve ser igual a payment.amount."
+        },
+        {
+          "id": "payout-snapshot-3",
+          "description": "Snapshot força base gross e usa doctorAmountCents diretamente; sem snapshot, base padrão é net e o valor é arredondado com Math.round."
+        }
+      ],
+      "notes": null,
+      "sourceSha256": "1edaf5986d26f833a3148ed501591e55b1f8bae52394c5f7f09db5e7eff697ae",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/payoutPolicy.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/payoutPolicy.ts",
+          "sha256": "1edaf5986d26f833a3148ed501591e55b1f8bae52394c5f7f09db5e7eff697ae"
+        }
+      ]
+    },
+    {
+      "id": "sms-dryrun",
+      "group": "sms",
+      "split": "dev",
+      "query": "A simulação de envio SMS exige token e ainda envia uma requisição ao provedor?",
+      "answerExistsInScope": true,
+      "scope": {
+        "repositoryWide": true
+      },
+      "required": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "sendGtiSms",
+          "line": 151
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "isGtiSmsDryRun",
+          "line": 85
+        },
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "symbol": "isGtiSmsEnabled",
+          "line": 81
+        }
+      ],
+      "expectedFacts": [
+        {
+          "id": "sms-dryrun-1",
+          "description": "Normalização, sanitização e flag de habilitação são verificadas antes do dry-run."
+        },
+        {
+          "id": "sms-dryrun-2",
+          "description": "Dry-run retorna ok true, uid dry-run e providerStatus Sent antes de buscar token ou executar fetch."
+        },
+        {
+          "id": "sms-dryrun-3",
+          "description": "As flags aceitam 1, true, yes e on após lowercase, sem trim."
+        }
+      ],
+      "notes": null,
+      "sourceSha256": "b786d9744a6a9ce2c674b49892f7f90e82774686c2765e90105c22b9b88a6db8",
+      "maxTokens": 4000,
+      "limit": 5,
+      "reviewedSources": [
+        "convex/lib/gtiSms.ts"
+      ],
+      "sourceSnapshots": [
+        {
+          "file": "convex/lib/gtiSms.ts",
+          "sha256": "b786d9744a6a9ce2c674b49892f7f90e82774686c2765e90105c22b9b88a6db8"
+        }
+      ]
+    }
+  ],
+  "splitCounts": {
+    "dev": 15,
+    "reserved": 10,
+    "validation": 5
+  },
+  "evaluationNotes": [
+    "30 queries, not 30 independent implementation families. Report metrics by family as well as by query.",
+    "Positive cases search the repository; negative absence claims apply only to their explicit file scope.",
+    "Labels manually reviewed; no retrieval, model inference or behavioral tests performed.",
+    "New cases are distinct questions, not generated paraphrases. Freeze policy before reserved evaluation."
+  ],
+  "familyCounts": {
+    "dev": 3,
+    "validation": 2,
+    "reserved": 2
+  }
+}

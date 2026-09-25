@@ -5,7 +5,7 @@ import { DuplicateToolArgsSchema, IndexToolArgsSchema, toRootedInputSchema } fro
 describe("MCP tool input schemas", () => {
   it("rejects invalid duplicate detector ranges and scopes", () => {
     expect(() => DuplicateToolArgsSchema.parse({ jev: "invalid" })).toThrow()
-    expect(() => DuplicateToolArgsSchema.parse({ jevCandidates: 41 })).toThrow()
+    expect(() => DuplicateToolArgsSchema.parse({ jevCandidates: 81 })).toThrow()
     expect(() => DuplicateToolArgsSchema.parse({ jevTimeoutMs: 0 })).toThrow()
     expect(() => DuplicateToolArgsSchema.parse({ jevBatchSize: 11 })).toThrow()
     expect(() => DuplicateToolArgsSchema.parse({ jevRanking: "unsupported" })).toThrow()

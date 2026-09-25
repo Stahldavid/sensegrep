@@ -1,0 +1,28 @@
+[
+  {
+    "requested_implementation": {
+      "type": "noul",
+      "instructions": "Does candidate.content implement the specific behavior requested by query? Judge the implementation, not similarity of topic or names.",
+      "criteria": {
+        "true": "The supplied source executes the requested operation or condition.",
+        "false": "The source only mentions the topic, delegates the requested implementation, or implements another behavior."
+      }
+    },
+    "resolved_support": {
+      "type": "noul",
+      "instructions": "Does candidate.content implement a computation used by the supplied caller to perform the requested behavior? Use only supplied caller relations and source.",
+      "criteria": {
+        "true": "A supplied caller relationship shows the candidate supplies a required computation for the requested behavior.",
+        "false": "No such relationship is supplied, or the computation is unrelated to the requested behavior."
+      }
+    },
+    "additional_rule": {
+      "type": "noul",
+      "instructions": "Does candidate.content supply a rule relevant to query that is absent from state.selected? Compare the supplied implementations, not their names.",
+      "criteria": {
+        "true": "The candidate supplies an additional requested rule or condition not implemented in the selected source.",
+        "false": "It repeats an already supplied rule, is unrelated, or only delegates to absent code."
+      }
+    }
+  }
+]

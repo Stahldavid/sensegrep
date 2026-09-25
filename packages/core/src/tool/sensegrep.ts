@@ -1,3 +1,7 @@
+import { evaluateImplementationContext } from './jev-packages.js'
+import { packetFingerprint } from './jev-witness.js'
+import { EVIDENCE_POLICY } from './jev-policy.js'
+import { sourceHash, orderDependencyInspection, gateWitnessAssessment, dependencyObligations, pendingObligations, packObligations, type DependencyObligation } from "./jev-witness.js"
 import { readFileSync } from "node:fs"
 import { Tool } from "./tool.js"
 import { VectorStore } from "../semantic/lancedb.js"
@@ -14,12 +18,24 @@ import {
   reconstructSymbolResults,
   rerankWorkingResults,
   selectWithinTokenBudget,
+  estimateResultTokens,
+  matchesStrictStructuralFilters,
   toStructuredSearchResult,
 } from "./sensegrep-pipeline.js"
 import { SenseGrepParametersSchema } from "./search-schema.js"
 import { embeddingConfigFingerprint } from "../semantic/embedding-config.js"
 import { assessEvidence, flexibleDiversity, rankEvidence } from "./search-quality.js"
-import { evaluateWithJev, assessJevPacket, mergeJevDiagnostics, jevResultKey } from "./jev.js"
+import { assessJevQuery, evaluateWithJev, assessJevPacket, mergeJevDiagnostics, jevResultKey, resolveJevMode, type JevScores } from "./jev.js"
+import { evidenceAspects, selectEvidenceCoverage, candidateTrace, selectionDecisions, appendContributions, contributionShortlist, appendReferencedConstants } from "./jev-coverage.js"
+import { selectJevBlocks } from "./jev-blocks.js"
+import { expandHelpers } from "./helper-expansion.js"
+import { rankConstantDependencies } from "./evidence-dependencies.js"
+import { attachJevConstants } from "./jev-bundles.js"
+import { planJevRecovery, recoveredConstants } from "./jev-recovery.js"
+import { labelEvidence, jevStages } from './jev-routing.js'
+import { jevDeadline } from "./jev-deadline.js"
+import { recoverEvidenceBeam } from './jev-beam.js'
+import type { WorkingResult } from './sensegrep-pipeline.js'
 
 const DESCRIPTION = readFileSync(new URL("./sensegrep.txt", import.meta.url), "utf8")
 const MAX_LINE_LENGTH = 2000
@@ -71,7 +87,9 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       embedDim: meta.embeddings.dimension,
     }
 
-    const jevRequested = Boolean(params.jev && params.jev !== "off")
+    const jevMode = await resolveJevMode(params.jev)
+    const jevRequested = jevMode !== "off"
+    const stages = jevStages(jevMode,params.jevStages)
     let jev: Awaited<ReturnType<typeof evaluateWithJev>> | undefined
     let jevEvidence: Awaited<ReturnType<typeof assessJevPacket>> | undefined
     const run = async () => {
@@ -108,7 +126,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       : await VectorStore.openCollectionReadOnly(resolved.root)
     metrics.collectionMs = Date.now() - collectionStartedAt
 
-    const collected = await collectWorkingResults({
+    const resources = {
       meta,
       collection,
       projectDirectory: resolved.root,
@@ -116,7 +134,8 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       subdirPrefix: resolved.subdirPrefix,
       freshness,
       schema,
-    }, { ...params, rerank: false }, {
+    }
+    const collected = await collectWorkingResults(resources, { ...params, rerank: false }, {
       rawLimit: Math.max(200, params.pattern ? limit * 3 : limit * 2),
       diversify: false,
       signal: ctx.abort,
@@ -150,6 +169,18 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     )
 
     rankedResults = rankEvidence(params.query, rankedResults)
+    if (!params.exact && !params.pattern && !params.symbol && !params.name && !params.symbolType && params.hybrid !== false) {
+      const dependencyStarted = Date.now()
+      try {
+        const anchors = rankedResults.filter(r => ["function", "method"].includes(String(r.metadata.symbolType))).slice(0, 5)
+        rankedResults = rankConstantDependencies(rankedResults, await attachJevConstants(resources, anchors, ctx.abort))
+        metrics.constantDependenciesPromoted = rankedResults.filter(r => r.whyMatched?.some(reason => reason.startsWith("constant dependency:"))).length
+      } catch {
+        ctx.abort.throwIfAborted()
+        warnings.push("Constant dependency analysis unavailable; original ranking retained.")
+      }
+      metrics.constantDependencyMs = Date.now() - dependencyStarted
+    }
     const minScore = typeof params.minScore === "number" ? params.minScore : undefined
     if (minScore !== undefined) {
       rankedResults = rankedResults.filter((r) => (r.rerankScore ?? r.semanticScore) >= minScore)
@@ -157,55 +188,256 @@ export const SenseGrepTool = Tool.define("sensegrep", {
 
     // Dedupe overlapping results within the same file (class vs method, etc.)
     const localDeduped = dedupeOverlapping(rankedResults)
-    const dedupedResults = [...localDeduped, ...jevHelpers.filter(helper => (minScore === undefined || (helper.rerankScore ?? helper.semanticScore) >= minScore) && !localDeduped.some(local =>
+    let dedupedResults = [...localDeduped, ...jevHelpers.filter(helper => (minScore === undefined || (helper.rerankScore ?? helper.semanticScore) >= minScore) && !localDeduped.some(local =>
       local.file === helper.file && local.startLine <= helper.endLine && helper.startLine <= local.endLine))]
     const exactQuery = params.exact || params.symbol || params.name || /^[\w$]+(?:[.:/][\w$]+)*$/.test(params.query)
-    const jevStarted = Date.now()
-    const remainingJevMs = () => Math.max(0, (params.jevTimeoutMs ?? 8000) - (Date.now() - jevStarted))
-    jev = jevRequested && !exactQuery ? await evaluateWithJev(params.query, dedupedResults, {
-      mode: params.jev!, batchSize: params.jevBatchSize, ranking: params.jevRanking, candidates: params.jevCandidates, timeoutMs: params.jevTimeoutMs, signal: ctx.abort,
-    }) : undefined
-    if (jev && jev.diagnostics.status !== "complete") warnings.push(`Jev evaluation ${jev.diagnostics.status}: ${jev.diagnostics.reason ?? "unavailable"}; local ranking retained.`)
-    const evidenceResults = (jev?.results ?? dedupedResults).filter(r => !r.jevOnly ||
-      jev?.diagnostics.status === "complete" && (jev.scores.get(jevResultKey(r))?.evidence ?? 0) >= 0.65)
-
-    // Enforce diversity across file/symbol to avoid repeating the same source
-    const maxPerFile = typeof params.maxPerFile === "number" ? Math.max(0, params.maxPerFile) : (params.exact ? 2 : 1)
-    const maxPerSymbol = typeof params.maxPerSymbol === "number" ? Math.max(0, params.maxPerSymbol) : 2
-    const diversifiedResults = params.maxPerFile === undefined && !params.exact
-      ? flexibleDiversity(evidenceResults, params.query, maxPerSymbol)
-      : diversifyResults(evidenceResults, { maxPerFile, maxPerSymbol })
-
-    // Judge marginal contribution against a fixed direct-evidence anchor. No generated snippets.
-    if (jev?.diagnostics.status === "complete" && params.jev === "both" && params.maxTokens && remainingJevMs() > 100) {
-      const contextJudgement = await evaluateWithJev(params.query, diversifiedResults, {
-        mode: "evidence", rubric: "context", batchSize: params.jevBatchSize, ranking: params.jevRanking, candidates: Math.min(6, params.jevCandidates ?? 20), selected: diversifiedResults.slice(0, 1),
-        timeoutMs: remainingJevMs(), signal: ctx.abort,
+    // Discover one-hop implementations before semantic gates can reject a wrapper.
+    // Local ranking remains separate and is never rewritten by graph-only discovery.
+    if (jevRequested && stages.recovery && !exactQuery && params.hybrid !== false && !params.pattern) {
+      try {
+        const expanded = await expandHelpers(resources, localDeduped.slice(0, 5), params.query, collected.filters,
+          new Set(collected.allowedFiles), ctx.abort, true)
+        const allowed = expanded.results.filter(r => matchesStrictStructuralFilters(r, params)
+          && (minScore === undefined || (r.rerankScore ?? r.semanticScore) >= minScore))
+        for (const row of allowed) {
+          const i = dedupedResults.findIndex(r => r.file === row.file && r.startLine === row.startLine && r.endLine === row.endLine)
+          if (i >= 0) dedupedResults[i] = {...dedupedResults[i], evidenceRelations: row.evidenceRelations ?? dedupedResults[i].evidenceRelations}
+          else dedupedResults.push(row)
+        }
+        metrics.jevStructuralCandidates = allowed.length
+      } catch { ctx.abort.throwIfAborted(); warnings.push('Structural recovery unavailable; original candidates retained.') }
+    }
+    if (params.jevBundles && jevRequested && !exactQuery) dedupedResults = await attachJevConstants(resources, dedupedResults, ctx.abort)
+    const maxPerFile = typeof params.maxPerFile === 'number' ? Math.max(0,params.maxPerFile) : (params.exact ? 2 : 1)
+    const maxPerSymbol = typeof params.maxPerSymbol === 'number' ? Math.max(0,params.maxPerSymbol) : 2
+    const constrain = (rows:WorkingResult[]) => diversifyResults(rows,
+      {maxPerFile:params.maxPerFile === undefined && !params.exact ? 0 : maxPerFile,maxPerSymbol})
+    const localPacket = selectWithinTokenBudget(
+      params.maxPerFile === undefined && !params.exact ? flexibleDiversity(localDeduped,params.query,maxPerSymbol) : constrain(localDeduped),
+      params.maxTokens,params.query,limit,params.purpose)
+    const aspects = evidenceAspects(params.query, params.jevAspects)
+    const packageMode = params.commandName === 'context' && jevRequested && stages.evidence && !exactQuery
+    let finalResults:WorkingResult[]
+    if(packageMode) {
+      const packaged=await evaluateImplementationContext(params.query,dedupedResults,{
+        aspects,limit,maxTokens:params.maxTokens??4000,candidates:params.jevCandidates??32,localResults:localPacket.results,
+        timeoutMs:params.jevTimeoutMs??30000,signal:ctx.abort,recovery:stages.recovery,
+        expand:async parents=>{
+          const expanded=await expandHelpers(resources,parents,params.query,collected.filters,new Set(collected.allowedFiles),ctx.abort,true)
+          const allowed=expanded.results.filter(r=>matchesStrictStructuralFilters(r,params)
+            && (minScore===undefined||(r.rerankScore??r.semanticScore)>=minScore))
+          return {...expanded,results:await attachJevConstants(resources,allowed,ctx.abort)}
+        },
       })
-      jev.diagnostics.contextStatus = contextJudgement.diagnostics.status
-      mergeJevDiagnostics(jev.diagnostics, contextJudgement.diagnostics)
-      if (contextJudgement.diagnostics.status === "complete") for (const r of diversifiedResults) {
-        const scores = contextJudgement.scores.get(jevResultKey(r))
-        if (scores) r.jev = scores
+      jev=packaged.jev;jevEvidence=packaged.evidence;finalResults=packaged.results
+      jev.diagnostics.trace=candidateTrace({retrieved:collected.preDedupeResults,deduplicated:dedupedResults,selected:finalResults})
+      metrics.estimatedOutputTokens=packaged.estimatedTokens
+      metrics.tokenBudgetTruncated=jev.diagnostics.packages?.rejected.some(r=>r.reason==='token-budget')?1:0
+      if(jev.diagnostics.status!=='complete') warnings.push('Jev package evaluation incomplete; returned sources do not imply sufficient evidence.')
+    } else {
+    const deadline = jevDeadline(params.jevTimeoutMs ?? 8000)
+    const remainingJevMs = deadline.remaining
+    const queryInterpretation = jevRequested && stages.evidence && !exactQuery
+      ? await assessJevQuery(params.query,{timeoutMs:Math.max(1,Math.min(1500,deadline.initial())),signal:ctx.abort}) : undefined
+    if(queryInterpretation?.openQuestion) for(const aspect of aspects) if(aspect.origin==='query') aspect.queryMode='open-question'
+    jev = jevRequested && !exactQuery ? await evaluateWithJev(params.query, dedupedResults, {
+      mode: stages.ranking ? 'both' : 'evidence', priority: stages.recovery ? localPacket.results : undefined, aspects, panel: params.jevPanel, batchSize: params.jevBatchSize,
+      ranking: params.jevRanking, candidates: params.jevCandidates,
+      timeoutMs: stages.evidence ? deadline.initial() : remainingJevMs(), signal: ctx.abort,
+    }) : undefined
+    if (jev) {
+      if(queryInterpretation) {
+        mergeJevDiagnostics(jev.diagnostics,queryInterpretation.diagnostics)
+        jev.diagnostics.queryInterpretation={assertedPremise:queryInterpretation.assertedPremise,openQuestion:queryInterpretation.openQuestion,status:queryInterpretation.diagnostics.status}
       }
+      // Retain validated partial decisions in local order; never fabricate scores
+      // for timed-out candidates or treat a partial request as complete.
+      if (jev.diagnostics.status === 'partial') jev.results = jev.results.map(r=>{
+        const score = jev!.scores.get(jevResultKey(r))
+        return score ? {...r,jev:score} : r
+      })
+      jev.diagnostics.stages = Object.entries(stages).filter(([,enabled])=>enabled).map(([stage])=>stage)
+      jev.diagnostics.timeBudget = deadline.allocation
+      if (jev.diagnostics.status !== 'complete') warnings.push(`Jev evaluation ${jev.diagnostics.status}: ${jev.diagnostics.reason ?? 'unavailable'}; local ranking retained.`)
     }
-    // Take top results
-    const budgeted = selectWithinTokenBudget(diversifiedResults, params.maxTokens, params.query, limit, params.purpose)
-    const finalResults = budgeted.results
-    if (jev && params.jev !== "rerank" && remainingJevMs() > 100 && jev.diagnostics.status !== "fallback") {
-      jevEvidence = await assessJevPacket(params.query, finalResults, { mode: "evidence", timeoutMs: remainingJevMs(), signal: ctx.abort })
-      jev.diagnostics.packetStatus = jevEvidence.verdict
-      mergeJevDiagnostics(jev.diagnostics, jevEvidence.evaluation)
+    const usable = () => Boolean(jev && jev.scores.size && ['complete','partial'].includes(jev.diagnostics.status))
+    let diversifiedResults:WorkingResult[] = []
+    let coverageSelected:ReturnType<typeof selectEvidenceCoverage> | undefined
+    const selectPacket = (seed: WorkingResult[] = []) => {
+      const evidence = labelEvidence(jev?.results ?? dedupedResults,jev?.truncated)
+        .filter(r=>!r.jevOnly || usable() && Math.max(r.jev?.evidence ?? 0,r.jev?.dimensions?.dependency ?? 0)>= EVIDENCE_POLICY.admission)
+      diversifiedResults = stages.evidence && usable() ? constrain(evidence)
+        : params.maxPerFile === undefined && !params.exact ? flexibleDiversity(evidence,params.query,maxPerSymbol) : constrain(evidence)
+      coverageSelected = usable() && stages.evidence
+        ? selectEvidenceCoverage(diversifiedResults,aspects,params.maxTokens,limit,estimateResultTokens,seed) : undefined
+      if (coverageSelected?.results.length) return coverageSelected
+      // A relative winner never converts a failed eligibility check into evidence.
+      const local = params.maxPerFile === undefined && !params.exact ? flexibleDiversity(localDeduped,params.query,maxPerSymbol) : constrain(localDeduped)
+      return selectWithinTokenBudget(stages.evidence ? local : diversifiedResults,params.maxTokens,params.query,limit,params.purpose)
     }
-    if (jev && params.jev !== "rerank" && !jevEvidence) {
-      jev.diagnostics.packetStatus = "not-assessed"
-      warnings.push("Jev final packet not assessed: remote evaluation unavailable or deadline exhausted.")
+    let budgeted = selectPacket()
+    if (params.jevBlocks && usable() && stages.evidence && params.maxTokens && deadline.repair()>100) {
+      const blocks = await selectJevBlocks(params.query,diversifiedResults,params.maxTokens,aspects,deadline.repair(),ctx.abort,undefined,params.jevBatchSize)
+      if (blocks.results.some(r=>r.contentTruncated)) budgeted = selectWithinTokenBudget(
+        constrain(labelEvidence(blocks.results)),params.maxTokens,params.query,limit,params.purpose)
+      if (blocks.diagnostics && jev) mergeJevDiagnostics(jev.diagnostics,blocks.diagnostics)
+    }
+    const verify = async (timeoutMs:number) => {
+      const result = await assessJevPacket(params.query,budgeted.results,{mode:'evidence',verifyAspects:params.jevVerifyAspects,
+        aspects,timeoutMs,signal:ctx.abort,inspection:{status:dependencyStatus,pending:pendingObligations(obligations,budgeted.results)}})
+      if (jev) mergeJevDiagnostics(jev.diagnostics,result.evaluation)
+      return result
+    }
+    // Inspect resolved calls before trusting aggregate sufficiency. Necessity is
+    // judged against its real caller, independently of standalone relevance.
+    let obligations:DependencyObligation[] = [], obligationCandidates:WorkingResult[] = []
+    let dependencyStatus='not-assessed'
+    const canRecover = stages.recovery && params.hybrid !== false && !params.pattern && !params.symbolType && !params.variant && !params.decorator
+    let inspectedFingerprint='', inspectionPasses=0, inspectionScoreFingerprint=''
+    const inspectionScores=new Map<string,JevScores>()
+    const inspectionKey=(r:WorkingResult)=>`${jevResultKey(r)}:${sourceHash(r)}`
+    const inspectDependencies = async () => {
+      const fingerprint=packetFingerprint(params.query,budgeted.results,aspects)
+      if(fingerprint===inspectedFingerprint && dependencyStatus==='complete') return
+      dependencyStatus='not-assessed'
+      if(!jev || !usable() || !stages.evidence || !canRecover || deadline.repair()<=100 || inspectionPasses>=3) return
+      inspectionPasses++
+      try {
+        const expanded=await expandHelpers(resources,budgeted.results,params.query,collected.filters,new Set(collected.allowedFiles),
+          AbortSignal.any([ctx.abort,AbortSignal.timeout(Math.max(1,deadline.repair()))]),true)
+        // Existing selected helpers can gain newly resolved caller edges too.
+        budgeted.results=budgeted.results.map(row=>{
+          const updated=expanded.results.find(r=>jevResultKey(r)===jevResultKey(row))
+          return updated ? {...row,evidenceRelations:updated.evidenceRelations ?? row.evidenceRelations} : row
+        })
+        const selectedKeys=new Set(budgeted.results.map(jevResultKey))
+        const missing=expanded.results.filter(r=>!selectedKeys.has(jevResultKey(r))
+          && r.evidenceRelations?.some(e=>selectedKeys.has(e.caller)) && matchesStrictStructuralFilters(r,params)
+          && (minScore===undefined || (r.rerankScore ?? r.semanticScore)>=minScore))
+        if(inspectionScoreFingerprint!==fingerprint) {inspectionScores.clear();inspectionScoreFingerprint=fingerprint}
+        const bounded=orderDependencyInspection(missing,budgeted.results).filter(r=>!inspectionScores.has(inspectionKey(r))).slice(0,8)
+        const judged=await evaluateWithJev(params.query,bounded,{mode:'evidence',rubric:'dependency',aspects,selected:budgeted.results,batchSize:1,
+          candidates:8,timeoutMs:Math.max(1,Math.min(1500,deadline.repair())),signal:ctx.abort})
+        mergeJevDiagnostics(jev.diagnostics,judged.diagnostics)
+        for(const row of bounded) {const score=judged.scores.get(jevResultKey(row));if(score) inspectionScores.set(inspectionKey(row),score)}
+        obligationCandidates=missing.map(r=>{
+          const score=inspectionScores.get(inspectionKey(r))
+          return {...r,jev:score} // Never reuse a standalone score as a necessity decision.
+        })
+        obligations=dependencyObligations(obligationCandidates,budgeted.results)
+        inspectedFingerprint=packetFingerprint(params.query,budgeted.results,aspects)
+        dependencyStatus=expanded.truncated || obligationCandidates.some(r=>!r.jev) ? 'partial' : 'complete'
+        for(const row of obligationCandidates.filter(r=>(r.jev?.dimensions?.dependency ?? 0)>= EVIDENCE_POLICY.admission)) {
+          const i=jev.results.findIndex(r=>jevResultKey(r)===jevResultKey(row))
+          if(i>=0) jev.results[i]=row;else jev.results.push(row)
+          jev.scores.set(jevResultKey(row),row.jev!)
+        }
+        const packed=packObligations(budgeted.results,obligationCandidates,obligations,params.maxTokens,limit,estimateResultTokens)
+        const boundedPacket=constrain(packed.results)
+        budgeted={results:boundedPacket,estimatedTokens:boundedPacket.reduce((n,r)=>n+estimateResultTokens(r),0)}
+      } catch {ctx.abort.throwIfAborted();dependencyStatus='unavailable'}
+    }
+    await inspectDependencies()
+    await inspectDependencies() // Newly packed helpers may themselves delegate.
+    // Verify the actual budgeted packet, not the leading unbudgeted candidates.
+    if (jev && stages.evidence && usable() && deadline.preliminary()>100) jevEvidence = await verify(deadline.preliminary())
+    const before = jevEvidence?.verdict ?? 'not-assessed'
+    const snapshot=()=>packetFingerprint(params.query,budgeted.results,aspects,{status:dependencyStatus,pending:pendingObligations(obligations,budgeted.results)})
+    const originalFingerprint = snapshot()
+    const needsRepair = pendingObligations(obligations,budgeted.results).length>0 || !jevEvidence || !['direct-evidence','conflicting-evidence','no-evidence-found'].includes(jevEvidence.verdict)
+    if (jev && usable() && stages.recovery && needsRepair && deadline.repair()>100
+      && params.hybrid !== false && !params.pattern && !params.symbolType && !params.variant && !params.decorator) {
+      const anchors = labelEvidence(budgeted.results.map(r=>jev!.results.find(j=>jevResultKey(j)===jevResultKey(r)) ?? r),jev.truncated)
+      const recovery = planJevRecovery(anchors,aspects,limit,pendingObligations(obligations,budgeted.results).length ? {verdict:'partial-evidence',missingAspects:aspects.filter(a=>pendingObligations(obligations,budgeted.results).some(o=>o.requirementIds?.includes(a.id))).map(a=>a.text)} : jevEvidence ?? {verdict:'not-assessed',missingAspects:aspects.map(a=>a.text)})
+      jev.diagnostics.recovery = {missingAspects:recovery.missingAspects,actions:recovery.actions,added:0,status:'attempted'}
+      try {
+        const allowed = (r:WorkingResult) => matchesStrictStructuralFilters(r,params)
+          && (minScore === undefined || (r.rerankScore ?? r.semanticScore)>=minScore)
+        const judge = async (rows:WorkingResult[]) => {
+          if (!rows.length || deadline.repair()<100) return []
+          const judged = await evaluateWithJev(params.query,rows,{mode:'evidence',rubric:'dependency',panel:params.jevPanel,
+            aspects,selected:budgeted.results,batchSize:1,candidates:rows.length,timeoutMs:deadline.repair(),signal:ctx.abort})
+          mergeJevDiagnostics(jev!.diagnostics,judged.diagnostics)
+          return judged.diagnostics.status === 'complete' ? labelEvidence(judged.results,judged.truncated) : []
+        }
+        const constants = recoveredConstants(await attachJevConstants(resources,recovery.configurations,ctx.abort),[]).filter(allowed)
+        const depth = params.jevRecoveryDepth ?? 1
+        const beam = await recoverEvidenceBeam(recovery.helpers,jev.results,{
+          depth,width:params.jevBeamWidth ?? 3,maxCandidates:depth===1?8:12,
+          deadline:Date.now()+deadline.repair(),signal:ctx.abort,
+        },async parents=>(await expandHelpers(resources,parents,params.query,collected.filters,new Set(collected.allowedFiles),
+          AbortSignal.any([ctx.abort,AbortSignal.timeout(Math.max(1,deadline.repair()))]),true)).results.filter(allowed),judge)
+        // Exact referenced literals carry structural provenance, not a fabricated
+        // standalone model score. They still require their parent in the packet.
+        const accepted = [...beam.results,...constants]
+        for (const row of accepted) {
+          const i = jev.results.findIndex(r=>jevResultKey(r)===jevResultKey(row))
+          if (i>=0) jev.results[i]=row; else jev.results.push(row)
+          if (row.jev) jev.scores.set(jevResultKey(row),row.jev)
+        }
+        jev.diagnostics.recovery = {...jev.diagnostics.recovery,added:accepted.length,status:beam.status,depth,evaluated:beam.evaluated,trace:beam.trace}
+        metrics.jevRecoveryAdded = accepted.length
+        budgeted = selectPacket(budgeted.results)
+        // A helper can win the first selection while its necessary caller is
+        // omitted. Ask about actual marginal contribution, not a reverse edge or
+        // the difference between two independent relevance probabilities.
+        const alternatives = contributionShortlist(diversifiedResults,budgeted.results)
+        if (alternatives.length && budgeted.results.length<limit && deadline.repair()>100) {
+          const contributions = await evaluateWithJev(params.query,alternatives,{mode:'evidence',rubric:'context',aspects:[],
+            selected:budgeted.results,batchSize:1,candidates:4,timeoutMs:deadline.repair(),signal:ctx.abort})
+          mergeJevDiagnostics(jev.diagnostics,contributions.diagnostics)
+          jev.diagnostics.contributionCheck = {status:contributions.diagnostics.status,
+            candidates:contributions.results.map(r=>({key:jevResultKey(r),contribution:r.jev?.contribution}))}
+          if (contributions.diagnostics.status==='complete') {
+            const appended = appendContributions(budgeted.results,contributions.results,params.maxTokens,limit,estimateResultTokens)
+            const newParents = appended.results.filter(r=>!budgeted.results.includes(r))
+            const literals = deadline.repair()>0 && newParents.length ? recoveredConstants(
+              await attachJevConstants(resources,newParents,ctx.abort),appended.results).filter(allowed) : []
+            const packed = appendReferencedConstants(appended.results,literals,params.maxTokens,limit,estimateResultTokens)
+            const bounded = constrain(packed.results)
+            budgeted = {results:bounded,estimatedTokens:bounded.reduce((n,r)=>n+estimateResultTokens(r),0)}
+          }
+        }
+      } catch { ctx.abort.throwIfAborted(); warnings.push('Jev packet recovery unavailable; selected packet retained.') }
+    }
+    if (obligations.length) {
+      const packed=packObligations(budgeted.results,obligationCandidates,obligations,params.maxTokens,limit,estimateResultTokens)
+      const bounded=constrain(packed.results)
+      budgeted={results:bounded,estimatedTokens:bounded.reduce((n,r)=>n+estimateResultTokens(r),0)}
+    }
+    await inspectDependencies()
+    if(inspectedFingerprint!==packetFingerprint(params.query,budgeted.results,aspects)) dependencyStatus='partial'
+    finalResults = budgeted.results
+    const changed = snapshot()!==originalFingerprint
+    if (changed) jevEvidence = undefined // A verdict belongs only to its exact packet.
+    if (jev && stages.evidence && remainingJevMs()>100 && (changed || !jevEvidence || jevEvidence.verdict==='not-assessed')) {
+      jevEvidence = await verify(remainingJevMs())
+    }
+    const pending=pendingObligations(obligations,finalResults)
+    if(jev && stages.evidence) {
+      jev.diagnostics.dependencyCheck={status:dependencyStatus,examined:obligations.length,pending}
+      // An unresolved necessary or uncertain edge cannot be erased by an
+      // optimistic model verdict. Failure to inspect is not a negative finding.
+      if(jevEvidence) jevEvidence=gateWitnessAssessment(jevEvidence,pending,dependencyStatus==='complete',aspects)
+    }
+    if (jev && stages.evidence) {
+      jev.diagnostics.packetStatus = jevEvidence?.verdict ?? 'not-assessed'
+      jev.diagnostics.packetRepair = {before,after:jev.diagnostics.packetStatus,changed}
+      jev.diagnostics.selection = selectionDecisions(diversifiedResults.filter(r=>r.jev || finalResults.includes(r)),finalResults,params.maxTokens,limit,estimateResultTokens)
+      if (!jevEvidence) warnings.push('Jev final packet not assessed: remote evaluation unavailable or deadline exhausted.')
     }
     finalResults.forEach((result, index) => {
       result.rankScore = Number(((finalResults.length - index) / Math.max(1, finalResults.length)).toFixed(6))
     })
+    if (jev) {
+      jev.diagnostics.contextStatus = coverageSelected?.results.length ? "coverage-selection" : "local-selection"
+      jev.diagnostics.trace = candidateTrace({ retrieved: collected.preDedupeResults, deduplicated: dedupedResults,
+        evaluated: jev.results.filter(r => jev!.scores.has(jevResultKey(r))), diversified: diversifiedResults, selected: finalResults })
+    }
     metrics.estimatedOutputTokens = budgeted.estimatedTokens
     metrics.tokenBudgetTruncated = params.maxTokens && (finalResults.length < Math.min(limit, diversifiedResults.length) || finalResults.some((r) => r.contentTruncated)) ? 1 : 0
+
+    } // legacy search/rerank path keeps symbol-count semantics
 
     if (finalResults.length === 0) {
       metrics.totalMs = Date.now() - startedAt
@@ -431,7 +663,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       ...result,
       answerSufficiency: evidence.status,
       evidenceAssessment: { ...evidence, ...(jevEvidence && !jevEvidence.fullyAssessed ? { jevAssessment: jevEvidence } : {}) },
-      ...(jevRequested ? { jev: jev?.diagnostics ?? { status: "skipped", reason: "exact-query", mode: params.jev } } : {}),
+      ...(jevRequested ? { jev: jev?.diagnostics ?? { status: "skipped", reason: "exact-query", mode: jevMode } } : {}),
       warnings: [...((result as any).warnings ?? []), ...(evidence.status === "weak-evidence" ? [weakWarning] : [])],
       output: evidence.status === "weak-evidence" ? `${weakWarning}\n\n${result.output}` : result.output,
       budget: {

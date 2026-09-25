@@ -1,0 +1,605 @@
+[
+  {
+    "name": "crypto-encrypt",
+    "group": "crypto",
+    "query": "Como o destino de repasse e criptografado?",
+    "required": [
+      {
+        "file": "convex/lib/payoutDestinationCrypto.ts",
+        "symbol": "encryptPayoutDestination"
+      },
+      {
+        "file": "convex/lib/payoutDestinationCrypto.ts",
+        "symbol": "getEncryptionKey"
+      }
+    ],
+    "facts": [
+      {
+        "id": "cipher",
+        "anyOf": [
+          {
+            "file": "convex/lib/payoutDestinationCrypto.ts",
+            "symbol": "encryptPayoutDestination",
+            "includes": [
+              "createCipheriv",
+              "getEncryptionKey()"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "key-encoding-size",
+        "anyOf": [
+          {
+            "file": "convex/lib/payoutDestinationCrypto.ts",
+            "symbol": "getEncryptionKey",
+            "includes": [
+              "\"base64\"",
+              "key.length !== 32"
+            ]
+          }
+        ]
+      }
+    ],
+    "budget": true,
+    "args": [
+      "context",
+      "Como o destino de repasse e criptografado?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ],
+    "labelReview": "Source-reviewed before live run; exact symbol linkage and fact coverage reported separately."
+  },
+  {
+    "name": "crypto-key",
+    "group": "crypto",
+    "query": "Where is the payout destination encryption key decoded and rejected unless it is 32 bytes?",
+    "required": [
+      {
+        "file": "convex/lib/payoutDestinationCrypto.ts",
+        "symbol": "getEncryptionKey"
+      }
+    ],
+    "facts": [
+      {
+        "id": "key-size",
+        "anyOf": [
+          {
+            "file": "convex/lib/payoutDestinationCrypto.ts",
+            "symbol": "getEncryptionKey",
+            "includes": [
+              "\"base64\"",
+              "key.length !== 32"
+            ]
+          }
+        ]
+      }
+    ],
+    "budget": true,
+    "args": [
+      "context",
+      "Where is the payout destination encryption key decoded and rejected unless it is 32 bytes?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ],
+    "labelReview": "Source-reviewed before live run; exact symbol linkage and fact coverage reported separately."
+  },
+  {
+    "name": "payout-age",
+    "group": "payout",
+    "query": "Quando a idade do saldo permite ignorar o minimo do repasse?",
+    "required": [
+      {
+        "file": "convex/lib/payoutPolicy.ts",
+        "symbol": "shouldIgnoreMinimumPayout"
+      },
+      {
+        "file": "convex/lib/payoutPolicy.ts",
+        "symbol": "MAX_SMALL_BALANCE_AGE_MS"
+      }
+    ],
+    "facts": [
+      {
+        "id": "age-rule",
+        "anyOf": [
+          {
+            "file": "convex/lib/payoutPolicy.ts",
+            "symbol": "shouldIgnoreMinimumPayout",
+            "includes": [
+              ">= MAX_SMALL_BALANCE_AGE_MS"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "age-value",
+        "anyOf": [
+          {
+            "file": "convex/lib/payoutPolicy.ts",
+            "symbol": "MAX_SMALL_BALANCE_AGE_MS",
+            "includes": [
+              "30 * Time.DAY"
+            ]
+          }
+        ]
+      }
+    ],
+    "budget": true,
+    "args": [
+      "context",
+      "Quando a idade do saldo permite ignorar o minimo do repasse?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ],
+    "labelReview": "Source-reviewed before live run; exact symbol linkage and fact coverage reported separately."
+  },
+  {
+    "name": "consent-en",
+    "group": "consent",
+    "query": "How does patient teleconsultation consent validate required acceptances, current terms version and future timestamps?",
+    "required": [
+      {
+        "file": "convex/lib/patientConsent.ts",
+        "symbol": "assertPatientConsentIsValid"
+      },
+      {
+        "file": "convex/lib/patientConsent.ts",
+        "symbol": "CURRENT_CONSENT_TERMS_VERSION"
+      }
+    ],
+    "facts": [
+      {
+        "id": "consent-guards",
+        "anyOf": [
+          {
+            "file": "convex/lib/patientConsent.ts",
+            "symbol": "assertPatientConsentIsValid",
+            "includes": [
+              "privacyPolicyAccepted",
+              "termsVersion !== CURRENT_CONSENT_TERMS_VERSION",
+              "nowMs + 5 * Time.MINUTE"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "consent-version-value",
+        "anyOf": [
+          {
+            "file": "convex/lib/patientConsent.ts",
+            "symbol": "CURRENT_CONSENT_TERMS_VERSION",
+            "includes": [
+              "teleconsultation-consent-v1-2026-04-05"
+            ]
+          },
+          {
+            "file": "packages/shared/constants/index.ts",
+            "symbol": "CURRENT_CONSENT_TERMS_VERSION",
+            "includes": [
+              "teleconsultation-consent-v1-2026-04-05"
+            ]
+          }
+        ]
+      }
+    ],
+    "budget": true,
+    "args": [
+      "context",
+      "How does patient teleconsultation consent validate required acceptances, current terms version and future timestamps?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ],
+    "labelReview": "Source-reviewed before live run; exact symbol linkage and fact coverage reported separately."
+  },
+  {
+    "name": "consent-pt-small",
+    "group": "consent",
+    "query": "Como o consentimento da teleconsulta valida os aceites, a versao atual dos termos e o horario futuro?",
+    "required": [
+      {
+        "file": "convex/lib/patientConsent.ts",
+        "symbol": "assertPatientConsentIsValid"
+      },
+      {
+        "file": "convex/lib/patientConsent.ts",
+        "symbol": "CURRENT_CONSENT_TERMS_VERSION"
+      }
+    ],
+    "facts": [
+      {
+        "id": "consent-guards",
+        "anyOf": [
+          {
+            "file": "convex/lib/patientConsent.ts",
+            "symbol": "assertPatientConsentIsValid",
+            "includes": [
+              "privacyPolicyAccepted",
+              "termsVersion !== CURRENT_CONSENT_TERMS_VERSION",
+              "nowMs + 5 * Time.MINUTE"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "consent-version-value",
+        "anyOf": [
+          {
+            "file": "convex/lib/patientConsent.ts",
+            "symbol": "CURRENT_CONSENT_TERMS_VERSION",
+            "includes": [
+              "teleconsultation-consent-v1-2026-04-05"
+            ]
+          },
+          {
+            "file": "packages/shared/constants/index.ts",
+            "symbol": "CURRENT_CONSENT_TERMS_VERSION",
+            "includes": [
+              "teleconsultation-consent-v1-2026-04-05"
+            ]
+          }
+        ]
+      }
+    ],
+    "budget": true,
+    "args": [
+      "context",
+      "Como o consentimento da teleconsulta valida os aceites, a versao atual dos termos e o horario futuro?",
+      "--max-tokens",
+      "1200",
+      "--limit",
+      "5"
+    ],
+    "labelReview": "Source-reviewed before live run; exact symbol linkage and fact coverage reported separately."
+  },
+  {
+    "name": "working-hours",
+    "group": "working",
+    "query": "How does the working-hours rule reject a disabled day or invalid start/end times?",
+    "required": [
+      {
+        "file": "convex/lib/workingHours.ts",
+        "symbol": "isWithinWorkingHours"
+      },
+      {
+        "file": "convex/lib/workingHours.ts",
+        "symbol": "parseTimeToMinutes"
+      }
+    ],
+    "facts": [
+      {
+        "id": "disabled-day",
+        "anyOf": [
+          {
+            "file": "convex/lib/workingHours.ts",
+            "symbol": "isWithinWorkingHours",
+            "includes": [
+              "workingDay?.enabled !== true",
+              "start >= end"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "invalid-time",
+        "anyOf": [
+          {
+            "file": "convex/lib/workingHours.ts",
+            "symbol": "parseTimeToMinutes",
+            "includes": [
+              "hour > 23",
+              "minute > 59"
+            ]
+          }
+        ]
+      }
+    ],
+    "budget": true,
+    "args": [
+      "context",
+      "How does the working-hours rule reject a disabled day or invalid start/end times?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ],
+    "labelReview": "Source-reviewed before live run; exact symbol linkage and fact coverage reported separately."
+  },
+  {
+    "name": "timezone-invalid",
+    "group": "timezone",
+    "query": "Qual fuso horario e usado nos horarios de trabalho quando o fuso informado e invalido?",
+    "required": [
+      {
+        "file": "convex/lib/workingHours.ts",
+        "symbol": "resolveWorkingHoursTimezone"
+      },
+      {
+        "file": "convex/lib/workingHours.ts",
+        "symbol": "DEFAULT_TIMEZONE"
+      }
+    ],
+    "facts": [
+      {
+        "id": "timezone-fallback",
+        "anyOf": [
+          {
+            "file": "convex/lib/workingHours.ts",
+            "symbol": "resolveWorkingHoursTimezone",
+            "includes": [
+              "catch",
+              "return DEFAULT_TIMEZONE"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "timezone-value",
+        "anyOf": [
+          {
+            "file": "convex/lib/workingHours.ts",
+            "symbol": "DEFAULT_TIMEZONE",
+            "includes": [
+              "America/Sao_Paulo"
+            ]
+          }
+        ]
+      }
+    ],
+    "budget": true,
+    "args": [
+      "context",
+      "Qual fuso horario e usado nos horarios de trabalho quando o fuso informado e invalido?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ],
+    "labelReview": "Source-reviewed before live run; exact symbol linkage and fact coverage reported separately."
+  },
+  {
+    "name": "analytics-salt",
+    "group": "analytics",
+    "query": "How are analytics identifiers hashed with a salt, and what makes the salt valid?",
+    "required": [
+      {
+        "file": "convex/lib/posthogPrivacy.ts",
+        "symbol": "hashAnalyticsIdentifier"
+      },
+      {
+        "file": "convex/lib/posthogPrivacy.ts",
+        "symbol": "getAnalyticsHashSalt"
+      }
+    ],
+    "facts": [
+      {
+        "id": "hmac",
+        "anyOf": [
+          {
+            "file": "convex/lib/posthogPrivacy.ts",
+            "symbol": "hashAnalyticsIdentifier",
+            "includes": [
+              "hmac(sha256"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "salt-validation",
+        "anyOf": [
+          {
+            "file": "convex/lib/posthogPrivacy.ts",
+            "symbol": "getAnalyticsHashSalt",
+            "includes": [
+              "salt.length >= 16"
+            ]
+          }
+        ]
+      }
+    ],
+    "budget": true,
+    "args": [
+      "context",
+      "How are analytics identifiers hashed with a salt, and what makes the salt valid?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ],
+    "labelReview": "Source-reviewed before live run; exact symbol linkage and fact coverage reported separately."
+  },
+  {
+    "name": "analytics-url",
+    "group": "analytics",
+    "query": "Como URLs de analytics removem query strings e fragmentos e mascaram segmentos de identificadores?",
+    "required": [
+      {
+        "anyOf": [
+          {
+            "file": "convex/lib/posthogPrivacy.ts",
+            "symbol": "sanitizeUrlLikeValue"
+          },
+          {
+            "file": "apps/web/lib/analytics/posthog.ts",
+            "symbol": "sanitizeUrlLikeValue"
+          }
+        ]
+      },
+      {
+        "anyOf": [
+          {
+            "file": "convex/lib/posthogPrivacy.ts",
+            "symbol": "sanitizePathname"
+          },
+          {
+            "file": "apps/web/lib/analytics/posthog.ts",
+            "symbol": "sanitizePathname"
+          }
+        ]
+      }
+    ],
+    "facts": [
+      {
+        "id": "url-query-removal",
+        "anyOf": [
+          {
+            "file": "convex/lib/posthogPrivacy.ts",
+            "symbol": "sanitizeUrlLikeValue",
+            "includes": [
+              "parsed.search || parsed.hash",
+              "sanitizePathname"
+            ]
+          },
+          {
+            "file": "apps/web/lib/analytics/posthog.ts",
+            "symbol": "sanitizeUrlLikeValue",
+            "includes": [
+              "parsed.search || parsed.hash",
+              "sanitizePathname"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "id-redaction",
+        "anyOf": [
+          {
+            "file": "convex/lib/posthogPrivacy.ts",
+            "symbol": "sanitizePathname",
+            "includes": [
+              "return \":id\""
+            ]
+          },
+          {
+            "file": "apps/web/lib/analytics/posthog.ts",
+            "symbol": "sanitizePathname",
+            "includes": [
+              "return \":id\""
+            ]
+          }
+        ]
+      }
+    ],
+    "budget": true,
+    "args": [
+      "context",
+      "Como URLs de analytics removem query strings e fragmentos e mascaram segmentos de identificadores?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ],
+    "labelReview": "After initial run, source review confirmed server and browser implement the requested URL stripping and identifier masking. Alternatives are valid for this query; strict backend targets remain reported. This case is regression data, not a holdout.",
+    "strictRequired": [
+      {
+        "file": "convex/lib/posthogPrivacy.ts",
+        "symbol": "sanitizeUrlLikeValue"
+      },
+      {
+        "file": "convex/lib/posthogPrivacy.ts",
+        "symbol": "sanitizePathname"
+      }
+    ]
+  },
+  {
+    "name": "ambiguous-key",
+    "group": "ambiguous",
+    "query": "Onde a chave de criptografia e decodificada e rejeitada por tamanho invalido?",
+    "required": [
+      {
+        "anyOf": [
+          {
+            "file": "convex/lib/payoutDestinationCrypto.ts",
+            "symbol": "getEncryptionKey"
+          },
+          {
+            "file": "convex/lib/cessProductionVerification.ts",
+            "symbol": "authenticateCessVerificationReport"
+          }
+        ]
+      }
+    ],
+    "facts": [
+      {
+        "id": "decoded-key-size",
+        "anyOf": [
+          {
+            "file": "convex/lib/payoutDestinationCrypto.ts",
+            "symbol": "getEncryptionKey",
+            "includes": [
+              "Buffer.from(configured, \"base64\")",
+              "key.length !== 32"
+            ]
+          },
+          {
+            "file": "convex/lib/cessProductionVerification.ts",
+            "symbol": "authenticateCessVerificationReport",
+            "includes": [
+              "decode(config.publicKey)",
+              "algorithm.modulusLength < 3072"
+            ]
+          }
+        ]
+      }
+    ],
+    "budget": true,
+    "args": [
+      "context",
+      "Onde a chave de criptografia e decodificada e rejeitada por tamanho invalido?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ],
+    "labelReview": "Ambiguous domain: source confirms both payout symmetric-key and CESS public-key size validation. Strict historic target retained separately.",
+    "strictRequired": [
+      {
+        "file": "convex/lib/payoutDestinationCrypto.ts",
+        "symbol": "getEncryptionKey"
+      }
+    ]
+  },
+  {
+    "name": "negative-kubernetes",
+    "group": "negative",
+    "query": "How does the Kubernetes horizontal pod autoscaler scale the deployment based on CPU?",
+    "required": [],
+    "facts": [],
+    "budget": true,
+    "args": [
+      "context",
+      "How does the Kubernetes horizontal pod autoscaler scale the deployment based on CPU?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ],
+    "labelReview": "No such implementation in this frozen snapshot. Near-domain negative must not be accepted merely because payout encryption exists.",
+    "negative": true
+  },
+  {
+    "name": "negative-kms",
+    "group": "negative",
+    "query": "Where are payout encryption keys automatically rotated by AWS KMS every month?",
+    "required": [],
+    "facts": [],
+    "budget": true,
+    "args": [
+      "context",
+      "Where are payout encryption keys automatically rotated by AWS KMS every month?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ],
+    "labelReview": "No such implementation in this frozen snapshot. Near-domain negative must not be accepted merely because payout encryption exists.",
+    "negative": true
+  }
+]

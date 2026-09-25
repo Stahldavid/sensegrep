@@ -1,0 +1,11 @@
+[
+  {"name":"new-query-cache-en","group":"embedding-config","query":"Which settings prevent reusing vectors made by a different embedding endpoint?","expected":"packages/core/src/semantic/embedding-config.ts","symbol":"embeddingConfigFingerprint"},
+  {"name":"new-query-cache-pt","group":"embedding-config","query":"Como distinguir vetores criados com outro endpoint ou dimensao de embeddings?","expected":"packages/core/src/semantic/embedding-config.ts","symbol":"embeddingConfigFingerprint"},
+  {"name":"new-byte-budget","group":"output-budget","query":"When JSON output exceeds the byte budget, how are results removed and completeness invalidated?","expected":"packages/core/src/tool/agent-output.ts","symbol":"enforceAgentOutputBudget"},
+  {"name":"new-truncated-evidence","group":"output-budget","query":"Onde a avaliacao de evidencia deixa de valer quando o pacote final de fontes e cortado?","expected":"packages/core/src/tool/agent-output.ts","symbol":"markTruncated"},
+  {"name":"new-score-distribution","group":"jev-validation","query":"Validate that a relevance score agrees with the weighted probabilities returned by the provider","expected":"packages/core/src/tool/jev.ts","symbol":"parseJevScores"},
+  {"name":"new-jev-fallback","group":"jev-validation","query":"How does a remote decision batch failure retain the original local result order?","expected":"packages/core/src/tool/jev.ts","symbol":"evaluateWithJev"},
+  {"name":"new-context-source","group":"context","query":"Como escolher trechos complementares sem ultrapassar o orcamento de tokens?","expected":"packages/core/src/tool/sensegrep-pipeline.ts","symbol":"selectWithinTokenBudget","budget":4000,"args":["context","Como escolher trechos complementares sem ultrapassar o orcamento de tokens?","--max-tokens","4000","--diagnostic"]},
+  {"name":"new-negative-postgres","group":"absent-database","query":"How does the PostgreSQL write ahead log replicate transactions to a standby server?","negative":true},
+  {"name":"new-negative-pt","group":"absent-clinical","query":"Onde o sistema assina receitas medicas usando certificado digital ICP Brasil?","negative":true}
+]

@@ -77,7 +77,8 @@ export function flexibleDiversity(results: WorkingResult[], query: string, maxPe
       const related = mentions(first, r) || mentions(r, first) || addsFacet
       if (["type", "interface", "enum"].includes(String(r.metadata.symbolType))
         && !/\b(type|interface|schema|contract|tipo|contrato)\b/i.test(query)) continue
-      if (!relevant || !related || (r.rerankScore ?? r.semanticScore) < (first.rerankScore ?? first.semanticScore) * 0.7) continue
+      const suppliesMissingAspect = Object.entries(r.jev?.aspects ?? {}).some(([id, support]) => support >= 0.8 && (first.jev?.aspects?.[id] ?? 0) < 0.65)
+      if (!suppliesMissingAspect && (!relevant || !related || (r.rerankScore ?? r.semanticScore) < (first.rerankScore ?? first.semanticScore) * 0.7)) continue
     }
     siblings.push(r)
     files.set(r.file, siblings)

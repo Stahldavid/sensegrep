@@ -95,6 +95,7 @@ export const SenseGrepContextTool = Tool.define("sensegrep-context", {
     const maxTotalTokens = params.maxTotalTokens ?? params.maxTokens
     const result = await search.execute({
       ...params,
+      commandName: params.commandName ?? 'context',
       maxTokens: Math.min(params.maxTokens, maxTotalTokens),
     }, ctx)
     const coverage = params.gitChanged

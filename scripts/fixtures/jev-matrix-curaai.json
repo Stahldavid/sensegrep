@@ -1,0 +1,184 @@
+[
+  {
+    "symbol": "syncClerkRoleSession",
+    "expected": "apps/web/lib/auth/syncClerkRoleSession.ts",
+    "name": "auth-en",
+    "query": "Clerk session token refresh after onboarding role metadata",
+    "group": "apps/web/lib/auth/syncClerkRoleSession.ts"
+  },
+  {
+    "symbol": "syncClerkRoleSession",
+    "expected": "apps/web/lib/auth/syncClerkRoleSession.ts",
+    "name": "auth-pt",
+    "query": "atualizar token de sessao Clerk depois de definir perfil no cadastro",
+    "group": "apps/web/lib/auth/syncClerkRoleSession.ts"
+  },
+  {
+    "symbol": "encryptPayoutDestination",
+    "expected": "convex/lib/payoutDestinationCrypto.ts",
+    "name": "pix-crypto",
+    "query": "Where are doctor payout bank details encrypted before storage and decrypted for transfers?",
+    "group": "convex/lib/payoutDestinationCrypto.ts",
+    "required": [
+      {
+        "file": "convex/lib/payoutDestinationCrypto.ts",
+        "symbol": "encryptPayoutDestination"
+      },
+      {
+        "file": "convex/lib/payoutDestinationCrypto.ts",
+        "symbol": "decryptPayoutDestination"
+      }
+    ]
+  },
+  {
+    "symbol": "shouldIgnoreMinimumPayout",
+    "expected": "convex/lib/payoutPolicy.ts",
+    "name": "payout-minimum",
+    "query": "When can an old small doctor balance be paid even if below the minimum payout amount?",
+    "group": "convex/lib/payoutPolicy.ts"
+  },
+  {
+    "symbol": "MAX_SMALL_BALANCE_AGE_MS",
+    "expected": "convex/lib/payoutPolicy.ts",
+    "name": "constant-control",
+    "query": "What is the value of MAX_SMALL_BALANCE_AGE_MS?",
+    "group": "convex/lib/payoutPolicy.ts"
+  },
+  {
+    "symbol": "shouldIgnoreMinimumPayout",
+    "expected": "convex/lib/payoutPolicy.ts",
+    "name": "minimum-pt",
+    "query": "Quando um saldo pequeno pode ser pago apesar do valor minimo de repasse?",
+    "group": "convex/lib/payoutPolicy.ts"
+  },
+  {
+    "query": "When can an old small doctor balance be paid even if below the minimum payout amount?",
+    "expected": "convex/lib/payoutPolicy.ts",
+    "symbol": "shouldIgnoreMinimumPayout",
+    "args": [
+      "context",
+      "When can an old small doctor balance be paid even if below the minimum payout amount?",
+      "--max-tokens",
+      "1200",
+      "--max-output-bytes",
+      "4800",
+      "--diagnostic",
+      "--json-detail",
+      "content"
+    ],
+    "budget": 1200,
+    "name": "context-payout-minimum-1200",
+    "group": "convex/lib/payoutPolicy.ts"
+  },
+  {
+    "query": "When can an old small doctor balance be paid even if below the minimum payout amount?",
+    "expected": "convex/lib/payoutPolicy.ts",
+    "symbol": "shouldIgnoreMinimumPayout",
+    "args": [
+      "context",
+      "When can an old small doctor balance be paid even if below the minimum payout amount?",
+      "--max-tokens",
+      "4000",
+      "--max-output-bytes",
+      "16000",
+      "--diagnostic",
+      "--json-detail",
+      "content"
+    ],
+    "budget": 4000,
+    "name": "context-payout-minimum-4000",
+    "group": "convex/lib/payoutPolicy.ts"
+  },
+  {
+    "query": "Ensure a doctor voice request can only create a draft and cannot authorize signing or sending",
+    "expected": "convex/lib/agentBridgePrompt.ts",
+    "symbol": "formatDoctorRequestPayload",
+    "args": [
+      "context",
+      "Ensure a doctor voice request can only create a draft and cannot authorize signing or sending",
+      "--max-tokens",
+      "4000",
+      "--max-output-bytes",
+      "16000",
+      "--diagnostic",
+      "--json-detail",
+      "content"
+    ],
+    "budget": 4000,
+    "name": "context-voice-draft-4000",
+    "group": "convex/lib/agentBridgePrompt.ts"
+  },
+  {
+    "symbol": "encryptPayoutDestination",
+    "args": [
+      "context",
+      "Where are doctor payout bank details encrypted before storage and decrypted for transfers?",
+      "--max-tokens",
+      "4000",
+      "--max-output-bytes",
+      "16000",
+      "--json-detail",
+      "content",
+      "--diagnostic"
+    ],
+    "expected": "convex/lib/payoutDestinationCrypto.ts",
+    "budget": 4000,
+    "name": "context-crypto-4000",
+    "query": "Where are doctor payout bank details encrypted before storage and decrypted for transfers?",
+    "group": "convex/lib/payoutDestinationCrypto.ts",
+    "required": [
+      {
+        "file": "convex/lib/payoutDestinationCrypto.ts",
+        "symbol": "encryptPayoutDestination"
+      },
+      {
+        "file": "convex/lib/payoutDestinationCrypto.ts",
+        "symbol": "decryptPayoutDestination"
+      }
+    ]
+  },
+  {
+    "name": "novel-sms-en",
+    "query": "Where is an SMS body stripped of accents and capped at 160 characters?",
+    "expected": "convex/lib/gtiSms.ts",
+    "symbol": "sanitizeSmsMessage",
+    "negative": false,
+    "group": "convex/lib/gtiSms.ts"
+  },
+  {
+    "name": "novel-sms-pt",
+    "query": "Como remover acentos e limitar o texto de SMS a 160 caracteres?",
+    "expected": "convex/lib/gtiSms.ts",
+    "symbol": "sanitizeSmsMessage",
+    "negative": false,
+    "group": "convex/lib/gtiSms.ts"
+  },
+  {
+    "name": "novel-email",
+    "query": "How is a stable retry key generated to avoid sending a notification email twice?",
+    "expected": "convex/lib/resend.ts",
+    "symbol": "getNotificationEmailIdempotencyKey",
+    "negative": false,
+    "group": "convex/lib/resend.ts"
+  },
+  {
+    "name": "novel-consent",
+    "query": "Where do we reject consent given too far in the future while allowing a small clock difference?",
+    "expected": "convex/lib/patientConsent.ts",
+    "symbol": "assertPatientConsentIsValid",
+    "negative": false,
+    "group": "convex/lib/patientConsent.ts"
+  },
+  {
+    "name": "novel-negative-en",
+    "query": "How does Apache Kafka rebalance consumer partitions and commit offsets?",
+    "negative": true,
+    "group": "absent-infrastructure"
+  },
+  {
+    "name": "novel-negative-pt",
+    "query": "Onde o Kubernetes configura autoscaling dos pods e distribui replicas?",
+    "negative": true,
+    "group": "absent-infrastructure"
+  }
+]

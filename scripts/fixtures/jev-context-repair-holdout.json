@@ -1,0 +1,37 @@
+{
+  "labelSource": "Agent source-reviewed analytics privacy family. Reserved from question discovery; small two-query check, not promotion evidence.",
+  "cases": [
+    {
+      "id": "reserved-privacy-0",
+      "group": "analytics-privacy",
+      "split": "test",
+      "query": "How are analytics identifiers hashed with a salt, and what makes the salt valid?",
+      "required": [
+        {
+          "file": "convex/lib/posthogPrivacy.ts",
+          "symbol": "hashAnalyticsIdentifier"
+        },
+        {
+          "file": "convex/lib/posthogPrivacy.ts",
+          "symbol": "getAnalyticsHashSalt"
+        }
+      ]
+    },
+    {
+      "id": "reserved-privacy-1",
+      "group": "analytics-privacy",
+      "split": "test",
+      "query": "Como URLs de analytics removem query strings e fragmentos e mascaram segmentos de identificadores?",
+      "required": [
+        {
+          "file": "convex/lib/posthogPrivacy.ts",
+          "symbol": "sanitizeUrlLikeValue"
+        },
+        {
+          "file": "convex/lib/posthogPrivacy.ts",
+          "symbol": "sanitizePathname"
+        }
+      ]
+    }
+  ]
+}

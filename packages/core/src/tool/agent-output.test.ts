@@ -113,12 +113,15 @@ describe("shared agent output projection", () => {
 
   it("drops optional diagnostics before source, preserving the packet verdict", () => {
     const result = enforceAgentOutputBudget({ command: "context", status: "complete",
+      jev: { status: "complete", trace: { selected: "x".repeat(10000) } },
       evidenceAssessment: { scope: "final-structured-source-packet", verdict: "direct-evidence", fullyAssessed: true },
       budget: { maxBytes: 900 }, results: [{ id: "a", content: "function rule() { return true }", diagnostic: { why: "x".repeat(3000) } }] })
     expect(result.results[0].content).toContain("function rule")
     expect(result.results[0].diagnostic).toBeUndefined()
     expect(result.evidenceAssessment.verdict).toBe("direct-evidence")
     expect(result.budget.diagnosticsOmitted).toBe(true)
+    expect(result.jev.trace).toBeUndefined()
+    expect(result.jev.traceOmitted).toBe(true)
   })
 
 })

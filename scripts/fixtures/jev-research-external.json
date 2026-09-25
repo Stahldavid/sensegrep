@@ -1,0 +1,12 @@
+{
+  "repository":"sensegrep",
+  "labelSource":"agent-source-reviewed-external-repository-2026-09-24",
+  "cases":[
+    {"group":"provider-validation","split":"test","file":"packages/core/src/tool/jev.ts","queries":["Where is a provider score rejected when it disagrees with its probability distribution?","Onde e rejeitada uma nota que nao corresponde a distribuicao de probabilidades do provedor?"],"positive":{"parseJevScores":"direct_implementation"},"negative":["rankWithJev","configuredKey"]},
+    {"group":"ranking","split":"test","file":"packages/core/src/tool/jev.ts","queries":["How are local and remote ranks combined using reciprocal rank fusion?","Como combinar rankings local e remoto com reciprocal rank fusion?"],"positive":{"rankWithJev":"direct_implementation"},"negative":["parseJevScores","assessJevEvidence"]},
+    {"group":"coverage","split":"test","file":"packages/core/src/tool/jev-coverage.ts","queries":["Where are complementary code snippets chosen within a token budget?","Onde sao selecionados trechos complementares dentro do orcamento de tokens?"],"positive":{"selectEvidenceCoverage":"direct_implementation"},"negative":["evidenceAspects","candidateTrace"]},
+    {"group":"requirements","split":"test","file":"packages/core/src/tool/jev-coverage.ts","queries":["Where is a query split into literal requirements without generating new claims?","Onde a consulta e dividida em requisitos literais sem gerar novas afirmacoes?"],"positive":{"evidenceAspects":"direct_implementation"},"negative":["selectEvidenceCoverage","evidenceShortlist"]},
+    {"group":"recovery","split":"test","file":"packages/core/src/tool/jev-recovery.ts","queries":["Where do missing helper signals select anchors for structural recovery?","Onde sinais de helper ausente escolhem pontos de partida para recuperacao estrutural?"],"positive":{"planJevRecovery":"direct_implementation"},"negative":["recoveredConstants"]},
+    {"group":"routing","split":"test","file":"packages/core/src/tool/jev-routing.ts","queries":["How is contradictory evidence classified ahead of relevant evidence?","Como evidencias contraditorias sao classificadas antes das relevantes?"],"positive":{"routeEvidence":"direct_implementation"},"negative":["jevStages"]}
+  ]
+}

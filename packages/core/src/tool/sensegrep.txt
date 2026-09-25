@@ -10,8 +10,8 @@ Usage:
 - `limit` (optional): Maximum results (default: 10)
 - `include` (optional): File pattern filter (e.g. "*.ts", "src/**/*.tsx")
 - `rerank` (optional): Apply additional deterministic lexical/structural reranking
-- `jev` (optional): OpenRouter Jev evidence evaluation: off (default), evidence, rerank, or both; sends shortlisted source to OpenRouter
-- `jevCandidates` / `jevTimeoutMs` (optional): Bound remote evaluations (default 20, max 40) and additional inference deadline (default 8000ms); errors retain local ranking
+- `jev` (optional): OpenRouter Jev evidence evaluation: both by default with a dedicated Jev credential, otherwise off; explicit off disables it. Sends shortlisted source to OpenRouter
+- `jevCandidates` / `jevTimeoutMs` (optional): Bound remote evaluations (default 20, max 80) and additional inference deadline (default 8000ms); errors retain local ranking
 - `minScore` (optional): Minimum relevance score 0-1 (filters low-confidence results)
 - `symbol` (optional): Filter by symbol name (e.g. "VectorStore")
 - `maxPerFile` (optional): Strict cap; by default retain a primary and a complementary symbol, preserving the first five file anchors
@@ -48,3 +48,5 @@ Examples:
 - Query: "API rate limiting", symbolType: "class" -> Finds rate limiter classes
 
 Note: Requires semantic index. Run `sensegrep index` first if you get an error about missing index.
+
+Jev uses staged decisions and eligibility buckets by default. Evidence packets retain directed necessary helpers and source-verified constants. Incomplete packets get one bounded recovery and conditional contribution cycle; changed packets require fresh verification. --jev-panel composite and --jev-ranking score remain explicit ablations. No learned weights are promoted by this policy.

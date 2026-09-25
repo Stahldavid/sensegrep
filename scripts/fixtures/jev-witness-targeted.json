@@ -1,0 +1,61 @@
+[
+  {
+    "name": "working-rejection-site",
+    "group": "working-requirements",
+    "query": "Where does validateWorkingHours throw for an explicitly disabled working day?",
+    "required": [
+      {
+        "file": "convex/mutations/appointments/appointmentUtils.ts",
+        "symbol": "validateWorkingHours"
+      }
+    ],
+    "facts": [
+      {
+        "id": "disabled-rejection",
+        "anyOf": [
+          {
+            "file": "convex/mutations/appointments/appointmentUtils.ts",
+            "symbol": "validateWorkingHours",
+            "includes": [
+              "workingDay?.enabled === false",
+              "else if (workingDayIsDisabled)"
+            ]
+          }
+        ]
+      }
+    ],
+    "budget": true,
+    "args": [
+      "context",
+      "Where does validateWorkingHours throw for an explicitly disabled working day?",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ]
+  },
+  {
+    "name": "working-exact-bounds",
+    "group": "working-requirements",
+    "query": "In isWithinWorkingHours, which conditions reject a disabled day, invalid parsed times, or an inverted start/end window? Include how parseTimeToMinutes validates hours and minutes.",
+    "required": [
+      {
+        "file": "convex/lib/workingHours.ts",
+        "symbol": "isWithinWorkingHours"
+      },
+      {
+        "file": "convex/lib/workingHours.ts",
+        "symbol": "parseTimeToMinutes"
+      }
+    ],
+    "budget": true,
+    "args": [
+      "context",
+      "In isWithinWorkingHours, which conditions reject a disabled day, invalid parsed times, or an inverted start/end window? Include how parseTimeToMinutes validates hours and minutes.",
+      "--max-tokens",
+      "4000",
+      "--limit",
+      "5"
+    ]
+  }
+]

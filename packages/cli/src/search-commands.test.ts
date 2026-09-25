@@ -43,8 +43,12 @@ const rawSearchResult = {
 
 describe("search command agent JSON contracts", () => {
   it("validates Jev flags before remote work", () => {
+    expect(parseJevOptions({jev:'both','jev-stages':'evidence,recovery','jev-recovery-depth':'3','jev-verify-aspects':true})).toMatchObject({jevStages:['evidence','recovery'],jevRecoveryDepth:3,jevVerifyAspects:true})
+    for(const flags of ([{'jev-stages':'recovery'},{jev:'off','jev-stages':'evidence'},{jev:'both','jev-stages':'rerank,rerank'},{'jev-recovery-depth':'4'},{'jev-verify-aspects':'yes'}] as Record<string,string>[])) expect(()=>parseJevOptions(flags)).toThrow()
+    expect(parseJevOptions({"jev-aspects": '["minimum", "exception"]', "jev-candidates":"80", "jev-blocks":true})).toMatchObject({jevAspects:["minimum","exception"],jevCandidates:80,jevBlocks:true})
+    for (const flags of [{"jev-aspects":"[]"},{"jev-aspects":"[42]"},{"jev-blocks":"yes"},{"jev-bundles":"yes"}] as Record<string,string|boolean>[]) expect(()=>parseJevOptions(flags)).toThrow()
     expect(parseJevOptions({ jev: true, "jev-candidates": "4", "jev-timeout": "1000" })).toEqual({ jev: "both", jevCandidates: 4, jevTimeoutMs: 1000 })
-    const invalid: Record<string, string | boolean>[] = [{ jev: "invalid" }, { "jev-candidates": "0" }, { "jev-candidates": "41" }, { "jev-timeout": true }]
+    const invalid: Record<string, string | boolean>[] = [{ jev: "invalid" }, { "jev-candidates": "0" }, { "jev-candidates": "81" }, { "jev-timeout": true }]
     for (const flags of invalid) expect(() => parseJevOptions(flags)).toThrow()
   })
   it("preserves optional duplicate judgements in minimal output", () => {
@@ -55,6 +59,7 @@ describe("search command agent JSON contracts", () => {
     expect(out.duplicates[0].jev).toEqual(judgement)
   })
   it("uses one canonical minimal card vocabulary", () => {
+    expect(compactSearchResult({...rawSearchResult.results[0],jev:{category:'direct'},contentTruncated:true}).evidenceCategory).toBe('unassessed')
     const card = compactSearchResult(rawSearchResult.results[0])
 
     expect(card).toEqual({
@@ -210,6 +215,8 @@ describe("search command agent JSON contracts", () => {
   })
   it("validates Jev batch and ranking controls", () => {
     expect(parseJevOptions({ "jev-batch-size": "10", "jev-ranking": "rrf" })).toMatchObject({ jevBatchSize: 10, jevRanking: "rrf" })
+    expect(parseJevOptions({ "jev-panel": "noul", "jev-ranking": "useful" })).toMatchObject({ jevPanel:"noul", jevRanking:"useful" })
+    expect(() => parseJevOptions({ "jev-panel": "unknown" })).toThrow()
     expect(() => parseJevOptions({ "jev-batch-size": "0" })).toThrow()
     expect(() => parseJevOptions({ "jev-batch-size": "11" })).toThrow()
     expect(() => parseJevOptions({ "jev-ranking": "unknown" })).toThrow()
