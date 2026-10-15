@@ -6,9 +6,17 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -34,10 +42,28 @@ jobs:
         run: npm run build
 
       - name: Typecheck
-        run: npm run check
+        run: npm run check:types
 
       - name: Version Consistency
         run: npm run version:check
 
       - name: Test
-        run: npm test
+        run: npm run test:unit
+
+      - name: Evaluator and build-tool tests
+        run: npm run test:node
+
+      - name: Verify packaged artifacts
+        run: npm run release:verify
+
+      - name: README local links
+        run: npm run check:docs
+
+      - uses: actions/setup-python@v5
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 24
+        with:
+          python-version: '3.12'
+
+      - name: Research Python tests
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 24
+        run: npm run test:python
