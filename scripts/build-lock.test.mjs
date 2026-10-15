@@ -66,3 +66,55 @@ test('an expired malformed lock can be recovered', () => fixture(async file => {
   await (await acquireBuildLock(file,{malformedGraceMs:1}))()
   await assert.rejects(fs.stat(file),{code:'ENOENT'})
 }))
+
+async function windowsFixture(fn) {
+  const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')
+  Object.defineProperty(process,'platform',{...descriptor,value:'win32'})
+  try {return await fn()} finally {Object.defineProperty(process,'platform',descriptor)}
+}
+test('transient Windows open sharing errors retry without changing ownership rules', () => fixture(file => windowsFixture(async () => {
+  const original = fs.open
+  let attempts=0
+  fs.open=async (...args)=>{
+    if(args[0]===file && ++attempts===1) throw Object.assign(new Error('delete pending'),{code:'EPERM'})
+    return original(...args)
+  }
+  try {
+    const release=await acquireBuildLock(file,{timeoutMs:200,pollMs:1})
+    assert.equal(attempts,2)
+    await release()
+    await assert.rejects(fs.stat(file),{code:'ENOENT'})
+  } finally {fs.open=original}
+})))
+test('transient Windows reads never evict a live lock owner', () => fixture(file => windowsFixture(async () => {
+  const original = fs.readFile
+  await fs.writeFile(file,JSON.stringify({pid:process.pid,token:'live'}))
+  let attempts=0
+  fs.readFile=async (...args)=>{
+    if(args[0]===file && ++attempts===1) throw Object.assign(new Error('delete pending'),{code:'EPERM'})
+    return original(...args)
+  }
+  try {
+    await assert.rejects(acquireBuildLock(file,{timeoutMs:40,pollMs:1}),/Timed out/)
+    assert.ok(attempts>1)
+    assert.equal(JSON.parse(await original(file,'utf8')).token,'live')
+  } finally {fs.readFile=original}
+})))
+for (const code of ['EPERM','EACCES']) {
+  test(`persistent Windows ${code} fails closed with bounded retries`, () => fixture(file => windowsFixture(async () => {
+    const original=fs.readFile, originalUnlink=fs.unlink
+    await fs.writeFile(file,JSON.stringify({pid:2147483647,token:'dead-but-unreadable'}))
+    let attempts=0,unlinks=0
+    fs.readFile=async (...args)=>{
+      if(args[0]===file){attempts++;throw Object.assign(new Error('permission denied'),{code})}
+      return original(...args)
+    }
+    fs.unlink=async (...args)=>{if(args[0]===file)unlinks++;return originalUnlink(...args)}
+    try {
+      await assert.rejects(acquireBuildLock(file,{timeoutMs:500,pollMs:1}),{code})
+      assert.equal(attempts,code==='EPERM'?4:1)
+      assert.equal(unlinks,0)
+      assert.equal(JSON.parse(await original(file,'utf8')).token,'dead-but-unreadable')
+    } finally {fs.readFile=original;fs.unlink=originalUnlink}
+  })))
+}
