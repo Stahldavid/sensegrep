@@ -6,10 +6,17 @@ const clearProjectCache = vi.fn()
 const getCollectionUnsafe = vi.fn()
 const search = vi.fn()
 const listDocuments = vi.fn()
+const ripgrepFilepath = vi.fn()
 const withConfig = vi.fn(async (_config, run: () => Promise<unknown>) => run())
 const verifyIndex = vi.fn()
 const getDistanceMetric = vi.fn(() => "cosine")
 const distanceToSimilarity = vi.fn((distance: number) => 1 - distance)
+
+// This fixture exercises semantic grouping and lexical fallback. It must not
+// download an rg binary or search the host filesystem when rg is absent.
+vi.mock("../file/ripgrep.js", () => ({
+  Ripgrep: { filepath: ripgrepFilepath },
+}))
 
 vi.mock("../semantic/lancedb.js", () => ({
   VectorStore: {
@@ -63,6 +70,7 @@ describe("SenseGrepClusterTool", () => {
   })
   beforeEach(() => {
     vi.clearAllMocks()
+    ripgrepFilepath.mockRejectedValue(new Error("ripgrep unavailable in semantic grouping fixture"))
     readIndexMeta.mockResolvedValue({
       embeddings: {
         provider: "gemini",
@@ -241,6 +249,7 @@ describe("SenseGrepClusterTool", () => {
     expect((result.clusters as any[]).every((cluster) => cluster.results.length <= 1)).toBe(true)
     expect((result.clusters as any[]).some((cluster) => cluster.omittedResults > 0)).toBe(true)
     expect(listDocuments).toHaveBeenCalledTimes(1)
+    expect(ripgrepFilepath).toHaveBeenCalledTimes(1)
   })
 })
 

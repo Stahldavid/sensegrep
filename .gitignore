@@ -1,6 +1,7 @@
 node_modules/
 bun.lock
 .sensegrep-build.lock
+.sensegrep-build.lock.reclaim
 
 # build outputs
 dist/
