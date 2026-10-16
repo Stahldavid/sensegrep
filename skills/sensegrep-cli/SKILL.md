@@ -1,476 +1,73 @@
 ---
 name: sensegrep-cli
-description: "Semantic-first code discovery via the sensegrep CLI. Default to sensegrep search for behavior, concepts, structure, and exploration; reserve sensegrep literal for known exact strings, regexes, exhaustive occurrence audits, or verification after discovery."
+description: Discover code behavior with sensegrep CLI semantic search, or verify known text and exhaustive occurrences with literal search when the CLI is available.
 ---
 
-# sensegrep (CLI) — Semantic Code Search
+# sensegrep CLI
 
-Search code by meaning, not text patterns, by running the `sensegrep` command-line tool.
-Uses AI embeddings + tree-sitter AST parsing. This skill is **CLI-first**: it runs shell
-commands and reads their output. It does **not** require the sensegrep MCP server. If the
-sensegrep MCP tools are available in your environment, prefer those; otherwise use the CLI
-commands below.
+Use the existing CLI for conceptual code discovery; use literal search for exact evidence. MCP is an alternative only when its tools are actually exposed and the task permits its effects. A skill file does not install the engine or prove discovery.
 
-## Setup
+## Before running
 
-Install the CLI once (global), then index the project before the first search:
+- Locate an existing binary and check `sensegrep --version`. Windows PowerShell can use `sensegrep.cmd` when execution policy blocks the npm ps1 wrapper; no policy change is needed. Missing binary/index/provider is a limitation, not authorization to install, download a model, configure credentials or start a server.
+- Fix the project `--root`, index/profile and evidence universe. A subdirectory root can reuse the nearest indexed parent, scoped to that subdirectory. Indexing writes index/cache/checkpoints and may send source to the resolved embedding provider; run it only within task scope.
+- For local-only work, confirm resolved provider/model/endpoint with ordinary `selftest`, accounting for CLI/environment overrides of global config. Ollama's local example is `qwen3-embedding:0.6b`, 1024 dimensions, `http://127.0.0.1:11434`; this is not proof of the current resolved settings.
+- Handle [Jev](https://github.com/Stahldavid/sensegrep/blob/40802d31c5306ff5f17759bb27262ecb7f6ce4e2/docs/jev.md) separately. Explicit `--jev off` disables remote evaluation for that command. Mode precedence is explicit flag, then `SENSEGREP_JEV_MODE`, then dedicated credentials, then off. A dedicated `SENSEGREP_JEV_API_KEY` or `jev.json` enables both for search/context; a generic OpenRouter key alone does not. Active Jev sends query, paths/symbols and snippets to OpenRouter even with local embeddings. Remote source transmission/paid calls need task consent; survey/duplicate judgments retain explicit opt-in.
+- Do not start MCP/daemon/watch merely to inspect source. MCP watches by default; rg fallback may download a binary. Daemon start is a process action; it does not watch/reindex by default, and `--watch` is explicit. Existing daemon call/status/stop clients avoid loading the core in the caller. Read [runtime setup](https://github.com/Stahldavid/sensegrep/blob/40802d31c5306ff5f17759bb27262ecb7f6ce4e2/docs/mcp-setup.md) before runtime changes.
 
-```bash
-npm install -g @sensegrep/cli
-sensegrep index            # builds the semantic index for the current directory
-```
-
-Add `--json` to search, context, audit, survey, cluster, graph, index-health, or
-detect-duplicates commands to get
-machine-readable output that is easy to parse programmatically. When `--json` is active,
-stdout is reserved for JSON; human progress and warnings go to stderr.
-
-Use `sensegrep --version` to confirm the installed CLI version.
-
-## When to Use
-
-- **sensegrep search**: Finding functions/classes by behavior, exploring structure, semantic queries, multi-criteria searches
-- **sensegrep literal**: Exact strings and regex proof; add `--filesystem` when the evidence universe must not depend on the index
-- **grep/ripgrep**: Fallback only when Sensegrep is unavailable or custom raw filesystem behavior is required
+## Route the task
 
 **Routing rule:** Start with `sensegrep search` whenever the task asks where or how behavior is implemented, even if the request contains candidate keywords. Use `sensegrep literal` only when the text or regex is already known, every textual occurrence is required, or you are verifying/refining a semantic result. If unsure, choose `sensegrep search`.
 
-## Local execution and evidence quality
-
-- On Windows PowerShell, use `sensegrep.cmd` if execution policy blocks npm's `sensegrep.ps1` wrapper. No policy change is needed.
-- For local embeddings, set `provider: "ollama"`, `embedModel: "qwen3-embedding:0.6b"`, `embedDim: 1024`, and `baseUrl: "http://127.0.0.1:11434"` in `~/.config/sensegrep/config.json`. Confirm the resolved provider with `selftest`; environment and CLI overrides can take precedence.
-- Use incremental `index --no-watch` for normal updates. A missing index warrants indexing; a known text lookup does not.
-- Start conceptual searches with a domain or framework when known (for example, "Clerk session token refresh"). If results are weak, reformulate before raising the result limit. Avoid premature kind filters: a business rule may live in a helper rather than a framework mutation.
-- Follow relevant result IDs with `show`, then verify claims in source. `confidence` is a ranking heuristic, not a calibrated probability that a result answers the question.
-- If `context` reports `status: "incomplete"` or `retrieval.truncated`, inspect selected IDs and expand missing evidence with `show`; a small token budget can omit an important file.
-- `graphCoverage` measures resolved edges divided by resolved, unresolved, and ambiguous edges considered by the graph. It is not recall against every real reference in the repository. Use compiler-aware tools before refactoring when completeness matters.
-- Report CLI wall time separately from internal search timings. Do not attribute process startup time to the embedding model.
-- `benchmark` measures provider request concurrency, not index worker concurrency or Ollama server slots. Sequential adapters (including native Ollama) report a baseline without a recommendation; an OpenAI-compatible sample fitting in one HTTP batch also cannot compare concurrency. On older versions, disregard Ollama concurrency recommendations.
-- Index plans distinguish internal `estimatedBatches`/`batchSize` from estimated HTTP requests. Ollama exposes `httpBatchSize`; request estimates exclude retries, and dry-run estimates may overstate work when vectors will be reused.
-
-## Recommended Defaults
-
-Start with these defaults and adjust based on what you find:
-
-| Goal | `--limit` | `--max-per-file` | Notes |
-|---|---|---|---|
-| Focused search (know what you want) | 10 (default) | 1 | Tight, clean tree-shaking output |
-| General exploration | 20 | 2 | Balanced — visibly better file coverage than limit=10 |
-| Broad discovery (large codebase) | 20 | 3 | Diminishing returns beyond 3; max-per-file=5 rarely adds value |
-
-> When `--pattern` is set, sensegrep internally fetches at least 200 candidates (or `limit × 3` when larger) before filtering. Increase `--limit` when the task needs more returned evidence.
-
-> **Tip:** Use `--include "src/**/*.ts"` to focus on source folders, or add `--exclude "*.md"` / `--exclude "docs/**"` when you want to keep markdown, docs, and changelogs out of results. On Windows, prefer forward slashes in globs (`src/**/*.ts`), though backslash-based indexed paths are now normalized automatically.
-
-> **Identifier queries:** If the query looks like a symbol or framework API (`defineNuxtRouteMiddleware`, `defineStore`, `OrderServiceImpl`), sensegrep auto-adds exact/literal fallback on top of semantic search. For short identifiers such as `emit`, `run`, or `sync`, prefer `--exact`; it promotes exact symbol-name matches and can avoid a slow/weak semantic search.
-
-> **Subdirectory roots:** If the repo root was indexed and you run `sensegrep` with `--root` pointing at a subdirectory, Sensegrep reuses the nearest indexed parent and scopes the query to that subdirectory. You no longer need to reindex every subfolder separately.
-
-> **JSON output:** JSON is minified schema v2 and `minimal` by default: envelope, sufficiency, and canonical `id/file/lines/symbol/kind/rank/relevance` cards. Pass a selected `id` directly to `sensegrep show`. Use `--json-detail content` for code, `--diagnostic` for distances/ranking/timings/freshness without code, `--json-detail full` for internals, and `--pretty` only for human reading. `compact` remains a compatibility alias for `minimal`.
-
-> **Agent contract:** Always retain and inspect `retrieval.mode`, `retrieval.universe`, `index`, applicable `budget`, and structured warnings. Invalid JSON-mode arguments return `status: "error"` with structured `errorInfo` and exit code 2. `--max-output-bytes` bounds the final serialized JSON, not only evidence text.
-
-> **Profiles:** Use `--profile <name>` when comparing embedding models/settings. Profiles have independent indexes. Sensegrep validates a non-secret endpoint/model fingerprint before searching.
-
-## Commands
-
-### `sensegrep search` — Primary search
-
-```bash
-sensegrep search "error handling and retry logic" \
-  --type function          # function | class | method | type | variable | enum | module
-  --language typescript    # typescript | javascript | python | java | vue
-  --async                  # async only
-  --exported true          # public API surface
-  --min-complexity 5       # complex logic
-  --pattern "handle|process"  # regex post-filter via ripgrep (applied after semantic search)
-  --include "src/**/*.ts"  # file glob include filter
-  --exclude "*.md"         # file glob exclude filter
-  --decorator "@route"     # filter by decorator
-  --parent "UserService"   # scope to class/parent
-  --imports express        # filter by imported module
-  --exact                  # prefer exact symbol lookup for identifier queries
-  --semantic-kind convexMutation # framework-aware kind; aliases and wildcards like convex* work
-  --explain-filters        # include whyMatched/filterMatches in JSON
-  --strict-parent          # strict indexed parent metadata validation
-  --strict-imports         # strict AST import metadata validation
-  --has-docs true          # require docs
-  --min-score 0.5          # relevance threshold
-  --max-per-file 2         # dedup per file (default: 2)
-  --max-per-symbol 2       # dedup per symbol (default: 2)
-  --hybrid true            # fuse lexical + vector retrieval (default: true)
-  --hybrid-mode parallel   # collect lexical and semantic candidates (default)
-  --rerank true            # deterministic second-stage reranking
-  --max-tokens 8000        # cap estimated output tokens
-  --changed --base origin/main # restrict to Git-changed files
-  --profile fast           # select a named side-by-side index
-  --no-shake               # show full matched snippets when tree-shaking hides the target
-  --limit 10               # max results (default: 10)
-  --json                   # minified minimal cards
-  --json-detail content    # add code without diagnostic metadata
-  --diagnostic             # ranking, distances, metrics, freshness
-  --pretty                 # human-readable JSON indentation
-```
-
-`--parent` matches parent/class scope by containment, so partial class names are acceptable. `--imports` tries package-name variants (`@scope/pkg`, `scope/pkg`, `pkg`) to reduce false misses in scoped packages.
-
-Hybrid retrieval is the default: lexical and vector retrieval run concurrently, then ranks are fused before structural filtering. Opt-in adaptive mode delays lexical work briefly and cancels it only when strong semantic evidence arrives first. If optional ripgrep execution is unavailable, natural-language search safely falls back to vector results. Use `--no-hybrid` for latency-sensitive semantic-only discovery, and `--exact` for identifiers.
-
-Repeated queries reuse a persistent query-vector cache keyed by an opaque embedding identity;
-diagnostic output reports `metrics.queryEmbeddingCacheHit`. Set
-`SENSEGREP_QUERY_CACHE=false` only for controlled provider benchmarks or environments that
-forbid local vector caching.
-
-### `sensegrep literal` — Exhaustive text evidence
-
-Use this instead of `search --pattern` when every occurrence matters. It skips embeddings and reports whether `--limit` truncated the result set.
-
-```bash
-sensegrep literal "X-Goog-Message-Number" --include "convex/**" --json
-sensegrep literal "retry|backoff" --regex --ignore-case
-sensegrep literal "TODO:" --filesystem --max-output-bytes 50000 --json
-```
-
-`--filesystem` is a direct ripgrep fast path: it does not load the semantic index or
-embedding configuration. Very small output budgets can force an emergency envelope;
-check `status` and `truncated` before assuming exhaustive evidence.
-
-### `sensegrep context` — Build an agent context pack
-
-Use this when the next model/agent call has a context budget. It enables hybrid retrieval, reranking, diversification, and tree-shaking, then stops before the estimated token cap.
-
-```bash
-sensegrep context "authentication request lifecycle" --max-tokens 8000 --json
-sensegrep context "billing retry behavior" --include "packages/core/**/*.ts" --max-tokens 12000
-```
+| Need | Tool | Evidence limit |
+| --- | --- | --- |
+| Where/how behavior is implemented, concepts or exploration | `sensegrep search "domain and behavior" --json` | Discovery, not exhaustive proof |
+| Known string/regex, every occurrence or verification | `sensegrep literal "text" --filesystem --json` | Check status, truncation and ripgrep-visible universe |
+| Bounded context or changed-code review | `context` or `audit` | Budgeted selection; inspect incomplete coverage |
+| Reading map / subthemes | `survey` / `cluster` | Group summaries; expand representative IDs with show |
+| Definition, references, impact or trace | Graph commands on existing index | Resolved extracted edges; use compiler tools for complete refactoring |
+| Logical duplicates | `detect-duplicates` | Candidate/time caps and snapshot-bound continuation |
 
-### `sensegrep audit` — Review Git changes
-
-`audit` is a token-bounded context search restricted to changed files. Supply a merge base for PR-style review; without `--base`, it uses working-tree and untracked changes.
+Start conceptual search with domain/framework when known; reformulate weak results before raising limits. Avoid premature kind filters that can hide helpers. Identifier-like queries add exact/literal fallback; short identifiers can use `--exact`. If the engine is unavailable or the task forbids its effects, use available source/file-search tools and report the limitation.
 
-```bash
-sensegrep audit "security regressions and missing error handling" --base origin/main --max-tokens 12000
-sensegrep audit "security regressions" --base origin/main --require-coverage --continue-uncovered --batch-tokens 4000 --max-total-tokens 8000 --max-output-bytes 32000 --max-batches 8
-sensegrep search "affected retry logic" --changed --base HEAD~1 --json
-```
-
-`--batch-tokens` is strict. Sensegrep splits large changed files into stable range cards so
-no batch exceeds the requested ceiling; read each batch's `ranges` directly. Projected
-budgets report final `usedBytes`/`usedTokens` and configured maxima. If a complete first
-snippet does not fit, inspect the partial card's `contentTruncated` and `contentLines` fields.
-The card's canonical `lines` and `id` still identify the complete source range for `show`.
+`search --pattern` filters semantic candidates; it remains non-exhaustive. It fetches at least 200 candidates (or limit × 3 when larger) before filtering, which still does not prove every occurrence. `literal --filesystem` bypasses the semantic index and embedding config; very small output budgets can force an emergency envelope. Read status/truncation/universe before claiming complete text evidence.
 
-### `sensegrep survey` — Reading map for a theme
+For a starting budget, focused search can use limit 10 / max-per-file 1; exploration 20 / 2; broad discovery 20 / 3. Use forward-slash include/exclude globs, and widen only for missing evidence. Structural filters operate on indexed metadata; parent/import matching and strict metadata flags are not compiler-grade proofs. Zero matching files plus a warning is a scope/glob issue, not proof of absence.
 
-Use this when a linear result list is still too noisy and you want a domain-oriented map of the query.
+## Interpret results and verify source
 
-```bash
-sensegrep survey "authentication login token" \
-  --language typescript \
-  --include "frontend-admin/**/*.ts" \
-  --limit 4 \
-  --per-group 2
-```
-
-Returns grouped, tree-shaken reading domains such as `middleware / guards`, `stores / state`, `services / api`, and `types / contracts`.
-JSON and MCP calls default to `summary`; request `--json-detail representatives` only
-when representative cards are needed. Summary groups already expose `representativeIds`
-that can be expanded with `sensegrep show`.
-
-### `sensegrep cluster` — Break a broad topic into subthemes
-
-Use this when the topic is large or fuzzy and you want semantically coherent clusters instead of a flat top-N.
-
-```bash
-sensegrep cluster "price list commission ncm uf packaging" \
-  --language java \
-  --include "backend-api/**/*.java" \
-  --limit 4 \
-  --per-cluster 2 \
-  --cluster-threshold 0.72
-```
-
-Returns cluster headings plus representative tree-shaken snippets, using embeddings + AST metadata + path/import signals.
-JSON and MCP calls default to `summary`. A provider failure must produce both
-`retrieval.mode: lexical-fallback` and a structured warning.
-
-### Symbol graph — References, impact, and trace
-
-These commands analyze the existing local index without embedding calls:
-
-```bash
-sensegrep references loadUser --json
-sensegrep impact loadUser --depth 3 --limit 100 --json
-sensegrep trace handleRequest loadUser --depth 6 --json
-sensegrep references --id "src/auth.ts:20:45:loadUser" --json
-```
-
-The graph snapshot is persisted beside the index and reused across CLI invocations until
-the index `updatedAt` changes. `show` is target-local and reports `index.targetFresh`;
-use `verify --strict` when global freshness is required.
-
-- `references` lists definitions and indexed reference sites.
-- `impact` walks resolved reverse call edges and returns canonical locations. Ambiguous same-name targets are intentionally omitted instead of guessed.
-- `trace` finds a reference path between two symbols.
-
-### `sensegrep detect-duplicates` — Find logical duplicates
-
-```bash
-sensegrep detect-duplicates \
-  --cross-file-only    # only report duplicates in different files
-  --language typescript # optional language filter
-  --only-exported      # focus on public API surface
-  --show-code          # explicitly include code (JSON omits it otherwise)
-  --threshold 0.85     # 0.7 = loose similarity, 0.9 = near-identical only
-  --min-complexity 3   # skip trivial helpers (getters, guards)
-  --max-candidates 1500 # cap broad scans; raise for deeper audits
-  --timeout 30s        # return partial findings instead of running indefinitely
-  --resume-cursor 0    # continue from continuation.cursor (or summary.resumeCursor with --json-detail full) on the next call
-  --include "src/**/*.ts" # scope duplicate candidates by indexed path
-  --exclude "*.test.ts"   # remove noisy paths
-  --ignore-tests       # exclude test files
-```
-
-`--threshold` guide: use `0.85` (default) for meaningful duplicates; lower to `0.7` for suspicious similarities; raise to `0.92+` for near-identical copies only.
-
-For broad monorepos, start with `--include`, `--language`, `--min-lines`, or `--min-complexity` before raising `--max-candidates`. If the candidate set is larger than the cap or reaches `--timeout`, Sensegrep returns partial findings and reports `summary.truncated`, `summary.candidates`, `summary.analyzedCandidates`, and `continuation.cursor (or summary.resumeCursor with --json-detail full)` in JSON. Pass that cursor to the next invocation with the same index and filters. Continuations preserve pairs in temporary snapshot-bound checkpoints; if the snapshot or candidate set changes, restart without --resume-cursor. The envelope always includes `schemaVersion`, `command`, and `status`.
-
-With `--json`, parse stdout directly. Use `--json --log-format none` when stdout and stderr may be merged; it suppresses every non-fatal log. Use `--embedding-timeout` to bound only query embedding acquisition; it is not a wall-clock limit for the entire search process. `--latency-budget` remains a deprecated alias.
-
-Unknown flags are rejected by subcommand. If a command exits with `Unknown option`, fix the flag instead of assuming the search ran with that constraint.
-
-### `sensegrep semantic-kinds` — List framework-aware kinds
-
-```bash
-sensegrep semantic-kinds
-sensegrep semantic-kinds --json
-```
-
-Common values include `convexQuery`, `convexMutation`, `convexAction`,
-`convexInternalQuery`, `convexInternalMutation`, `convexInternalAction`,
-`convexHttpAction`, `routeHandler`, `reactComponent`, `reactHook`, and
-`wrappedFunction`.
-
-Aliases include `convexPrivateQuery`, `convexPrivateMutation`, and `convexPrivateAction`.
-Use wildcards for families:
-
-```bash
-sensegrep search "backend writes" --semantic-kind convex*
-```
-
-### `sensegrep index` — Index a project
-
-Language detection is **automatic** — sensegrep detects TypeScript, JavaScript, Python, Java, and Vue on its own. **Never specify language when indexing.**
-
-```bash
-sensegrep index                  # fast, only changed files — use by default (incremental)
-sensegrep index --full           # rebuild from scratch — only if index is corrupted or stale
-sensegrep index --no-watch       # index once and exit — use in automation
-sensegrep index --full --no-watch --timeout 5m --log-format jsonl
-sensegrep index --dry-run --no-watch --json # local plan; no embedding calls
-sensegrep index --full --no-watch            # resumes matching interrupted staging
-sensegrep index --full --no-resume --no-watch # discard interrupted staging
-sensegrep status                 # fast metadata-only stats; does not scan freshness
-sensegrep status --verify        # compute changed/missing/removed freshness
-sensegrep status --verbose       # freshness plus changedFiles/missingFiles/removedFiles
-sensegrep index migrate --no-watch # atomic rebuild when schemaCompatible=false
-sensegrep verify --strict        # non-zero exit unless index is fresh and internally consistent
-sensegrep selftest --strict      # CLI/core health check without remote embedding calls
-```
-
-For repeated agent searches, prefer the MCP server or the daemon. `daemon call/status/stop`
-use a lightweight client path and do not load the search core in the caller process; the first
-tool call warms the server, and subsequent calls reuse its loaded runtime and index handles.
-The daemon does not watch or reindex by default; pass `daemon start --watch` only when automatic
-incremental indexing is explicitly desired.
-
-Search scores are metric-aware. New indexes use cosine distance explicitly and JSON results
-include `score`, `rawDistance`, and `distanceMetric`. After upgrading across scoring/index
-metadata changes, prefer `sensegrep index --full --no-watch`.
-
-`sensegrep index` reports phases (`scan`, `parse`, `embed`, `persist`, `complete`) on stderr.
-Use `--timeout <duration>` to budget the whole command, including lock wait. Bare numeric
-timeouts are seconds; suffixes `ms`, `s`, and `m` are supported. `--max-files <n>` is useful
-for smoke tests.
-
-Changed files reuse vectors for content-identical chunks. Full indexing checkpoints its staging table and skips IDs already persisted after an interruption. Progress exposes embedded/reused/persisted chunks, estimated tokens/requests, elapsed time, and ETA.
-
-### Benchmark and named profiles
-
-Benchmarking calls the configured provider and may incur cost. It recommends concurrency only when the adapter supports it and the sample spans multiple HTTP batches; it does not rewrite saved config:
-
-```bash
-sensegrep benchmark --concurrency 1,2,4 --samples 16 --json
-sensegrep index --profile fast --no-watch
-sensegrep profiles --root . --json
-sensegrep search "request routing" --profile fast
-```
-
-`sensegrep verify --strict` enforces:
-
-```text
-indexed=true
-expectedChunks == actualChunks
-changed=0
-missing=0
-removed=0
-isStale=false
-```
-
-Use `sensegrep selftest --strict --json` when checking whether the installed CLI and current
-project index are healthy. Add `--deep` only when remote embeddings are configured and you
-want to exercise search/duplicate JSON shape too.
-
-## How the Search Pipeline Works
-
-```
-query + structural filters
-        ↓
-  exact symbol lookup for identifier queries
-        ↓
-  vector similarity + lexical retrieval (hybrid rank fusion)
-        ↓
-  optional deterministic rerank + pattern post-filter
-        ↓
-  dedup + diversify (--max-per-file, --max-per-symbol)
-        ↓
-  tree-shaking (collapse irrelevant regions, show matched symbol + context)
-        ↓
-  optional token-budget selection → final output
-```
-
-### 1. Structural filters — narrow the candidate pool (before ranking)
-
-Applied at the vector store level, before embedding search:
-
-- `--type` — `function | class | method | type | variable | enum | module`
-- `--exported`, `--async`, `--static`, `--abstract` — boolean shape constraints
-- `--language` — when the codebase is mixed and you need only one language
-- `--parent` — narrow to a specific class or parent scope
-- `--decorator` — filter by decorator name (`@route`, `@dataclass`, etc.)
-- `--imports` — only files that import a given module
-- `--has-docs` — require or exclude docstrings
-- `--min-complexity` / `--max-complexity` — target simple helpers or complex business logic
-- `--include` — file glob include filter (e.g. `packages/core/**/*.ts`). Prefer forward slashes in patterns, especially on Windows.
-- `--exclude` — file glob exclude filter (e.g. `*.md`, `docs/**`)
-
-`--parent` and `--imports` are useful narrowing filters, not proof-grade AST audits. Use `sensegrep literal` for exhaustive textual evidence and compiler/AST tooling when semantic relationships require language-level proof.
-
-If file filters match no indexed files, Sensegrep returns zero results with a structured
-`warnings[]` entry such as `No indexed files matched the file filters (...)`. Treat that
-as a scope/glob problem, not as proof that the symbol or behavior does not exist.
-
-### 2. `--pattern` — ripgrep regex post-filter (after semantic search)
-
-`--pattern` anchors semantic results but remains non-exhaustive and returns `retrieval.exhaustive=false`. Use `sensegrep literal` for proof that every textual occurrence was considered.
-
-```bash
-# Find auth functions that specifically call jwt.verify
-sensegrep search "token validation" --type function --pattern "jwt\.verify"
-
-# Find rate limit handling that actually uses 429
-sensegrep search "HTTP error response handling" --pattern "429|RateLimitError|Retry-After"
-
-# Find cache code that does deletion or eviction
-sensegrep search "cache invalidation" --type function --pattern "delete|evict|expire|clear"
-```
-
-### 3. Tree-shaking — how to get cleaner output
-
-Tree-shaking collapses regions not relevant to your query. The more focused the search, the better the collapse:
-
-- **Add `--type`** — results align to symbol boundaries; everything around them gets collapsed
-- **Use `--include` or `--exclude`** — removes noise files entirely
-- **Raise `--min-score`** — eliminates low-confidence results; surrounding code gets collapsed more aggressively
-- **Lower `--max-per-file`** — prevents overlapping results from blocking contiguous collapse
-- **Combine query + `--pattern`** — anchors result to a specific call site
-- **Use `--no-shake`** — when a short or ambiguous query finds the right file but the important symbol is hidden behind collapsed output
-
-```bash
-# Broad — large uncollapsed blocks
-sensegrep search "caching"
-
-# Focused — tree-shaking collapses everything except the relevant function
-sensegrep search "cache invalidation logic" \
-  --type function \
-  --exclude "*.md" \
-  --pattern "delete|evict|expire" \
-  --max-per-file 1 \
-  --min-score 0.4
-```
-
-## Common Workflows
-
-**Codebase onboarding:**
-```bash
-sensegrep survey "request lifecycle and middleware" --limit 4 --per-group 2
-sensegrep search "request lifecycle and middleware" --limit 20 --max-per-file 2
-sensegrep search "authentication and authorization" --type function --exported true --limit 20
-```
-
-**Break a broad domain into subthemes:**
-```bash
-sensegrep cluster "checkout payment order cart" --limit 4 --per-cluster 2
-sensegrep cluster "price list commission ncm uf packaging" --language java --include "backend-api/**/*.java"
-```
-
-**Find refactoring candidates:**
-```bash
-sensegrep search "complex business logic" --type function --min-complexity 10 --has-docs false
-sensegrep detect-duplicates --cross-file-only --only-exported --show-code --threshold 0.85 --max-candidates 1500
-```
-
-**Automated consumption:**
-```bash
-sensegrep search "bad signature rate limiting" --type function --json
-sensegrep context "authentication request flow" --max-tokens 8000 --json
-sensegrep audit "regression risks" --base origin/main --json
-sensegrep survey "notifications resend email delivery" --json
-sensegrep cluster "calendar sync webhook retry idempotency" --json
-sensegrep impact updateUser --depth 3 --json
-```
-
-Use `results`, `groups`, `clusters`, or graph fields from JSON output. `output` remains for humans and backward compatibility.
-
-**Audit async error paths:**
-```bash
-sensegrep search "error handling" --type function --async --min-complexity 4
-```
-
-**Scope to a class or module:**
-```bash
-sensegrep search "validation logic" --parent UserService
-sensegrep search "route handler" --decorator "@route" --type function
-```
-
-**Pinpoint a specific call site (query + pattern):**
-```bash
-sensegrep search "database transaction" --type function --pattern "BEGIN|COMMIT|ROLLBACK"
-sensegrep search "rate limiting" --pattern "429|RateLimitError|retry"
-sensegrep search "token refresh flow" --async --pattern "refresh_token|refreshToken"
-```
-
-**Python-specific:**
-```bash
-sensegrep search "data model" --variant dataclass --language python
-sensegrep search "async context manager" --variant generator --async --language python
-```
-
-**Java / Vue-specific:**
-```bash
-sensegrep search "order service orchestration" --language java --type class
-sensegrep search "checkout page state and composables" --language vue --include "frontend-store/**/*.vue"
-```
-
-## Chunk policy and Ollama context (1.16+)
-
-Inspect `sensegrep selftest --json`: find the `embeddings.config` check and its `details.inputPolicy`. This is the resolved policy; environment and API overrides may differ from the global config.
-
-- `contextTokens` controls the Ollama runtime window (default 8192, capped by model capacity). It is independent of `context --max-tokens`, which limits search output.
-- `chunking.targetTokens` defaults to 2048; `preserveTokens` to 4096; `maxTokens` to 7000; `overlapTokens` to 128. Complexity no longer imposes separate 800/1200/1800-token ceilings. Larger chunks are not automatically faster or more accurate.
-- A matching local Hugging Face `tokenizer.json`, selected with `tokenizerPath` or `SENSEGREP_TOKENIZER_PATH`, enables actual token counting. There is no automatic tokenizer download. Without it, counts are estimates. Ollama requests explicitly disable truncation; overflow requires correcting the tokenizer/budget and reindexing, not enabling truncation.
-- `batchTokens` (default 16384) complements the HTTP document-count limit. Request estimates exclude retries and `/api/show` metadata discovery.
-- Policy/tokenizer changes invalidate the index signature. Run `sensegrep index --no-watch` for the authorized migration; watch refuses to mix policies. A fresh install can require a full rebuild even if the source files are unchanged.
-- `--profile` isolates indexes, not configuration. Reuse the same config/environment for both indexing and searches within a profile. Keep experimental indexes separate from the default index.
-
-Configuration belongs in `~/.config/sensegrep/config.json`. For settings and reproducible comparisons, see [chunking documentation](https://github.com/Stahldavid/sensegrep/blob/main/docs/chunking.md).
+Use `--json`; stdout is JSON and progress/warnings use stderr. If streams may merge, `--json --log-format none` suppresses non-fatal logs. JSON schema v2 is minified/minimal by default: canonical id/file/lines/symbol/kind/rank/relevance cards. `--json-detail content` adds code; `--diagnostic` adds rankings/timings/freshness; `full` exposes internals; `compact` aliases minimal; `--pretty` is for human reading.
+
+- Always inspect `schemaVersion`, `command`, `status`, `retrieval.mode`, `retrieval.universe`, `index`, applicable `budget` and structured warnings. Unknown options fail instead of silently applying a constraint; invalid JSON-mode arguments give structured `errorInfo` and exit 2.
+- Expand relevant result IDs with `show`, then verify source. `show` reports target-local `index.targetFresh`; use `verify --strict` for global freshness. Persisted graph data is reused until index updatedAt changes.
+- Scores, `rankingStrength`/`confidence`, sufficiency and `graphCoverage` are not calibrated answer probabilities or global recall. Graph coverage divides resolved by resolved/unresolved/ambiguous extracted edges; ambiguous same-name impact targets are omitted. Dynamic calls and unsupported aliases can remain unresolved.
+- If context is incomplete or retrieval truncated, inspect selected IDs and expand missing evidence with show/source. Small budgets can omit important files. Tree-shaking collapses unrelated source; `--no-shake` exposes hidden context. Canonical lines/ID still locate a full symbol when `contentTruncated`/`contentLines` show a partial card.
+- `--max-tokens` estimates output tokens; `--max-output-bytes` bounds final serialized UTF-8 JSON including envelope/pretty/newline. Completion does not imply sufficient evidence. Use structured results/groups/clusters/graph fields; human `output` is compatibility text.
+- Survey/cluster JSON defaults to summary; expand representativeIds or request representatives explicitly. Provider failure in cluster must report `retrieval.mode: lexical-fallback` and a warning.
+- Report CLI wall time separately from provider/internal timing. Search fuses lexical/vector ranks, optional deterministic rerank, filtering, dedup/diversification, tree-shaking and budget selection. Missing optional rg can leave vector-only discovery; query-vector cache identity/hits are diagnostic, not completeness evidence.
+
+## Coverage and continuation
+
+`audit` without base uses working-tree and untracked changes; with `--base`, state the Git comparison. Read each batch's stable `ranges`, `usedBytes`/`usedTokens` and maxima. `--require-coverage --continue-uncovered` remains constrained by batch/total/output limits: `status: incomplete` and `coverage.truncationReasons` must be reported. Follow the [audit contract](https://github.com/Stahldavid/sensegrep/blob/40802d31c5306ff5f17759bb27262ecb7f6ce4e2/docs/cli-reference.md#sensegrep-audit).
+
+For duplicates, scope language/path/min-lines/complexity before raising candidates. Threshold 0.85 is a starting point (0.7 looser, 0.92+ near-identical); `--max-candidates` and timeout can leave partial findings. Inspect truncated/candidates/analyzedCandidates and `continuation.cursor` (full JSON also has summary.resumeCursor). Resume only with the same index, filters and candidate set. Temporary checkpoints preserve prior pairs, bound to that snapshot; changed snapshot/candidates require restart without the cursor. Finishing a capped subset is still incomplete coverage. Read [duplicate flags and continuation](https://github.com/Stahldavid/sensegrep/blob/40802d31c5306ff5f17759bb27262ecb7f6ce4e2/docs/cli-reference.md#sensegrep-detect-duplicates).
+
+## Index and input policy
+
+Use incremental `index --no-watch` for authorized updates. Known text lookup does not require indexing. Language detection is automatic; do not pass a language when indexing. Status is metadata-only; status --verify/verbose inspect changed/missing/removed files. Strict verify requires indexed, expectedChunks==actualChunks, changed/missing/removed==0 and isStale==false. An incompatible schema calls for an authorized migration, not silent search repair.
+
+Full indexing stages/checkpoints compatible work and can resume after interruption; `--no-resume` discards interrupted staging. Scoring/policy changes may require full rebuild. Watch refuses mixed policies. Index stderr phases include scan/parse/embed/persist/complete; timeout includes lock wait (bare numbers are seconds, with ms/s/m suffixes), while `--embedding-timeout` limits query embedding acquisition only. `--latency-budget` is a deprecated alias, not a process wall-clock limit.
+
+Read [chunking and tokenizer policy](https://github.com/Stahldavid/sensegrep/blob/40802d31c5306ff5f17759bb27262ecb7f6ce4e2/docs/chunking.md) before changing budgets: model capacity, Ollama runtime context, chunk/input batches and context output are independent. Tokenizer JSON must match the model and already be local; there is no automatic tokenizer download. Missing tokenizer means estimates; overflow requires fixing tokenizer/budgets and reindexing, not enabling truncation. Policy/tokenizer identity participates in index signatures. Profiles isolate indexes, not configuration; use the same config/environment for index and search. Search validates endpoint/model fingerprint.
+
+Ordinary `selftest --strict --json` does not call embeddings. `--deep`, benchmark, indexing and uncached semantic queries can call the resolved provider and incur cost. Benchmark measures provider request concurrency, not index workers or Ollama slots; sequential adapters and samples fitting one HTTP batch cannot yield a concurrency recommendation. Benchmark does not rewrite saved config. Index plans separate internal batches from HTTP requests; estimates exclude retries and can overstate embedding work when vectors are reused.
+
+## References by task
+
+These are existing documentation files at the selected source revision. They remain reachable when this standalone skill directory is installed without the rest of the repository; they do not prove the installed CLI is the same version. Check installed version/help before using version-specific flags. If a reference is unavailable, report that limit instead of inventing syntax or running setup.
+
+- [CLI commands, flags, JSON and graph limits](https://github.com/Stahldavid/sensegrep/blob/40802d31c5306ff5f17759bb27262ecb7f6ce4e2/docs/cli-reference.md)
+- [Search quality, selection and sufficiency](https://github.com/Stahldavid/sensegrep/blob/40802d31c5306ff5f17759bb27262ecb7f6ce4e2/docs/search-quality.md)
+- [Parallel agents and a shared root/index](https://github.com/Stahldavid/sensegrep/blob/40802d31c5306ff5f17759bb27262ecb7f6ce4e2/docs/parallel-agents.md)
+
+Finish with verified source locations, scope/index identity, evidence used, coverage gaps and any incomplete continuation. Do not translate a successful command into an exhaustive or correct answer.

@@ -34,7 +34,9 @@ Traditional search tools (grep, ripgrep, ast-grep) match **text patterns**. sens
 
 ## Quickstart
 
-Optional remote evaluation: [Jev setup, evidence-aware reranking, group labels and duplicate judgments](docs/jev.md). It is off by default and works alongside local Ollama embeddings.
+Optional remote evaluation: [Jev setup, evidence-aware reranking, group labels and duplicate judgments](docs/jev.md). Search/context enable it automatically when dedicated Jev credentials are configured; otherwise it is off. It sends query, paths/symbols and snippets to OpenRouter independently of local Ollama embeddings. For local-only tasks use `--jev off` and verify the resolved embedding provider/endpoint. Dedicated configuration is not task consent to send a repository's source remotely.
+
+Setup below installs packages/plugins, can download models, and creates an index. Run only the steps authorized for the task; a read-only audit can use existing source tools without setup. Marketplace presence, installation, exposed tools and actual skill discovery are distinct; see [Agent Skills](docs/agent-skills.md).
 
 ### Claude Code Plugin (recommended)
 
@@ -70,12 +72,12 @@ sensegrep selftest --root .
 
 # Default local embeddings use Ollama when no API key/provider is configured
 ollama pull qwen3-embedding:0.6b
-sensegrep index --root .
+sensegrep index --root . --no-watch
 
 # Search by meaning
 sensegrep search "error handling and retry logic" --type function --exported --exclude "*.md"
 
-# Known exact text, deterministic and exhaustive: no embedding call
+# Known exact text: no embeddings; inspect truncation and evidence universe
 sensegrep literal "X-Goog-Message-Number" --include "src/**"
 
 # Compact evidence cards, followed by deterministic expansion
@@ -338,7 +340,7 @@ sensegrep supports local Ollama by default plus Gemini, OpenAI-compatible APIs, 
 ollama pull qwen3-embedding:0.6b
 sensegrep search "auth flow"
 
-# Recommended: Gemini embeddings (best quality)
+# Gemini embeddings (remote provider; choose using task evidence and cost)
 export SENSEGREP_PROVIDER=gemini
 export GEMINI_API_KEY="your_ai_studio_key"
 sensegrep search "auth flow" --provider gemini --embed-model gemini-embedding-001
@@ -364,6 +366,10 @@ sensegrep search "auth flow" --provider bedrock --embed-model cohere.embed-v4:0 
 ```
 
 Local OpenAI-compatible embedding servers also work if they implement `/v1/embeddings`; set `SENSEGREP_PROVIDER=openai`, `SENSEGREP_OPENAI_BASE_URL` to the server's `/v1` base URL, and `SENSEGREP_EMBED_DIM` to the exact returned vector dimension. For native Ollama, use `SENSEGREP_PROVIDER=ollama`, `SENSEGREP_OLLAMA_BASE_URL` if not using the default, and the exact `SENSEGREP_EMBED_DIM` for your Ollama model.
+
+Choose providers using privacy requirements, endpoint availability, authorized cost, model/dimension compatibility and measured results on the task. No provider is a universal quality winner. Explicit options override environment, then global file defaults, then credential-based autodetection; a saved Ollama setting can be overridden. Confirm resolved settings with ordinary selftest before any authorized provider use. Benchmark and deep selftest can make provider calls; indexing writes data and semantic queries can request embeddings.
+
+For existing Cursor Cloud Bedrock setup, see [host-specific credentials and overrides](docs/agent-skills.md#cursor-cloud-embeddings). Jev consent and mode selection are independent of embedding settings.
 
 Global defaults via `~/.config/sensegrep/config.json`:
 
