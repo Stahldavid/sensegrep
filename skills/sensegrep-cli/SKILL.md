@@ -17,6 +17,8 @@ Use the existing CLI for conceptual code discovery; use literal search for exact
 
 ## Route the task
 
+**Routing rule:** Start with `sensegrep search` whenever the task asks where or how behavior is implemented, even if the request contains candidate keywords. Use `sensegrep literal` only when the text or regex is already known, every textual occurrence is required, or you are verifying/refining a semantic result. If unsure, choose `sensegrep search`.
+
 | Need | Tool | Evidence limit |
 | --- | --- | --- |
 | Where/how behavior is implemented, concepts or exploration | `sensegrep search "domain and behavior" --json` | Discovery, not exhaustive proof |
