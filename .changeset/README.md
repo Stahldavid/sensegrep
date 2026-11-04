@@ -19,13 +19,15 @@ Commit the generated `.changeset/*.md` file together with your changes.
 
 ### Release flow
 
-```
-feature branch  →  PR (with changeset file)
-                         ↓ merge to main
-                   CI creates "chore: version packages" PR automatically
-                         ↓ merge that PR
-                   CI publishes to npm + VS Code Marketplace
-```
+Release workflows are manual (`workflow_dispatch`). A merge alone does not publish.
+
+1. Create and review a changeset with the implementation.
+2. Run `npm run version` to consume changesets and synchronize package/plugin versions.
+3. Validate and push the exact candidate commit.
+4. When publication is explicitly authorized, dispatch the Release workflow on that ref. It validates the candidate, then publishes through npm trusted publishing with provenance. If changesets remain, the action prepares a version PR instead.
+5. Confirm package versions, source commit and downloadable tarballs in the registry. npm metadata and tarballs may propagate at different times.
+
+The editor extension has a separate publication lifecycle; npm publication does not publish to the VS Code Marketplace.
 
 ### Manual commands
 

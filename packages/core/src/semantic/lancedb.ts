@@ -11,7 +11,7 @@ import { withRepositoryIndexBudget } from "./repository-index-budget.js"
 import * as lancedb from "@lancedb/lancedb"
 import path from "path"
 import fs from "fs/promises"
-import { existsSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync, type Dirent } from "node:fs"
 import crypto from "node:crypto"
 import z from "zod"
 
@@ -19,6 +19,7 @@ import { Log } from "../util/log.js"
 import { Global } from "../global/index.js"
 import { Embeddings } from "./embeddings.js"
 import { Instance } from "../project/instance.js"
+import { canonicalCheckoutPath as resolveExistingAncestor } from "../project/paths.js"
 
 const log = Log.create({ service: "semantic.lancedb" })
 
@@ -173,15 +174,6 @@ export namespace VectorStore {
     none?: Filter[] // NOT logic - none of the conditions must match
   }
 
-  function getLegacyProjectHash(projectPath: string): string {
-    let hash = 0
-    for (let i = 0; i < projectPath.length; i++) {
-      hash = (hash << 5) - hash + projectPath.charCodeAt(i)
-      hash = hash & hash
-    }
-    return Math.abs(hash).toString(16)
-  }
-
   function getProjectHash(projectPath: string): string {
     const resolved = path.resolve(projectPath)
     const canonical = process.platform === "win32" ? resolved.toLowerCase() : resolved
@@ -189,13 +181,49 @@ export namespace VectorStore {
   }
 
   function projectDir(projectPath: string): string {
+    // Use the same physical checkout binding as Instance and metadata validation.
+    // This also resolves aliases such as macOS /var and Windows short paths.
+    projectPath = resolveExistingAncestor(projectPath)
     const profile = Instance.profile
     const suffix = profile === "default" ? "" : `_${crypto.createHash("sha256").update(profile).digest("hex").slice(0, 12)}`
     const current = path.join(BASE_PATH, `project_${getProjectHash(projectPath)}${suffix}`)
-    if (existsSync(current)) return current
-    if (profile !== "default") return current
-    const legacy = path.join(BASE_PATH, `project_${getLegacyProjectHash(projectPath)}`)
-    return existsSync(legacy) ? legacy : current
+    // A canonical active or released binding takes priority. An empty or
+    // staging-only directory does not hide an existing legacy index.
+    if (existsSync(path.join(current, "index-meta.json")) || existsSync(path.join(current, ".released-view.json"))) return current
+    // Earlier releases could hash a symlink or short-path spelling. Discover
+    // such stores by their metadata binding, without moving or combining them.
+    let entries: Dirent[]
+    try { entries = readdirSync(BASE_PATH, { withFileTypes: true }) }
+    catch (error: any) { if (error?.code === "ENOENT") return current; throw error }
+    const matches: string[] = []
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !entry.name.startsWith("project_")) continue
+      const dir = path.join(BASE_PATH, entry.name)
+      let raw: string
+      let released = false
+      try { raw = readFileSync(path.join(dir, "index-meta.json"), "utf8") }
+      catch (error: any) {
+        if (error?.code !== "ENOENT") throw error
+        try { raw = readFileSync(path.join(dir, ".released-view.json"), "utf8"); released = true }
+        catch (markerError: any) { if (markerError?.code === "ENOENT") continue; throw markerError }
+      }
+      let parsed: { root: string; profile?: string }
+      try {
+        const result = (released ? z.object({ version: z.literal(1), root: z.string(), profile: z.string() }) : IndexMetaSchema).safeParse(JSON.parse(raw))
+        if (!result.success) continue
+        parsed = result.data
+      } catch { continue }
+      if ((parsed.profile ?? "default") !== profile) continue
+      let root: string
+      try { root = resolveExistingAncestor(parsed.root) } catch { continue }
+      const equal = process.platform === "win32" ? root.toLowerCase() === projectPath.toLowerCase() : root === projectPath
+      if (equal) matches.push(dir)
+    }
+    if (matches.length > 1) throw new Error(`Ambiguous index storage for checkout ${projectPath} and profile ${profile}: ${matches.join(", ")}. Resolve the duplicate stores before continuing.`)
+    if (matches.length === 1) return matches[0]
+    // An old 32-bit directory name alone cannot establish checkout identity.
+    // Verified legacy metadata was considered above; leave unbound data intact.
+    return current
   }
 
   export function getIndexStoragePath(projectPath: string): string {
@@ -258,7 +286,7 @@ export namespace VectorStore {
   }
 
   async function resolveProjectPath(projectPath: string): Promise<string> {
-    return fs.realpath(projectPath).catch(() => path.resolve(projectPath))
+    return resolveExistingAncestor(projectPath)
   }
 
   function isSameOrInside(parentPath: string, childPath: string): boolean {

@@ -393,19 +393,23 @@ export namespace Indexer {
 
   async function withIndexLock<T>(options: IndexRunOptions, fn: (options: IndexRunOptions) => Promise<T>, bootstrap = true): Promise<T> {
     const rootDir = path.resolve(Instance.directory)
+    // Preserve display paths while excluding aliases of the same Windows
+    // resource. Older indexers used a case-sensitive hash and must be stopped
+    // before upgrading this protocol; never infer that their locks are stale.
+    const lockKey = process.platform === "win32" ? rootDir.toLowerCase() : rootDir
     const inherited = heldIndexLocks.getStore()
-    if (inherited?.has(rootDir)) return fn(options)
+    if (inherited?.has(lockKey)) return fn(options)
 
     const startedAt = Date.now()
     const deadline = startedAt + (options.timeoutMs && options.timeoutMs > 0
       ? Math.min(INDEX_LOCK_TIMEOUT_MS, options.timeoutMs) : INDEX_LOCK_TIMEOUT_MS)
-    const releaseProcessLock = await acquireProcessLock(rootDir, options, deadline)
+    const releaseProcessLock = await acquireProcessLock(lockKey, options, deadline)
     let releaseFileLock: (() => Promise<void>) | undefined
     try {
-      releaseFileLock = await acquireIndexLock(rootDir, options, deadline)
+      releaseFileLock = await acquireIndexLock(lockKey, options, deadline)
       if (options.respectReleasedView && typeof VectorStore.isViewReleased === "function" && VectorStore.isViewReleased(rootDir)) throw new Error("Index view was released; run an explicit index operation to resume watching")
       const held = new Set(inherited)
-      held.add(rootDir)
+      held.add(lockKey)
       const remainingOptions = options.timeoutMs && options.timeoutMs > 0
         ? { ...options, timeoutMs: Math.max(1, options.timeoutMs - (Date.now() - startedAt)) }
         : options

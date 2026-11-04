@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { build } from "esbuild"
 import { spawn, type ChildProcess } from "node:child_process"
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
@@ -42,7 +42,7 @@ it("discovers a live daemon by registry identity and ignores stale records", asy
     if (health?.ok) break
     await new Promise((resolve) => setTimeout(resolve, 25))
   }
-  expect(health).toMatchObject({ ok: true, root, protocol: 1, profile: "environment-profile" })
+  expect(health).toMatchObject({ ok: true, root: await realpath(root), protocol: 1, profile: "environment-profile" })
   const registryRoot = path.join(temporary, "sensegrep-daemons")
   const [registry] = await readdir(registryRoot)
   const directory = path.join(registryRoot, registry)

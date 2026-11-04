@@ -12,3 +12,5 @@ The following compatibility paths remain necessary:
 - Older index-directory bindings, result IDs and snapshot protocol v1 remain readable without inferring modern content provenance.
 
 Private evaluation artifacts and personal model/configuration directories are outside this cleanup and remain untouched. Historical validation records remain historical evidence; the current [shared-worktree contract](shared-worktree-indexes.md) describes the architecture.
+
+The 1.20.1 patch also removes lookup based solely on an old 32-bit directory hash. Existing legacy metadata can still establish a matching checkout/profile binding; a short filename alone cannot. Unbound or mismatched data remains intact and is never adopted into another checkout's storage.

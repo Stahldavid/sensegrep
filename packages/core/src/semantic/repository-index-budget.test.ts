@@ -1,7 +1,7 @@
 import fs from "node:fs/promises"
 import path from "node:path"
 import os from "node:os"
-import { randomUUID, createHash } from "node:crypto"
+import { randomUUID, randomBytes, createHash } from "node:crypto"
 import { spawn, type ChildProcess } from "node:child_process"
 import { build } from "esbuild"
 import { afterEach, expect, it, vi } from "vitest"
@@ -13,11 +13,13 @@ afterEach(() => vi.unstubAllEnvs())
 const allocated = async (filename: string) => { const stat = await fs.stat(filename); return process.platform !== "win32" ? stat.blocks * 512 : stat.size }
 async function fixture(fn: (input: { temporary: string; repositoryId: string; rootA: string; rootB: string; indexA: string; indexB: string }) => Promise<void>) {
   const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "sensegrep-index-budget-"))
-  const repositoryId = randomUUID(), rootA = path.join(temporary, "a"), rootB = path.join(temporary, "b")
+  const repositoryId = randomUUID()
+  let rootA = path.join(temporary, "a"), rootB = path.join(temporary, "b")
   const indexA = path.join(Global.Path.data, ".lancedb", `project_budget_a_${randomUUID().replaceAll("-", "")}`)
   const indexB = path.join(Global.Path.data, ".lancedb", `project_budget_b_${randomUUID().replaceAll("-", "")}`)
   try {
     await Promise.all([fs.mkdir(rootA), fs.mkdir(rootB), fs.mkdir(indexA, { recursive: true }), fs.mkdir(indexB, { recursive: true })])
+    rootA = await fs.realpath(rootA); rootB = await fs.realpath(rootB)
     await registerRepository(rootA, repositoryId); await registerRepository(rootB, repositoryId)
     await fn({ temporary, repositoryId, rootA, rootB, indexA, indexB })
   } finally { await Promise.all([fs.rm(temporary, { recursive: true, force: true }), fs.rm(indexA, { recursive: true, force: true }), fs.rm(indexB, { recursive: true, force: true })]) }
@@ -26,7 +28,9 @@ async function table(index: string, name: string, bytes = 4096) {
   const directory = path.join(index, `${name}.lance`, "data")
   await fs.mkdir(directory, { recursive: true })
   const filename = path.join(directory, "fragment.lance")
-  await fs.writeFile(filename, Buffer.alloc(bytes, 1))
+  // Test actual allocated bytes, not compressible or delayed-allocation data.
+  const handle = await fs.open(filename, "wx")
+  try { await handle.writeFile(randomBytes(bytes)); await handle.sync() } finally { await handle.close() }
   return filename
 }
 const publish = (index: string, root: string) => fs.writeFile(path.join(index, "index-meta.json"), JSON.stringify({ root }))
@@ -71,6 +75,22 @@ it("does not charge an index registered to a different repository", async () => 
   await publish(indexA, rootA); await publish(indexB, other)
   vi.stubEnv("SENSEGREP_SHARED_INDEX_MAX_BYTES", String(await allocated(included)))
   await expect(withRepositoryIndexBudget(rootA, indexA, async () => "fits")).resolves.toBe("fits")
+}))
+
+it("resolves metadata aliases through an existing ancestor after a worktree disappears", async () => fixture(async ({ temporary, rootA, rootB, indexA, indexB }) => {
+  vi.stubEnv("SENSEGREP_SHARED_OBJECTS", "1")
+  const alias = path.join(temporary, "checkout-parent-alias")
+  await fs.symlink(await fs.realpath(temporary), alias, process.platform === "win32" ? "junction" : "dir")
+  const source = await table(indexA, "aliased-retained")
+  const current = await table(indexB, "current")
+  await publish(indexA, path.join(alias, path.basename(rootA)))
+  await publish(indexB, rootB)
+  await fs.rm(rootA, { recursive: true })
+  vi.stubEnv("SENSEGREP_SHARED_INDEX_MAX_BYTES", String(await allocated(current)))
+  const activate = vi.fn(async () => "must not publish")
+  await expect(withRepositoryIndexBudget(rootB, indexB, activate)).rejects.toThrow("budget exceeded")
+  expect(activate).not.toHaveBeenCalled()
+  expect((await fs.stat(source)).size).toBe(4096)
 }))
 
 it("counts released source tables retained by descendants after metadata removal", async () => fixture(async ({ repositoryId, rootA, rootB, indexA, indexB }) => {

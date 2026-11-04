@@ -1,5 +1,5 @@
 import { build } from "esbuild"
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { spawn } from "node:child_process"
 import { GenerationLeases } from "./generation-leases.js"
 import { describe, expect, it, vi } from "vitest"
@@ -11,6 +11,104 @@ import { Instance } from "../project/instance.js"
 import { getChunkingSignature } from "./chunk-limits.js"
 
 describe("VectorStore distance scoring", () => {
+  it("does not adopt a weak legacy directory name without a matching checkout binding", async () => {
+    const temporary = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "sensegrep-unbound-legacy-")))
+    const root = path.join(temporary, "requested"), other = path.join(temporary, "unrelated")
+    await Promise.all([fs.mkdir(root), fs.mkdir(other)])
+    let legacy = ""
+    try {
+      await Instance.provide({ directory: root, profile: "default", fn: async () => {
+        const canonicalStore = VectorStore.getIndexStoragePath(root)
+        let hash = 0
+        for (const character of root) hash = ((hash << 5) - hash + character.charCodeAt(0)) | 0
+        legacy = path.join(path.dirname(canonicalStore), `project_${Math.abs(hash).toString(16)}`)
+        await fs.mkdir(legacy, { recursive: true })
+        const metadata = JSON.stringify({ version: 1, root: other, embeddings: { provider: "openai", model: "test", dimension: 3 }, files: {}, updatedAt: 1 })
+        await fs.writeFile(path.join(legacy, "index-meta.json"), metadata)
+        expect(VectorStore.getIndexStoragePath(root)).toBe(canonicalStore)
+        expect(await VectorStore.readIndexMeta(root)).toBeNull()
+        expect(await fs.readFile(path.join(legacy, "index-meta.json"), "utf8")).toBe(metadata)
+      } })
+    } finally {
+      if (legacy) await fs.rm(legacy, { recursive: true, force: true })
+      await fs.rm(temporary, { recursive: true, force: true })
+    }
+  })
+  it("finds and releases a removed checkout through an ancestor alias", async () => {
+    const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "sensegrep-removed-alias-"))
+    const realParent = path.join(temporary, "real"), aliasParent = path.join(temporary, "alias")
+    const root = path.join(realParent, "checkout"), alias = path.join(aliasParent, "checkout")
+    await fs.mkdir(root, { recursive: true })
+    await fs.symlink(realParent, aliasParent, process.platform === "win32" ? "junction" : "dir")
+    const profile = "removed-alias-test"
+    let legacyStore = ""
+    try {
+      await Instance.provide({ directory: root, profile, fn: async () => {
+        const canonicalStore = VectorStore.getIndexStoragePath(root)
+        await VectorStore.writeIndexMeta(root, { version: 1, root: alias, profile, embeddings: { provider: "openai", model: "test", dimension: 3 }, files: {}, updatedAt: 1 })
+        legacyStore = `${canonicalStore}-legacy`
+        await fs.rename(canonicalStore, legacyStore)
+        await fs.rm(root, { recursive: true })
+        expect(VectorStore.getIndexStoragePath(alias)).toBe(legacyStore)
+        expect((await VectorStore.readIndexMeta(alias))?.root).toBe(alias)
+        await VectorStore.releaseIndexView(alias)
+        expect(VectorStore.getIndexStoragePath(alias)).toBe(legacyStore)
+        expect(await fs.stat(path.join(legacyStore, ".released-view.json"))).toBeDefined()
+      } })
+    } finally {
+      if (legacyStore) await fs.rm(legacyStore, { recursive: true, force: true })
+      await fs.rm(temporary, { recursive: true, force: true })
+    }
+  })
+  it("discovers a legacy alias store and refuses ambiguous stores without moving them", async () => {
+    const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "sensegrep-legacy-alias-"))
+    const root = path.join(temporary, "root"), alias = path.join(temporary, "alias")
+    await fs.mkdir(root)
+    await fs.symlink(root, alias, process.platform === "win32" ? "junction" : "dir")
+    await Instance.provide({ directory: root, profile: "legacy-alias-test", fn: async () => {
+      const canonicalStore = VectorStore.getIndexStoragePath(root)
+      const normalizedAlias = process.platform === "win32" ? path.resolve(alias).toLowerCase() : path.resolve(alias)
+      const hash = createHash("sha256").update(normalizedAlias).digest("hex").slice(0, 24)
+      const suffix = createHash("sha256").update("legacy-alias-test").digest("hex").slice(0, 12)
+      const legacyStore = path.join(path.dirname(canonicalStore), `project_${hash}_${suffix}`)
+      const duplicate = `${legacyStore}-duplicate`
+      try {
+        await VectorStore.writeIndexMeta(root, { version: 1, root, profile: "legacy-alias-test", embeddings: { provider: "openai", model: "test", dimension: 3 }, files: {}, updatedAt: 1 })
+        await fs.rename(canonicalStore, legacyStore)
+        await fs.mkdir(canonicalStore)
+        await fs.writeFile(path.join(canonicalStore, "staging-only"), "preserve")
+        expect(VectorStore.getIndexStoragePath(root)).toBe(legacyStore)
+        expect((await VectorStore.readIndexMeta(alias))?.root).toBe(root)
+        await fs.cp(legacyStore, duplicate, { recursive: true })
+        expect(() => VectorStore.getIndexStoragePath(root)).toThrow(/Ambiguous index storage/)
+        expect(await fs.stat(legacyStore)).toBeDefined()
+        expect(await fs.stat(duplicate)).toBeDefined()
+        expect(await fs.readFile(path.join(canonicalStore, "staging-only"), "utf8")).toBe("preserve")
+      } finally {
+        await fs.rm(legacyStore, { recursive: true, force: true })
+        await fs.rm(duplicate, { recursive: true, force: true })
+        await fs.rm(canonicalStore, { recursive: true, force: true })
+      }
+    } })
+    await fs.rm(temporary, { recursive: true, force: true })
+  })
+  it("uses one index binding for canonical and symlinked checkout paths", async () => {
+    const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "sensegrep-alias-"))
+    const root = path.join(temporary, "root"), alias = path.join(temporary, "alias")
+    await fs.mkdir(path.join(root, "child"), { recursive: true })
+    await fs.symlink(root, alias, process.platform === "win32" ? "junction" : "dir")
+    try {
+      await Instance.provide({ directory: alias, profile: "alias-test", fn: async () => {
+        await VectorStore.writeIndexMeta(root, {
+          version: 1, root, profile: "alias-test", embeddings: { provider: "openai", model: "test", dimension: 3 }, files: {}, updatedAt: 1,
+        })
+        expect(VectorStore.getIndexStoragePath(alias)).toBe(VectorStore.getIndexStoragePath(root))
+        expect((await VectorStore.readIndexMeta(alias))?.root).toBe(root)
+        expect((await VectorStore.resolveIndexedProject(path.join(alias, "child")))?.root).toBe(await fs.realpath(root))
+        await VectorStore.deleteCollection(root)
+      } })
+    } finally { await fs.rm(temporary, { recursive: true, force: true }) }
+  })
   it("round-trips chunk policy and tokenizer identity through index metadata", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "sensegrep-policy-meta-"))
     await Instance.provide({ directory: root, profile: "default", fn: async () => {

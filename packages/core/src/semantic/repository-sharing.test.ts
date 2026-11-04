@@ -1,6 +1,7 @@
 import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
+import { randomUUID } from "node:crypto"
 import { afterAll, afterEach, expect, it, vi } from "vitest"
 import { Instance } from "../project/instance.js"
 import { registerRepository } from "../project/repository-identity.js"
@@ -11,8 +12,8 @@ import { linkSharedSourceObjects, readSourceObject, writeSourceObject } from "./
 const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "sensegrep-repository-sharing-"))
 afterAll(() => fs.rm(temporary, { recursive: true, force: true }))
 afterEach(() => vi.unstubAllEnvs())
-const repositoryA = "da61d35b-4a1b-4d1d-a180-95beae51f1af"
-const repositoryB = "86d66cfa-55aa-46f2-876b-780d71cab6ec"
+const repositoryA = randomUUID()
+const repositoryB = randomUUID()
 
 async function checkout(name: string, repository?: string) {
   const root = path.join(temporary, name)

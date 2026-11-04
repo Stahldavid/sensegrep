@@ -4,6 +4,7 @@ import { mkdir, rm, writeFile, stat, readFile, readlink } from "node:fs/promises
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const TEST_DIR = path.join(process.cwd(), ".test-indexer")
+const LOCK_ROOT = process.platform === "win32" ? path.resolve(TEST_DIR).toLowerCase() : path.resolve(TEST_DIR)
 
 const readIndexMeta = vi.fn()
 const getCollection = vi.fn()
@@ -207,7 +208,7 @@ describe("Indexer incremental updates", () => {
   it.skipIf(process.platform !== "linux")("recovers a dead owner only in the same PID namespace", async () => {
     const { Indexer } = await import("./indexer.js")
     const { Global } = await import("../global/index.js")
-    const hash = crypto.createHash("sha1").update(path.resolve(TEST_DIR)).digest("hex").slice(0, 16)
+    const hash = crypto.createHash("sha1").update(LOCK_ROOT).digest("hex").slice(0, 16)
     const lock = path.join(Global.Path.data, "locks", `index-${hash}.lock`)
     const scope = `${(await readFile("/proc/sys/kernel/random/boot_id", "utf8")).trim()}:${await readlink("/proc/self/ns/pid")}`
     await mkdir(path.dirname(lock), { recursive: true })
@@ -221,7 +222,7 @@ describe("Indexer incremental updates", () => {
   it("does not recover an owner with an unknown PID namespace", async () => {
     const { Indexer } = await import("./indexer.js")
     const { Global } = await import("../global/index.js")
-    const hash = crypto.createHash("sha1").update(path.resolve(TEST_DIR)).digest("hex").slice(0, 16)
+    const hash = crypto.createHash("sha1").update(LOCK_ROOT).digest("hex").slice(0, 16)
     const lock = path.join(Global.Path.data, "locks", `index-${hash}.lock`)
     const owner = JSON.stringify({ pid: 2147483647, pidScope: "unknown" })
     await mkdir(path.dirname(lock), { recursive: true })

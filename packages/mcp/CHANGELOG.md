@@ -1,5 +1,15 @@
 # @sensegrep/mcp
 
+## 1.20.1
+
+### Patch Changes
+
+- Resolve index storage consistently through canonical checkout paths, including macOS temporary-directory aliases and Windows short paths. Preserve existing alias-bound indexes without copying or merging tables, and reject ambiguous legacy bindings. Count retained index storage through path aliases even after the original worktree is removed. Correct cross-platform fixtures and restore Changesets 3 tag reporting to the release action.
+- Updated dependencies []:
+  - @sensegrep/core@1.20.1
+
+  Windows upgrade: stop existing indexing runtimes before installing this patch, then restart the updated runtimes together; the normalized lock key must not overlap with an older runtime.
+
 ## 1.20.0
 
 ### Minor Changes

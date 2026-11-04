@@ -12,7 +12,9 @@ async function fixture() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "sensegrep-clone-deps-"))
   const database = path.join(root, "database")
   await fs.mkdir(database)
-  return { root, database, scope: { directory: path.join(root, "coordination") }, address: (table: string) => ({ directory: database, table }) }
+  const canonicalDatabase = await fs.realpath(database)
+  const identityDirectory = process.platform === "win32" ? canonicalDatabase.toLowerCase() : canonicalDatabase
+  return { root, database: canonicalDatabase, scope: { directory: path.join(root, "coordination") }, address: (table: string) => ({ directory: identityDirectory, table }) }
 }
 
 describe("copy-on-write clone dependencies", () => {

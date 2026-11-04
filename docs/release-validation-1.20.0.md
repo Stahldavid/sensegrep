@@ -13,7 +13,7 @@ After installing the locked dependencies, build once with `npm run build`. Valid
 | `npm run check:types` | All workspaces passed |
 | `npm run version:check` | 1.20.0 consistent |
 | `npm run test:unit -- --maxWorkers=2` | 530 tests, 83 files passed |
-| `npm run test:node` | 70 tests passed |
+| `npm run test:node` | 70 tests passed before the release-adapter follow-up |
 | `npm run test:python` | 26 tests passed |
 | `npm test --workspace sensegrep` | Local extension host passed, exit 0 |
 | `npm run release:verify` | All three npm package layouts passed |
@@ -29,4 +29,16 @@ Actual tarballs were produced using `npm pack --workspace @sensegrep/core --work
 
 ## Limits
 
-These checks validate Linux/WSL locally. The hosted CI matrix retains Node 20/22/24 on Linux, Windows and macOS; its result is separate from this record. Two local executors or processes do not prove operation between two physical machines. Remote ANN artifact distribution remains outside the implemented source-object protocol. Local model cold inference is a single installation check, not a performance benchmark or evidence of semantic retrieval quality. npm publication must be confirmed separately against the registry after the publishing workflow completes.
+These checks validate Linux/WSL locally. The hosted CI matrix retains Node 20/22/24 on Linux, Windows and macOS; its result is separate from this record. Two local executors or processes do not prove operation between two physical machines. Remote ANN artifact distribution remains outside the implemented source-object protocol. Local model cold inference is a single installation check, not a performance benchmark or evidence of semantic retrieval quality.
+
+## Publication confirmation
+
+The [authorized release workflow](https://github.com/Stahldavid/sensegrep/actions/runs/41872881392) succeeded. The npm registry reports all three packages at 1.20.0, with `gitHead=4f600917219c8dcaa554a0adc13e6dd63c826ad2`, `latest=1.20.0` and SLSA provenance. All three public tarballs were downloaded and their SHA-512 integrity matched the registry manifests. CLI metadata and its tarball became visible at different times; an initial 404 was not treated as evidence of a failed publish or a reason to publish another version.
+
+Installing all three packages directly from npm into a fresh consumer succeeded once distribution became available. The two-worktree smoke also passed against those published modules, with one deterministic local embedding request and no paid inference.
+
+The first full hosted matrix passed all three Linux lanes but exposed path-alias failures on Windows and macOS. Some assertions incorrectly expected raw temporary paths; actual defects also affected alias-based index lookup and retained-storage accounting. These findings require a follow-up patch; the Linux validation and successful npm publication do not establish cross-platform correctness of 1.20.0.
+
+See [the 1.20.1 patch record](release-validation-1.20.1.md) for the corrections and upgrade requirement.
+
+Changesets 3 emits generated tags as JSONL, while the existing Changesets action recognizes `New tag:` output. The publishing adapter now reads only valid generated-tag events from a private temporary report and emits that compatibility line, preserving publication failure status and cleaning the report. Six local regressions cover the adapter without publishing. The three 1.20.0 GitHub release tags were created against the original published commit, rather than a later documentation or adapter commit.

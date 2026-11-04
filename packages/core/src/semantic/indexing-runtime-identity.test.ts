@@ -24,7 +24,7 @@ describe("local indexing runtime identity", () => {
     expect(await identity()).toBe(first)
     expect(spy.mock.calls.some(([filename]) => String(filename).endsWith("tree-sitter-typescript.wasm"))).toBe(true)
     expect(spy.mock.calls.some(([filename]) => String(filename).endsWith("tokenizers.mjs"))).toBe(true)
-    expect(spy.mock.calls.some(([filename]) => String(filename).endsWith("semantic/chunking.ts"))).toBe(true)
+    expect(spy.mock.calls.some(([filename]) => String(filename).endsWith(path.join("semantic", "chunking.ts")))).toBe(true)
   })
 
   it("changes identity when runtime file bytes differ without changing the checkout", async () => {

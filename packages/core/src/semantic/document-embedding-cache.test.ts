@@ -8,7 +8,7 @@ import { EmbeddingsRemote } from "./embeddings-remote.js"
 import { Global } from "../global/index.js"
 import { DocumentEmbeddingCache } from "./document-embedding-cache.js"
 
-const root = await fs.mkdtemp(path.join(os.tmpdir(), "sensegrep-doc-cache-test-"))
+const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "sensegrep-doc-cache-test-")))
 afterAll(() => fs.rm(root, { recursive: true, force: true }))
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals() })
 

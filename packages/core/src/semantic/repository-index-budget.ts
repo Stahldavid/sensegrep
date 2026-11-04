@@ -6,6 +6,7 @@ import { Global } from "../global/index.js"
 import { sharedRepositoryScope } from "../project/repository-sharing.js"
 import { validateRepositoryId } from "./source-manifest.js"
 import { withSharedSourceGuard } from "./shared-source-retention.js"
+import { canonicalCheckoutPath } from "../project/paths.js"
 
 const DEFAULT_MAX_BYTES = 2 * 1024 * 1024 * 1024
 const canonicalKey = (root: string) => process.platform === "win32" ? path.resolve(root).toLowerCase() : path.resolve(root)
@@ -124,7 +125,7 @@ async function measureRepository(repositoryId: string, currentIndexDirectory: st
       if (meta?.version !== 1 || meta?.repositoryId !== repositoryId) continue
     }
     if (typeof meta?.root !== "string" || !path.isAbsolute(meta.root)) throw new Error("Invalid index root during repository accounting")
-    if (roots.has(canonicalKey(meta.root))) indices.add(directory)
+    if (roots.has(canonicalKey(meta.root)) || roots.has(canonicalKey(canonicalCheckoutPath(meta.root)))) indices.add(directory)
   }
   const inodes = new Set<string>()
   let bytes = 0
