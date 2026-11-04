@@ -1,5 +1,15 @@
 # @sensegrep/mcp
 
+## 1.19.1
+
+### Patch Changes
+
+- [#48](https://github.com/Stahldavid/sensegrep/pull/48) [`9f6989d`](https://github.com/Stahldavid/sensegrep/commit/9f6989d49ec4c927b11eec6bb612bc8c9c9a6808) Thanks [@Stahldavid](https://github.com/Stahldavid)! - Update the MCP SDK dependency to 1.31.0 while preserving the existing runtime API.
+
+- Publish patched Zod/MCP runtime dependency floors, reproducible dependency resolutions and refreshed task-specific skill guidance.
+- Updated dependencies []:
+  - @sensegrep/core@1.19.1
+
 ## 1.19.0
 
 ### Minor Changes
