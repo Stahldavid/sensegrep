@@ -1,5 +1,11 @@
 # @sensegrep/core
 
+## 1.19.1
+
+### Patch Changes
+
+- Publish patched Zod/MCP runtime dependency floors, reproducible dependency resolutions and refreshed task-specific skill guidance.
+
 ## 1.19.0
 
 ### Minor Changes
