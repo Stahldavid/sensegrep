@@ -1,13 +1,19 @@
-# Local CI preparation
+# Local CI checks
 
-Run `npm run ci:local` after `npm ci`. It builds once, checks all workspaces, checks version consistency, and runs unit tests with two workers. `check:ci` suppresses npm lifecycle hooks only after the explicit build; `test:ci` invokes the same Vitest suite without pretest. Run those individual CI commands only after building.
+Use Node 22.12 or later (Node 24 recommended) to install the development tools with `npm ci`. Run `npm run ci:local` to build once, typecheck every workspace, check package versions, run the unchanged Vitest suite with two workers, run native Node and Python contracts, verify packaged artifacts and check README links. Run `npm audit` separately; it queries the registry and remains mandatory in hosted CI.
 
-This is a focused development preflight. Dependency acceptance also requires `npm audit`, which queries the npm registry, and the supported-platform checks. The audit remains mandatory in the prepared workflow; it is not silently treated as passed by ci:local.
+The hosted matrix retains all nine OS/Node combinations, including `npm ci`, audit, build, typechecking, version checks, Vitest, native contracts and artifact verification on Node 20. Changesets 3 and VSCE 4 declare newer Node requirements, so npm may report engine warnings in Node 20; their release commands use Node 24 in the existing manual release workflows. No engine-strict bypass or support reduction is configured. Native Python research tests run once on Linux/Node 24. Standalone `npm test` and `npm run check` keep their automatic builds.
 
-The existing `npm run check` and `npm test` retain their automatic rebuilds for standalone development. The prepared workflow retains nine OS/Node combinations (Node 20, 22 and 24 on Linux, Windows and macOS), dependency audit, checks and tests. It adds cancellation, read-only permissions and a 30-minute job timeout. No workflow was dispatched.
+The proposed Node 20 runtime-only smoke profile is not enabled. It would remove Node 20 build, typecheck, version, Vitest and native-contract coverage. Adopting it requires an explicit support and coverage decision. The existing human proposal is preserved in the task evidence snapshot.
 
-The existing local native Node and Python tests, packaged-artifact verification and README link checks are also preserved in ci:local. The existing workflow already uses check:types/test:unit without duplicate lifecycle builds; those commands and all additional local workflow checks are retained.
+This isolated CI change includes build-lock and evaluator contracts that run independently of uncommitted product changes. The original core-runtime contract suite depends on new source modules and is preserved in the task snapshot for separate product review. It is not silently imported into this CI branch.
 
-Security updates move Changesets to 3 and VSCE to 4. Their supported development runtimes require Node 22.12, 24 or 26 and later; Node 20 is no longer a full development-toolchain target. Published runtime package engine declarations remain unchanged. Changesets configuration uses the v4 schema; this repository does not use removed tag/sinceMaster/prettier options.
+Concurrency cancellation, read-only workflow permissions and a 30-minute job timeout bound CI work. No publishing/deployment command is part of this workflow.
 
-The three Node 20 lanes install and build with Node 24, then switch to Node 20 to import the published core/MCP entrypoints and invoke the built CLI. Node 22/24 lanes retain the full profile. No development tooling runs on Node 20. Runtime smoke checks require no API credentials or external services.
+Build-lock reclamation uses an exclusive guard. A process crash while holding that guard fails closed and may require removing the abandoned `.sensegrep-build.lock.reclaim` after confirming no build is active. Active owners are never evicted by age.
+
+## Dependency security maintenance
+
+The root development toolchain owns VSCE so its scoped `minimatch` override is applied consistently across workspace installation and inspection. VSCE still declares minimatch 10; the override selects patched 11.0.4 while preserving its named `minimatch` API and VSIX inclusion/exclusion behavior. Keep the override until upstream accepts a patched range; do not suppress the audit or relax the matrix. Runtime manifests declare the patched Zod and MCP dependency floors, and the committed lockfile records the compatible audit updates.
+
+For local tests, use an empty task-specific `XDG_CONFIG_HOME` when personal embedding/tokenizer settings are present; CI has no personal provider configuration. Do not rewrite the user's config or call a hosted provider just to run these contracts.

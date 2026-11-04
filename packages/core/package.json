@@ -1,6 +1,6 @@
 {
   "name": "@sensegrep/core",
-  "version": "1.19.0",
+  "version": "1.19.1",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -43,7 +43,7 @@
     "tree-sitter-wasms": "^0.1.5",
     "web-tree-sitter": "^0.21.0",
     "xdg-basedir": "^5.1.0",
-    "zod": "^4.4.3"
+    "zod": "^4.6.7"
   },
   "publishConfig": {
     "access": "public"

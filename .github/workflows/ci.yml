@@ -29,7 +29,7 @@ jobs:
       - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version == 20 && 24 || matrix.node-version }}
+          node-version: ${{ matrix.node-version }}
           cache: npm
 
       - name: Install dependencies
@@ -42,27 +42,21 @@ jobs:
         run: npm run build
 
       - name: Typecheck
-        if: matrix.node-version != 20
         run: npm run check:types
 
       - name: Version Consistency
-        if: matrix.node-version != 20
         run: npm run version:check
 
       - name: Test
-        if: matrix.node-version != 20
         run: npm run test:unit
 
       - name: Evaluator and build-tool tests
-        if: matrix.node-version != 20
         run: npm run test:node
 
       - name: Verify packaged artifacts
-        if: matrix.node-version != 20
         run: npm run release:verify
 
       - name: README local links
-        if: matrix.node-version != 20
         run: npm run check:docs
 
       - uses: actions/setup-python@v5
@@ -73,13 +67,3 @@ jobs:
       - name: Research Python tests
         if: matrix.os == 'ubuntu-latest' && matrix.node-version == 24
         run: npm run test:python
-
-      - name: Use Node.js 20 for published runtime compatibility
-        if: matrix.node-version == 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Published runtime compatibility smoke
-        if: matrix.node-version == 20
-        run: node scripts/runtime-smoke.mjs

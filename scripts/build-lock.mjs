@@ -7,38 +7,82 @@ function alive(pid) {
   catch (error) { return error.code === 'EPERM' }
 }
 
-/** A live owner never loses a lock merely because its build is slow. */
+// Windows may briefly deny access while another process finishes deleting a
+// file. Retry only sharing/delete-pending errors, never infer a dead owner from
+// them, and preserve persistent permission errors after a short bounded window.
+async function sharingRetry(operation, deadline = Date.now() + 30) {
+  for (let attempt = 0; ; attempt++) {
+    try { return await operation() }
+    catch (error) {
+      const remaining = deadline - Date.now()
+      if (process.platform !== 'win32' || !['EPERM', 'EBUSY'].includes(error.code) || attempt >= 3 || remaining <= 0) throw error
+      await new Promise(resolve => setTimeout(resolve, Math.min(10, remaining)))
+    }
+  }
+}
+
+async function readLock(file, deadline) {
+  return sharingRetry(async () => {
+    try {
+      const stat = await fs.lstat(file)
+      if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('Unsafe build lock path')
+      const text = await fs.readFile(file, 'utf8')
+      let owner
+      try { owner = JSON.parse(text) } catch { owner = null }
+      return {stat, text, owner}
+    } catch (error) {
+      if (error.code === 'ENOENT') return null
+      throw error
+    }
+  }, deadline)
+}
+
+function reclaimable(lock, malformedGraceMs) {
+  return lock.owner && Number.isSafeInteger(lock.owner.pid) && lock.owner.pid > 0
+    ? !alive(lock.owner.pid) : Date.now() - lock.stat.mtimeMs > malformedGraceMs
+}
+
+/** A live owner never loses a lock merely because its build is slow.
+ * Reclaimers serialize through an exclusive guard and re-read ownership under it.
+ * An abandoned reclamation guard fails closed: remove it only after checking
+ * that no builder/reclaimer is active. It is never reclaimed recursively.
+ */
 export async function acquireBuildLock(file, { timeoutMs = 600_000, malformedGraceMs = 120_000, pollMs = 100, onWait } = {}) {
-  const started = Date.now(), token = randomUUID()
+  const started = Date.now(), deadline = started + timeoutMs, token = randomUUID(), guardPath = `${file}.reclaim`
   while (true) {
     try {
-      const handle = await fs.open(file, 'wx', 0o600)
+      const handle = await sharingRetry(() => fs.open(file, 'wx', 0o600), deadline)
       try { await handle.writeFile(JSON.stringify({ pid: process.pid, token, startedAt: Date.now() })) }
       finally { await handle.close() }
       return async () => {
-        const owner = await fs.readFile(file, 'utf8').then(JSON.parse).catch(() => null)
-        if (owner?.pid === process.pid && owner?.token === token) await fs.unlink(file).catch(error => { if (error.code !== 'ENOENT') throw error })
+        const lock = await readLock(file)
+        if (lock?.owner?.pid === process.pid && lock.owner.token === token) {
+          await sharingRetry(() => fs.unlink(file)).catch(error => { if (error.code !== 'ENOENT') throw error })
+        }
       }
     } catch (error) {
       if (error.code !== 'EEXIST') throw error
-      let text, stat
-      try { [text, stat] = await Promise.all([fs.readFile(file, 'utf8'), fs.lstat(file)]) }
-      catch (readError) { if (readError.code === 'ENOENT') continue; throw readError }
-      if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('Unsafe build lock path')
-      let owner
-      try { owner = JSON.parse(text) } catch { owner = null }
-      const reclaim = owner && Number.isSafeInteger(owner.pid) && owner.pid > 0
-        ? !alive(owner.pid) : Date.now() - stat.mtimeMs > malformedGraceMs
-      if (reclaim) {
-        // Recheck ownership/content immediately before reclaiming a dead lock.
-        const current = await fs.readFile(file, 'utf8').catch(() => null)
-        const currentStat = await fs.lstat(file).catch(() => null)
-        if (current === text && currentStat?.ino === stat.ino && currentStat?.mtimeMs === stat.mtimeMs) {
-          await fs.unlink(file).catch(error => { if (error.code !== 'ENOENT') throw error })
+      const lock = await readLock(file, deadline)
+      if (!lock) continue
+      if (reclaimable(lock, malformedGraceMs)) {
+        let guard
+        try { guard = await sharingRetry(() => fs.open(guardPath, 'wx', 0o600), deadline) }
+        catch (guardError) { if (guardError.code !== 'EEXIST') throw guardError }
+        if (guard) {
+          try {
+            await guard.writeFile(JSON.stringify({pid:process.pid,token}))
+            const current = await readLock(file, deadline)
+            if (current && reclaimable(current, malformedGraceMs)) {
+              await sharingRetry(() => fs.unlink(file)).catch(error => { if (error.code !== 'ENOENT') throw error })
+            }
+          } finally {
+            await guard.close()
+            await sharingRetry(() => fs.unlink(guardPath)).catch(error => { if (error.code !== 'ENOENT') throw error })
+          }
+          continue
         }
-        continue
       }
-      if (Date.now() - started >= timeoutMs) throw new Error('Timed out waiting for the build lock owner')
+      if (Date.now() - started >= timeoutMs) throw new Error('Timed out waiting for the build lock owner or reclamation guard')
       onWait?.()
       await new Promise(resolve => setTimeout(resolve, Math.max(1, Math.min(pollMs, timeoutMs - (Date.now() - started)))))
     }
