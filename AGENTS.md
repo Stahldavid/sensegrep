@@ -1,91 +1,24 @@
-# AGENTS.md
+# sensegrep repository guidance
 
-## Cursor Cloud specific instructions
+## Scope and context
 
-### What this repo is
+This TypeScript npm-workspaces repository contains the core engine, CLI, MCP server and editor extension. Use the selected checkout's manifests and lockfile for runtime versions; `.nvmrc` recommends Node 24. The separate Remotion `demo/` is relevant only to video work. No Docker service is required for ordinary development.
 
-sensegrep is an **npm workspaces monorepo** (TypeScript, Node >=20). There are **no Docker services or long-running HTTP servers**. Development centers on building packages and running Node CLIs:
+Read the files relevant to the task rather than loading all architecture/setup documentation. Use [CONTRIBUTING.md](CONTRIBUTING.md) for delivery conventions and [.github/CI_LOCAL.md](.github/CI_LOCAL.md) for validation profiles. Preserve existing edits and continue within the current task's authorization. Historical setup observations do not grant new effects.
 
-| Package | Role | After `npm run build` |
-|---------|------|------------------------|
-| `packages/core` | Search engine (`@sensegrep/core`) | `packages/core/dist/` |
-| `packages/cli` | CLI (`sensegrep`) | `node packages/cli/dist/main.js` |
-| `packages/mcp` | stdio MCP server | `node packages/mcp/dist/server.js` |
-| `packages/vscode` | VS Code/Cursor extension | `npm run dev --workspace sensegrep` (esbuild watch) |
+## Validation by change
 
-The `demo/` folder is a **separate** Remotion project (not in workspaces); only needed for marketing video scripts.
+- Prose-only work: inspect the diff and check affected links/command claims; do not build, install, index or call providers merely to validate wording.
+- Runtime changes: build once when its inputs changed, then use `check:types`/`check:ci` and `test:unit`/`test:ci` as appropriate. `check` and `test` run build prehooks, so avoid chaining them after a current build without need.
+- Contracts crossing runtimes: include relevant `test:node`, `test:python`, artifact/version or extension checks. Root Vitest does not cover every extension/runtime surface.
+- `ci:local` is the comprehensive local chain, not a passive inspection. Complete required CI/release gates for that delivery; expand earlier testing when failures or unresolved concerns justify it.
 
-### Standard commands (see also `CONTRIBUTING.md`)
+`npm run build` replaces dist artifacts and uses a build lock. Root `dev` is a placeholder; extension development uses its workspace script. Tests do not need API keys. Do not change the CI matrix or security gates as a side effect of simplifying instructions.
 
-- Install: `npm ci` (CI uses lockfile; `npm install` also works)
-- Build: `npm run build` (`node build.js` — core → cli → mcp)
-- Typecheck: `npm run check` (runs `precheck` → build, then workspace `tsc`)
-- Tests: `npm test` (Vitest; **no API keys required**)
-- Version consistency: `npm run version:check`
+## Retrieval and privacy
 
-Root `npm run dev` is a **placeholder**; use package-specific commands above.
+Use [the CLI skill](skills/sensegrep-cli/SKILL.md) when semantic/structural discovery helps; direct text searches remain appropriate for exact names and exhaustive occurrences. Keep detailed examples in references.
 
-### Lint / format
+Indexing writes state and can call an embedding provider. MCP uses stdio and can start watching; verify the selected version before using another transport or daemon. Do not install/index/start these merely to read source. For local-only requests, verify the resolved provider endpoint and disable hosted calls. Use `SENSEGREP_NETWORK_POLICY=local-only` only in runtimes that implement it; an unknown variable does not enforce isolation. Jev evaluation and embeddings are distinct effects. Preserve explicit consent before remote source transmission or paid calls, including benchmarks. See [Jev](docs/jev.md).
 
-There is **no ESLint/Prettier** at the repo root. “Lint” for this repo means **`npm run check`** (TypeScript `--noEmit` per workspace).
-
-### Semantic index and search (remote embeddings)
-
-Indexing and semantic search use embedding APIs, including a local Ollama server. With no explicit provider or hosted API credentials, the default is Ollama (`qwen3-embedding:0.6b`, 1024 dimensions). CI does **not** configure providers.
-
-#### Recommended: Cohere via Amazon Bedrock (Bedrock API key)
-
-Default model: **`cohere.embed-v4:0`** (1536-dim). Global inference ID: **`global.cohere.embed-v4:0`** via `embedModel` in config.
-
-Authentication is either:
-
-1. **Bedrock API key** (prefix `ABSK…`) in `apiKey` — bearer token, **not** `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`, or  
-2. **IAM** via the AWS SDK default chain (no `apiKey` in config).
-
-**Canonical config file** — `~/.config/sensegrep/config.json`:
-
-```json
-{
-  "provider": "bedrock",
-  "embedModel": "cohere.embed-v4:0",
-  "embedDim": 1536,
-  "region": "us-east-1",
-  "apiKey": "<Bedrock API key from console>"
-}
-```
-
-`embedDim` must be **256, 512, 1024, or 1536** for Cohere Embed v4.
-
-**Cursor Cloud secret (preferred):** one secret named **`SENSEGREP_EMBEDDINGS_CONFIG`** whose value is the **entire JSON above** (minified one line is fine). The VM **update script** writes it to `~/.config/sensegrep/config.json` on startup. Do **not** use separate `GEMINI_API_KEY` or `AWS_ACCESS_KEY_ID` secrets for this setup.
-
-**Optional env overrides** (merge with / override file): `SENSEGREP_PROVIDER`, `SENSEGREP_EMBED_MODEL`, `SENSEGREP_EMBED_DIM`, `SENSEGREP_BEDROCK_REGION`.
-
-**VS Code / Cursor extension:** `sensegrep.embeddings.provider` = `bedrock`; for API-key auth, mirror the same fields in global `config.json` (extension does not store Bedrock keys in SecretStorage today).
-
-Example smoke flow (after build, with `config.json` in place):
-
-```bash
-node packages/cli/dist/main.js index --root packages/core --no-watch
-node packages/cli/dist/main.js search "embedding configuration" --limit 3 --json
-```
-
-#### Other providers (optional)
-
-- **Gemini:** `GEMINI_API_KEY` / `GOOGLE_API_KEY` (selected automatically when a Gemini key is present and no provider or OpenAI-compatible key is set)
-- **OpenAI-compatible:** `SENSEGREP_OPENAI_API_KEY` / `FIREWORKS_API_KEY` with `--provider openai`
-
-Without `apiKey` (and without IAM credentials), Bedrock fails with `CredentialsProviderError`. `languages`, `status`, and MCP **initialize / tools/list** still work without indexing.
-
-### MCP server
-
-The MCP server speaks **stdio JSON-RPC**. It starts file watching by default; use a short `timeout` in scripted tests. Tools include `sensegrep_search`, `sensegrep_index`, `sensegrep_survey`, `sensegrep_cluster`, and `sensegrep_detect_duplicates`.
-
-### Optional: ripgrep
-
-`rg` on `PATH` is optional; core can download a ripgrep binary when missing.
-
-### Gotchas
-
-- **`npm run check` always rebuilds** via `precheck` → `npm run build`. If you change core, rebuild before exercising cli/mcp dist copies.
-- **VS Code extension** (`packages/vscode`) is not fully covered by root `npm test`; extension dev uses `npm run dev --workspace sensegrep`.
-- **`.nvmrc` selects Node 24.** CI retains full Node 20/22/24 install, build and test profiles. Changesets 3 and VSCE 4 commands require Node 22.12 or later; use the recommended runtime for release tooling.
+Host-specific Bedrock/Cursor configuration belongs in [agent setup](docs/agent-skills.md), not this always-loaded file. A past provider configuration is not current availability or a universal quality recommendation.
