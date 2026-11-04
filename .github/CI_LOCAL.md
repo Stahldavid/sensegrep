@@ -11,3 +11,9 @@ This isolated CI change includes build-lock and evaluator contracts that run ind
 Concurrency cancellation, read-only workflow permissions and a 30-minute job timeout bound CI work. No publishing/deployment command is part of this workflow.
 
 Build-lock reclamation uses an exclusive guard. A process crash while holding that guard fails closed and may require removing the abandoned `.sensegrep-build.lock.reclaim` after confirming no build is active. Active owners are never evicted by age.
+
+## Dependency security maintenance
+
+The root development toolchain owns VSCE so its scoped `minimatch` override is applied consistently across workspace installation and inspection. VSCE still declares minimatch 10; the override selects patched 11.0.4 while preserving its named `minimatch` API and VSIX inclusion/exclusion behavior. Keep the override until upstream accepts a patched range; do not suppress the audit or relax the matrix. Runtime manifests declare the patched Zod and MCP dependency floors, and the committed lockfile records the compatible audit updates.
+
+For local tests, use an empty task-specific `XDG_CONFIG_HOME` when personal embedding/tokenizer settings are present; CI has no personal provider configuration. Do not rewrite the user's config or call a hosted provider just to run these contracts.
