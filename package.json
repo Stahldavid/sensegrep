@@ -39,7 +39,8 @@
     "check:docs": "node scripts/check-local-links.mjs README.md",
     "check:ci": "npm run check --workspaces --if-present",
     "test:ci": "vitest run",
-    "ci:local": "npm run build && npm run check:types && npm run version:check && npm run test:unit -- --maxWorkers=2 && npm run test:node && npm run release:verify && npm run check:docs && npm run test:python"
+    "ci:local": "npm run build && npm run check:types && npm run version:check && npm run test:unit -- --maxWorkers=2 && npm run test:node && npm run release:verify && npm run check:docs && npm run test:python",
+    "release:publish": "npm run release:verify && node scripts/publish-changesets.mjs"
   },
   "overrides": {
     "js-yaml": "^4.3.2",

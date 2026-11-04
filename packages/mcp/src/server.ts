@@ -946,7 +946,7 @@ export function createStdioMcpServer(): Server {
   const server = new Server(
     {
       name: "sensegrep",
-      version: "1.19.1",
+      version: "1.20.0",
     },
     {
       capabilities: {

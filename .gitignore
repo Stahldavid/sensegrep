@@ -29,6 +29,7 @@ dist/
 # VS Code extension packages
 *.vsix
 *.tgz
+.vscode-test/
 
 # Local editor config
 .vscode/
