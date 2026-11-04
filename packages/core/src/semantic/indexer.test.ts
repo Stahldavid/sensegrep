@@ -214,7 +214,11 @@ describe("Indexer incremental updates", () => {
     await mkdir(path.dirname(lock), { recursive: true })
     await writeFile(lock, JSON.stringify({ pid: 2147483647, pidScope: scope }))
     try {
-      await Indexer.indexProjectIncremental({ timeoutMs: 2000 })
+      // Exercise recovery and release directly; parser startup is unrelated to
+      // this lock contract and can consume the deadline under host contention.
+      const entered = vi.fn(async () => undefined)
+      await Indexer.withIndexLockForTesting({ timeoutMs: 2000 }, entered)
+      expect(entered).toHaveBeenCalledOnce()
       await expect(stat(lock)).rejects.toMatchObject({ code: "ENOENT" })
     } finally { await rm(lock, { force: true }) }
   })

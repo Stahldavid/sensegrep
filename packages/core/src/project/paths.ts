@@ -9,7 +9,10 @@ export function canonicalCheckoutPath(input: string): string {
   const missing: string[] = []
   for (;;) {
     try {
-      return path.join(realpathSync(current), ...missing)
+      // The JavaScript implementation can preserve DOS 8.3 spellings, while
+      // fs.promises.realpath and Windows junction targets use long names.
+      const resolved = process.platform === "win32" ? realpathSync.native(current) : realpathSync(current)
+      return path.join(resolved, ...missing)
     } catch (error: any) {
       if (error?.code !== "ENOENT" && error?.code !== "ENOTDIR") throw error
       const parent = path.dirname(current)
