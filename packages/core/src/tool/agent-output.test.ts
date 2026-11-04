@@ -56,7 +56,7 @@ describe("shared agent output projection", () => {
       status: "complete",
       warnings: [],
       retrieval: { mode: "hybrid", exhaustive: false, truncated: false },
-      index: { status: "fresh" },
+      index: { status: "fresh", indexGenerationId: "chunks:1" },
       groups: [{
         label: "endpoints / routing",
         rank: 1,
@@ -66,6 +66,21 @@ describe("shared agent output projection", () => {
         representativeIds: ["r:first", "r:second"],
       }],
     })
+  })
+
+  it("preserves explicit provenance across compact projections without inventing source identity", () => {
+    const identity = { repositoryId: "repo", checkoutId: "checkout", executorId: "executor", indexGenerationId: "generation", sourceSnapshotId: "sha256:source", indexSpecHash: "sha256:spec", indexSpecHashScope: "recorded-recipe-v1", profile: "alpha", root: "/local/project" }
+    for (const command of ["search", "survey", "cluster", "trace", "show"]) {
+      const projected = projectAgentResponse({ command, status: "complete", index: { ...identity, fresh: true }, results: [] })
+      expect(projected.index).toEqual({ ...identity, status: "fresh" })
+    }
+    const legacy = projectAgentResponse({ command: "search", index: { snapshotId: "chunks:1" }, results: [] })
+    expect(legacy.index).toEqual({ status: "unknown", indexGenerationId: "chunks:1" })
+    expect(legacy.index).not.toHaveProperty("sourceSnapshotId")
+    const sourceOnly = projectAgentResponse({ command: "search", index: { snapshotId: "sha256:source", sourceSnapshotId: "sha256:source" }, results: [] })
+    expect(sourceOnly.index).not.toHaveProperty("indexGenerationId")
+    const target = projectAgentResponse({ command: "show", index: { ...identity, freshnessScope: "target-location", targetFresh: false } })
+    expect(target.index).toMatchObject({ ...identity, status: "stale", scope: "target-location" })
   })
 
   it("normalizes warnings into stable machine-readable codes", () => {

@@ -44,13 +44,12 @@ describe("Claude plugin command MCP tool references", () => {
     }
   });
 
-  it("routes ambiguous code discovery to semantic search before literal search", async () => {
+  it("distinguishes conceptual discovery from exact text search", async () => {
     for (const guidance of AGENT_GUIDANCE) {
       const markdown = await readFile(path.join(ROOT, guidance), "utf8");
-      expect(markdown, guidance).toMatch(/start with `sensegrep(?:_search| search)`/i);
-      expect(markdown, guidance).toMatch(/if unsure, choose `sensegrep(?:_search| search)`/i);
-      expect(markdown, guidance).toMatch(/every textual occurrence is required/i);
-      expect(markdown, guidance).toMatch(/verifying\/refining a semantic result/i);
+      expect(markdown, guidance).toMatch(/(?:conceptual|uncertain)[^\n]*`sensegrep(?:_search| search)`/i);
+      expect(markdown, guidance).toMatch(/(?:exact|known)[^\n]*(?:literal|`rg`)/i);
+      expect(markdown, guidance).toMatch(/(?:exhaustive|complete occurrence)/i);
     }
   });
 });

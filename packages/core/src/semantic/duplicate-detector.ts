@@ -1,3 +1,5 @@
+import { GenerationLeases } from "./generation-leases.js"
+import { planDuplicateMemory } from "./duplicate-memory.js"
 import { Log } from "../util/log.js"
 import { TreeSitterChunking } from "./chunking-treesitter.js"
 import { Chunking } from "./chunking.js"
@@ -116,7 +118,7 @@ export namespace DuplicateDetector {
       processedCandidates?: number
       elapsedMs?: number
     }
-    metrics?: { loadMs: number; prepareMs: number; neighborsMs: number; strategy: "memory-cosine" | "vector-store" }
+    metrics?: { loadMs: number; prepareMs: number; neighborsMs: number; strategy: "memory-cosine" | "vector-store"; estimatedAdditionalBytes?:number; memoryBudgetBytes?:number; memoryStrategyReason?:string }
     duplicates: DuplicateGroup[]
     acceptableDuplicates?: DuplicateGroup[]
   }
@@ -183,7 +185,7 @@ export namespace DuplicateDetector {
   ]
 
   const IDENTIFIER_REGEX = /\b[A-Za-z_$][A-Za-z0-9_$]*\b/g
-  
+
   // Reserved words by language for normalization
   const RESERVED_WORDS_JS = new Set([
     "abstract",
@@ -757,12 +759,14 @@ export namespace DuplicateDetector {
       }
     }
 
+    const releaseGeneration = await new GenerationLeases(VectorStore.getIndexStoragePath(resolvedIndex.root), resolvedIndex.meta.tableName ?? "chunks").acquire(options.signal)
+    try {
     const schema = typeof VectorStore.inspectCollectionSchema === "function"
-      ? await VectorStore.inspectCollectionSchema(resolvedIndex.root)
+      ? await VectorStore.inspectCollectionSchema(resolvedIndex.root, meta.tableName ?? "chunks")
       : { schemaCompatible: true }
     const collection = schema.schemaCompatible
-      ? await VectorStore.getCollectionUnsafe(resolvedIndex.root, meta.embeddings.dimension)
-      : await VectorStore.openCollectionReadOnly(resolvedIndex.root)
+      ? await VectorStore.getCollectionUnsafe(resolvedIndex.root, meta.embeddings.dimension, meta.tableName ?? "chunks")
+      : await VectorStore.openCollectionReadOnly(resolvedIndex.root, meta.tableName ?? "chunks")
 
     const filters: VectorStore.SearchFilters = { all: [] }
     if (scopeFilter === undefined) {
@@ -967,7 +971,9 @@ export namespace DuplicateDetector {
     }
     // Bound quadratic work to moderate candidate sets. Normalize once instead of
     // recomputing both vector norms for every pair, and reuse symmetric distances.
-    const memoryCosine = candidates.length <= 4096 && VectorStore.getDistanceMetric(meta) === "cosine"
+    const memoryPlan = planDuplicateMemory(candidates.length,candidates.reduce((n,c)=>Math.max(n,c.vector.length),0),
+      VectorStore.getDistanceMetric(meta),Number(process.env.SENSEGREP_DUPLICATE_MEMORY_MIB??128))
+    const memoryCosine = memoryPlan.strategy === 'memory-cosine'
     const unitVectors = memoryCosine ? candidates.map(({ vector }) => {
       const norm = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0))
       return Float64Array.from(vector, (value) => norm ? value / norm : 0)
@@ -975,7 +981,8 @@ export namespace DuplicateDetector {
     const distances = memoryCosine ? new Float64Array(candidates.length * (candidates.length - 1) / 2).fill(NaN) : undefined
     const preparedAt = Date.now()
     const metrics = { loadMs: loadedAt - startTime, prepareMs: preparedAt - loadedAt, neighborsMs: 0,
-      strategy: memoryCosine ? "memory-cosine" as const : "vector-store" as const }
+      strategy: memoryPlan.strategy,estimatedAdditionalBytes:memoryPlan.estimatedAdditionalBytes,
+      memoryBudgetBytes:memoryPlan.memoryBudgetBytes,memoryStrategyReason:memoryPlan.reason }
     const deadline = options.timeoutMs ? startTime + options.timeoutMs : Number.POSITIVE_INFINITY
     let processedCandidates = 0
     let timedOut = false
@@ -1311,5 +1318,6 @@ export namespace DuplicateDetector {
       duplicates,
       acceptableDuplicates: acceptableDuplicates.length > 0 ? acceptableDuplicates : undefined,
     }
+    } finally { await releaseGeneration() }
   }
 }

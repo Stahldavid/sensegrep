@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+vi.mock("./generation-leases.js", () => ({ GenerationLeases: class { async acquire() { return async () => {} } } }))
+
 const baseRows = [
   {
     id: "a",
@@ -56,16 +58,19 @@ let searchDelayMs = 0
 
 vi.mock("./lancedb.js", () => ({
   VectorStore: {
+    getIndexStoragePath: () => "/mock-index",
     resolveIndexedProject: vi.fn(async (root: string) => ({
       root,
       meta: {
         version: 1,
         root,
+        tableName: "generation-before",
         embeddings: { provider: "gemini", model: "gemini-embedding-001", dimension: 2 },
         files: {},
         updatedAt: 1,
       },
     })),
+    inspectCollectionSchema: vi.fn(async () => ({ schemaCompatible: true })),
     getCollectionUnsafe: vi.fn(async () => ({})),
     listDocuments: vi.fn(async () => rows),
     searchByVector: vi.fn(async (_collection: unknown, _vector: number[], options: { filters?: any; signal?: AbortSignal }) => {
@@ -82,6 +87,13 @@ vi.mock("./lancedb.js", () => ({
 }))
 
 describe("DuplicateDetector", () => {
+  it("opens the resolved generation after schema inspection", async () => {
+    const { DuplicateDetector } = await import("./duplicate-detector.js")
+    const { VectorStore } = await import("./lancedb.js")
+    await DuplicateDetector.detect({ path: process.cwd(), minLines: 1 })
+    expect(VectorStore.inspectCollectionSchema).toHaveBeenLastCalledWith(process.cwd(), "generation-before")
+    expect(VectorStore.getCollectionUnsafe).toHaveBeenLastCalledWith(process.cwd(), 2, "generation-before")
+  })
   it("uses memory for 513 candidates and resumes to the same groups as a full run", async () => {
     const { DuplicateDetector } = await import("./duplicate-detector.js")
     const { VectorStore } = await import("./lancedb.js")

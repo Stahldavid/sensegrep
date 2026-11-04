@@ -1,21 +1,30 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+const releaseGeneration = vi.hoisted(() => vi.fn(async () => {}))
+vi.mock("./generation-leases.js", () => ({ GenerationLeases: class { async acquire() { return releaseGeneration } } }))
+
 const listDocuments = vi.fn()
+const openGeneration = vi.fn(async (_root: string, _dim: number, generation: string) => ({ generation }))
+const inspectGeneration = vi.fn(async (_root: string, _generation: string) => ({ schemaCompatible: true, fields: ["calls", "imports"] }))
+const state = vi.hoisted(() => ({ profile: "alpha", table: "one" }))
+const readProjectSource = vi.fn(async () => { throw new Error("source unavailable") })
+vi.mock("../file/source-reader.js", () => ({ readProjectSource }))
 
 vi.mock("./lancedb.js", () => ({
   VectorStore: {
     resolveIndexedProject: async () => ({
       root: "/repo",
-      meta: { embeddings: { provider: "openai", dimension: 3 } },
+      meta: { tableName: state.table, updatedAt: 42, embeddings: { provider: "openai", dimension: 3 }, files: { "src/app.ts": { sourceSha256: "a".repeat(64), sourceHashKind: "sha256-raw-v1" } } },
     }),
-    getCollectionUnsafe: async () => ({}),
+    getCollectionUnsafe: openGeneration,
     openCollectionReadOnly: async () => ({}),
-    inspectCollectionSchema: async () => ({ schemaCompatible: true, fields: ["calls", "imports"] }),
+    inspectCollectionSchema: inspectGeneration,
     listDocuments,
+    getIndexStoragePath: () => "/nonexistent-sensegrep-test-cache",
   },
 }))
 
-vi.mock("../project/instance.js", () => ({ Instance: { directory: "/repo" } }))
+vi.mock("../project/instance.js", () => ({ Instance: { directory: "/repo", get profile() { return state.profile } } }))
 
 function row(symbolName: string, content: string, startLine: number) {
   return {
@@ -25,6 +34,49 @@ function row(symbolName: string, content: string, startLine: number) {
 }
 
 describe("CodeGraph", () => {
+  it("does not combine changed live calls with indexed symbol locations", async () => {
+    readProjectSource.mockResolvedValueOnce({ source: "function caller() { liveTarget() }", rawSha256: "b".repeat(64) } as never)
+    listDocuments.mockResolvedValue([
+      row("caller", "function caller() { indexedTarget() }", 1),
+      row("indexedTarget", "function indexedTarget() {}", 10),
+      row("liveTarget", "function liveTarget() {}", 20),
+    ])
+    const { CodeGraph } = await import("./code-graph.js")
+    const graph = await CodeGraph.build({ cache: false })
+    expect(graph.references.some(reference => reference.to === "liveTarget")).toBe(false)
+    expect(graph.references.some(reference => reference.to === "indexedTarget")).toBe(true)
+  })
+  it("releases its generation lease when schema inspection fails", async () => {
+    const { CodeGraph } = await import("./code-graph.js")
+    releaseGeneration.mockClear()
+    inspectGeneration.mockRejectedValueOnce(new Error("schema failure"))
+    await expect(CodeGraph.build({ cache: false })).rejects.toThrow("schema failure")
+    expect(releaseGeneration).toHaveBeenCalledOnce()
+  })
+  it("keeps the resolved generation when publication happens during schema inspection", async () => {
+    const { CodeGraph } = await import("./code-graph.js")
+    state.table = "before"
+    inspectGeneration.mockImplementationOnce(async () => {
+      state.table = "after"
+      return { schemaCompatible: true, fields: ["calls", "imports"] }
+    })
+    await CodeGraph.build({ cache: false })
+    expect(inspectGeneration).toHaveBeenLastCalledWith("/repo", "before")
+    expect(openGeneration).toHaveBeenLastCalledWith("/repo", 3, "before")
+    expect(listDocuments).toHaveBeenLastCalledWith({ generation: "before" }, expect.anything())
+  })
+  it("isolates the production cache by profile and generation", async () => {
+    const { CodeGraph } = await import("./code-graph.js")
+    state.profile = "alpha"; state.table = "one"
+    listDocuments.mockResolvedValue([row("alphaSymbol", "return true", 1)])
+    expect((await CodeGraph.build({ cache: true })).symbols.has("alphaSymbol")).toBe(true)
+    state.profile = "beta"; state.table = "two"
+    listDocuments.mockResolvedValue([row("betaSymbol", "return true", 1)])
+    expect((await CodeGraph.build({ cache: true })).symbols.has("betaSymbol")).toBe(true)
+    state.table = "three"
+    listDocuments.mockResolvedValue([row("newSymbol", "return true", 1)])
+    expect((await CodeGraph.build({ cache: true })).symbols.has("newSymbol")).toBe(true)
+  })
   it("attributes nested calls to the smallest enclosing symbol", async () => {
     listDocuments.mockResolvedValue([
       { content: "class Service {\n run() {\n target()\n }\n}", metadata: { file: "src/app.ts", startLine: 1, endLine: 5, symbolName: "Service" } },

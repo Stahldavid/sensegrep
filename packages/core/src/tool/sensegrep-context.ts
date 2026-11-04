@@ -4,7 +4,7 @@ import { SenseGrepTool } from "./sensegrep.js"
 import { SenseGrepParametersSchema } from "./search-schema.js"
 import { GitScope } from "../project/git.js"
 import { Instance } from "../project/instance.js"
-import fs from "node:fs/promises"
+import { readProjectSource, sourceContentHash } from "../file/source-reader.js"
 import path from "node:path"
 import { createResultId } from "./result-id.js"
 
@@ -98,6 +98,10 @@ export const SenseGrepContextTool = Tool.define("sensegrep-context", {
       commandName: params.commandName ?? 'context',
       maxTokens: Math.min(params.maxTokens, maxTotalTokens),
     }, ctx)
+    // Context may downgrade a usable result, never turn a prerequisite/error into success.
+    if (result.status !== undefined && result.status !== "complete" && result.status !== "incomplete") {
+      return { ...result, command: params.commandName ?? "context" }
+    }
     const coverage = params.gitChanged
       ? await GitScope.changedFiles(Instance.directory, { base: params.gitBase, signal: ctx.abort }).then((changedFiles) => {
           const representedFiles = new Set(
@@ -107,6 +111,8 @@ export const SenseGrepContextTool = Tool.define("sensegrep-context", {
           )
           const uncoveredFiles = changedFiles.filter((file) => !representedFiles.has(file.replace(/\\/g, "/")))
           return {
+            unit: "file-representation" as const,
+            hunkCoverage: "not-assessed" as const,
             changedFiles: changedFiles.length,
             representedFiles: changedFiles.length - uncoveredFiles.length,
             uncoveredFiles,
@@ -124,6 +130,7 @@ export const SenseGrepContextTool = Tool.define("sensegrep-context", {
     const representedRanges = new Set<string>()
     const completedContinuationFiles = new Set<string>()
     const truncationReasons = new Set<string>()
+    const unreadableFiles: Array<{ file: string; reason: string }> = []
     let contextTokens = 0
     const baseContextTokens = Number((result as any).budget?.contextTokens ?? (result as any).budget?.tokensUsed ?? 0)
     let evidenceBytes = Buffer.byteLength(JSON.stringify({
@@ -138,20 +145,35 @@ export const SenseGrepContextTool = Tool.define("sensegrep-context", {
         const absolute = path.resolve(Instance.directory, file)
         const relative = path.relative(Instance.directory, absolute)
         if (relative.startsWith("..") || path.isAbsolute(relative)) continue
-        const content = await fs.readFile(absolute, "utf8").catch(() => "")
+        let content: string
+        try {
+          content = (await readProjectSource(Instance.directory, file, { signal: ctx.abort })).source
+        } catch (error) {
+          ctx.abort.throwIfAborted()
+          const reason = error && typeof error === "object" && "code" in error ? String(error.code) : "read-failed"
+          unreadableFiles.push({ file, reason })
+          truncationReasons.add("unreadable-source")
+          continue
+        }
         const segments = splitAuditContent(file, content, params.batchTokens)
         if (segments.length === 0) {
           truncationReasons.add("batch-token-budget-too-small")
           break
         }
         let fileComplete = true
+        const contentLines = content.split(/\r?\n/)
         for (const segment of segments) {
           const rangeKey = `${file}:${segment.startOffset}:${segment.endOffset}`
           if (representedRanges.has(rangeKey)) continue
+          // A segment can end in the middle of a long line. Only bind a hash
+          // when the bytes cover the full line range that show will read.
+          const range = contentLines.slice(segment.startLine - 1, segment.endLine).join("\n")
+          const normalizedSegment = segment.content.replace(/\r\n/g, "\n").replace(/\n$/, "")
           const resultId = createResultId({
             file,
             startLine: segment.startLine,
             endLine: segment.endLine,
+            ...(normalizedSegment === range ? { sourceHash: sourceContentHash(range) } : {}),
           })
           const card: Record<string, unknown> = {
             resultId,
@@ -215,6 +237,7 @@ export const SenseGrepContextTool = Tool.define("sensegrep-context", {
     const remainingUncoveredFiles = coverage?.uncoveredFiles.filter((file) => !continuedFiles.has(file)) ?? []
     const finalCoverage = coverage ? {
       ...coverage,
+      unreadableFiles,
       semanticRepresentedFiles: coverage.representedFiles,
       uncoveredFiles: remainingUncoveredFiles,
       textual: { representedFiles: textualRepresented, coverage: coverage.changedFiles === 0 ? 1 : textualRepresented / coverage.changedFiles },

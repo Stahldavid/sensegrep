@@ -1,6 +1,5 @@
+import { GenerationLeases } from "../semantic/generation-leases.js"
 import z from "zod"
-import fs from "node:fs/promises"
-import path from "node:path"
 import { Instance } from "../project/instance.js"
 import { VectorStore } from "../semantic/lancedb.js"
 import { Tool } from "./tool.js"
@@ -15,6 +14,8 @@ import {
 } from "./sensegrep-pipeline.js"
 import { runFilesystemLiteral } from "./filesystem-literal.js"
 import { createResultId } from "./result-id.js"
+import { readProjectSource } from "../file/source-reader.js"
+import { describeIndexIdentity } from "../semantic/index-identity.js"
 
 export const SenseGrepLiteralParametersSchema = z.object({
   query: z.string().min(1).describe("Literal string or regular expression"),
@@ -58,6 +59,9 @@ export const SenseGrepLiteralTool = Tool.define("sensegrep-literal", {
       }
     }
 
+    return Instance.provide({ directory: resolved!.root, profile: Instance.profile, fn: async () => {
+    const releaseGeneration = resolved ? await new GenerationLeases(VectorStore.getIndexStoragePath(resolved.root), resolved.meta.tableName ?? "chunks").acquire(ctx.abort) : undefined
+    try {
     const includeMatcher = params.include ? createGlobMatcher(params.include) : undefined
     const excludeMatcher = params.exclude ? createGlobMatcher(params.exclude) : undefined
     const indexedFiles = Object.keys(resolved?.meta.files ?? {})
@@ -83,18 +87,38 @@ export const SenseGrepLiteralTool = Tool.define("sensegrep-literal", {
           return used + Buffer.byteLength(`${match.file}:${match.line}:${match.text}\n`) <= params.maxOutputBytes! ? [...selected, match] : selected
         }, [])
       : limitSelected
-    const schema = resolved ? await VectorStore.inspectCollectionSchema(resolved.root) : undefined
+    const schema = resolved ? await VectorStore.inspectCollectionSchema(resolved.root, resolved.meta.tableName ?? "chunks") : undefined
     const staleIndexedFiles = new Set<string>()
+    const unverifiedIndexedFiles = new Set<string>()
+    const matchesByFile = new Map<string, typeof rawMatches>()
+    for (const match of rawMatches) {
+      const file = canonicalizeProjectFilePath(match.file)
+      const entries = matchesByFile.get(file) ?? []
+      entries.push(match)
+      matchesByFile.set(file, entries)
+    }
     if (resolved) {
-      await Promise.all(files.map(async (file) => {
+      for (let offset = 0; offset < files.length; offset += 16) {
+      ctx.abort.throwIfAborted()
+      await Promise.all(files.slice(offset, offset + 16).map(async (file) => {
         const indexed = resolved.meta.files[file]
         if (!indexed) return
-        const current = await fs.stat(path.join(resolved.root, file)).catch(() => null)
-        if (!current || current.size !== indexed.size || current.mtimeMs !== indexed.mtimeMs) staleIndexedFiles.add(file)
+        if (indexed.sourceHashKind !== "sha256-raw-v1" || !indexed.sourceSha256) {
+          unverifiedIndexedFiles.add(file)
+          return
+        }
+        try {
+          const current = await readProjectSource(resolved.root, file, { signal: ctx.abort })
+          if (current.rawSha256 !== indexed.sourceSha256 || (matchesByFile.get(file) ?? []).some(match => current.lines[match.line - 1] !== match.text)) staleIndexedFiles.add(file)
+        } catch {
+          ctx.abort.throwIfAborted()
+          staleIndexedFiles.add(file)
+        }
       }))
+      }
     }
     const collection = resolved && schema?.exists
-      ? await VectorStore.openCollectionReadOnly(resolved.root)
+      ? await VectorStore.openCollectionReadOnly(resolved.root, resolved.meta.tableName ?? "chunks")
       : undefined
     const documentsByFile = new Map<string, Awaited<ReturnType<typeof VectorStore.listDocuments>>>()
     const matches: Array<Record<string, unknown>> = []
@@ -102,14 +126,14 @@ export const SenseGrepLiteralTool = Tool.define("sensegrep-literal", {
     for (const match of selectedMatches) {
       const file = canonicalizeProjectFilePath(match.file)
       let documents = documentsByFile.get(file)
-      if (!documents && collection && !staleIndexedFiles.has(file)) {
+      if (!documents && collection && !staleIndexedFiles.has(file) && !unverifiedIndexedFiles.has(file)) {
         documents = await VectorStore.listDocuments(collection, {
           filters: { all: [{ key: "file", operator: "equals", value: file }] },
           columns: ["id", "file", "startLine", "endLine", "symbolName", "symbolType", "semanticKind"],
         })
         documentsByFile.set(file, documents)
       }
-      const document = staleIndexedFiles.has(file) ? undefined : pickBestLiteralDocument(documents ?? [], match.line)
+      const document = staleIndexedFiles.has(file) || unverifiedIndexedFiles.has(file) ? undefined : pickBestLiteralDocument(documents ?? [], match.line)
       matches.push({
         file,
         line: match.line,
@@ -146,7 +170,7 @@ export const SenseGrepLiteralTool = Tool.define("sensegrep-literal", {
         files: new Set(rawMatches.map((match) => match.file)).size,
         outputBytes,
       },
-      index: resolved ? { fresh: staleIndexedFiles.size === 0, schemaCompatible: schema?.schemaCompatible ?? false, snapshotId: `${resolved.meta.tableName ?? "chunks"}:${resolved.meta.updatedAt}` } : { fresh: null, schemaCompatible: false },
+      index: resolved ? { ...describeIndexIdentity(resolved.root, Instance.profile, resolved.meta), fresh: staleIndexedFiles.size > 0 ? false : unverifiedIndexedFiles.size > 0 ? null : true, schemaCompatible: schema?.schemaCompatible ?? false } : { fresh: null, schemaCompatible: false },
       retrieval: {
         requestedMode: "literal",
         actualMode: "literal",
@@ -159,15 +183,18 @@ export const SenseGrepLiteralTool = Tool.define("sensegrep-literal", {
           excludedFiles: Math.max(0, universeFiles.length - files.length),
           filesystemFiles: params.filesystem ? filesystemFiles.length : undefined,
           staleIndexedFiles: staleIndexedFiles.size,
+          unverifiedIndexedFiles: unverifiedIndexedFiles.size,
           unindexedVisibleFiles: params.filesystem ? filesystemFiles.filter((file) => !indexedFiles.includes(file)).length : undefined,
         },
       },
-      warnings: staleIndexedFiles.size > 0 ? [`Skipped indexed symbol mapping for ${staleIndexedFiles.size} stale files.`] : [],
+      warnings: [...(staleIndexedFiles.size > 0 ? [`Skipped indexed symbol mapping for ${staleIndexedFiles.size} stale files.`] : []), ...(unverifiedIndexedFiles.size > 0 ? [`Skipped indexed symbol mapping for ${unverifiedIndexedFiles.size} files without verifiable source hashes.`] : [])],
       budget: { maxOutputBytes: params.maxOutputBytes, outputBytes },
       matches,
       output: matches.length > 0
         ? matches.map((match) => `${match.file}:${match.line}:${match.text}`).join("\n")
         : "No literal matches found.",
     }
+    } finally { await releaseGeneration?.() }
+    } })
   },
 })

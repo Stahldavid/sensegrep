@@ -16,9 +16,24 @@ import {
   toStructuredSearchResult,
   deriveDomainLabel,
   getGroupTitleSignal,
+  withIndexedSearchResources,
 } from "./sensegrep-pipeline.js"
 
 describe("sensegrep pipeline result metadata", () => {
+  it("honors grouped retrieval cancellation before resolving an index", async () => {
+    const controller = new AbortController()
+    const reason = new Error("request cancelled")
+    controller.abort(reason)
+    let callbackRan = false
+    await expect(withIndexedSearchResources("query", async () => { callbackRan = true; return { output: "unexpected" } }, controller.signal)).rejects.toBe(reason)
+    expect(callbackRan).toBe(false)
+  })
+  it("keeps anonymous unverified index snippets explicitly partial", async () => {
+    const [result]=await reconstructSymbolResults(process.cwd(),[{file:'unknown.ts',startLine:1,endLine:2,
+      content:'unverified source',metadata:{},semanticScore:0.9}])
+    expect(result.contentTruncated).toBe(true)
+    expect(result.metadata).toMatchObject({sourceVerified:false,snippetIntegrity:'partial'})
+  })
   it("matches strict imports by complete normalized module specifier", () => {
     const result = {
       metadata: { imports: "convex/react,react,@clerk/nextjs/server" },
@@ -237,7 +252,7 @@ describe("progressive result evidence", () => {
       expect(reconstructed[0].content).not.toContain("synthetic imports")
       expect(reconstructed[0].metadata).toMatchObject({ chunksMatched: 2, snippetIntegrity: "complete" })
       const structured = toStructuredSearchResult(reconstructed[0])
-      expect(decodeResultId(structured.resultId)).toEqual({ file: "a.ts", startLine: 1, endLine: 4, symbol: "calculate" })
+      expect(decodeResultId(structured.resultId)).toMatchObject({ file: "a.ts", startLine: 1, endLine: 4, symbol: "calculate", sourceHash: expect.stringMatching(/^[a-f0-9]{64}$/) })
     } finally {
       await fs.rm(root, { recursive: true, force: true })
     }
@@ -264,5 +279,22 @@ describe("progressive result evidence", () => {
     } finally {
       await fs.rm(root, { recursive: true, force: true })
     }
+  })
+})
+
+describe("reconstructed source integrity", () => {
+  it("does not turn stale indexed ranges into assessed source", async () => {
+    const root=await fs.mkdtemp(path.join(os.tmpdir(),"sensegrep-stale-source-"))
+    try {
+      await fs.writeFile(path.join(root,"rule.ts"),"export function rule() { return false }")
+      const [result]=await reconstructSymbolResults(root,[{
+        file:"rule.ts",startLine:1,endLine:1,content:"export function rule() { return true }",
+        semanticScore:.8,metadata:{symbolName:"rule",symbolType:"function"},
+      }],{}, {indexedHashes:{"rule.ts":"0".repeat(40)}})
+      expect(result.metadata.sourceVerified).toBe(false)
+      expect(result.contentTruncated).toBe(true)
+      expect(result.metadata.snippetIntegrity).toBe("parse-fallback")
+      expect(decodeResultId(toStructuredSearchResult(result).resultId).sourceHash).toBeUndefined()
+    } finally {await fs.rm(root,{recursive:true,force:true})}
   })
 })

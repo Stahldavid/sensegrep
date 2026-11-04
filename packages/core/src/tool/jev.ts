@@ -1,3 +1,6 @@
+import { stageDiagnostic, mergeStageDiagnostics } from "./stage-diagnostics.js"
+import { sendJevRequest, JevTransportError } from "./jev-transport.js"
+import { getNetworkPolicy } from "../util/network-policy.js"
 import fs from "node:fs/promises"
 import path from "node:path"
 import { createHash, randomUUID } from "node:crypto"
@@ -111,10 +114,18 @@ export type JevScores = {
   localScore?: number; modelScore?: number; rankingWeight?: number
   usefulMass?: number; directMass?: number
 }
+export type JevStageDiagnostic = {
+  stage: string; status: "complete" | "partial" | "fallback" | "skipped"; reason?: string;
+  requests: number; evaluated: number; candidates: number; elapsedMs: number; cost: number
+}
 export type JevDiagnostics = {
+  stageResults?: JevStageDiagnostic[]
+  reasons?: string[]
+  effectiveConfig?: Record<string, unknown>
   status: "complete" | "partial" | "fallback" | "skipped"
   mode: JevMode; model: string; models: string[]; evaluated: number; candidates: number
   cacheHits: number; requests: number; inputTokens: number; outputTokens: number; cost: number
+  unknownUsageRequests?: number; usageComplete?: boolean
   elapsedMs: number; reason?: string; batchSize?: number; ranking?: JevRanking; splitRequests?: number
   contextStatus?: string; packetStatus?: string
   packages?: {candidates:number;selected:Array<{root:string;sources:string[];bounded:boolean}>;rejected:Array<{root:string;reason:string}>;expansionBounded:boolean;sourceCount:number;limitUnit:string;
@@ -131,7 +142,7 @@ export type JevDiagnostics = {
   recovery?: { missingAspects: string[]; actions: string[]; added: number; status: string; depth?:number; evaluated?:number; trace?:unknown }
   trace?: ReturnType<typeof import("./jev-coverage.js").candidateTrace>
 }
-type Options = { discovery?: boolean; jointPacket?: boolean; priority?: WorkingResult[]; inspection?: {status:string; pending:DependencyObligation[]}; mode: JevMode; verifyAspects?: boolean; candidates?: number; timeoutMs?: number; signal?: AbortSignal; rubric?: "groups" | "duplicates" | "context" | "packet" | "dependency" | "obligation"; batchSize?: number; ranking?: JevRanking; panel?: JevPanel; selected?: WorkingResult[]; aspects?: EvidenceAspect[]; featureQuestions?: Record<string, JevQuestion> }
+type Options = { stage?: string; discovery?: boolean; jointPacket?: boolean; priority?: WorkingResult[]; inspection?: {status:string; pending:DependencyObligation[]}; mode: JevMode; verifyAspects?: boolean; candidates?: number; timeoutMs?: number; signal?: AbortSignal; rubric?: "groups" | "duplicates" | "context" | "packet" | "dependency" | "obligation"; batchSize?: number; ranking?: JevRanking; panel?: JevPanel; selected?: WorkingResult[]; aspects?: EvidenceAspect[]; featureQuestions?: Record<string, JevQuestion> }
 type Dependencies = { fetch?: typeof fetch; apiKey?: string; cacheDir?: string; cache?: boolean }
 export const jevResultKey = (r: WorkingResult) => `${r.file}:${r.startLine}:${r.endLine}:${r.metadata.symbolName ?? ""}`
 const hash = (v: unknown) => createHash("sha256").update(JSON.stringify(v)).digest("hex")
@@ -187,24 +198,34 @@ async function configuredKey(): Promise<string | undefined> {
   if (env) return env.trim()
   try { const c = JSON.parse(await fs.readFile(path.join(Global.Path.config, "jev.json"), "utf8")); return typeof c.apiKey === "string" ? c.apiKey.trim() : undefined } catch { return undefined }
 }
-/** A dedicated Jev credential enables the configured integration; a generic
- * OpenRouter key alone does not authorize automatic source evaluation. */
+/** Credentials and consent are independent. Network policy always wins;
+ * otherwise explicit command mode > environment > user configuration > off. */
 export async function resolveJevMode(requested?: JevMode, deps: {
-  env?: Record<string,string | undefined>; readConfig?: () => Promise<{apiKey?: unknown}>
+  env?: Record<string,string | undefined>; readConfig?: () => Promise<{apiKey?: unknown;mode?:unknown}>; onWarning?: (message:string)=>void
 } = {}): Promise<JevMode> {
-  if (requested !== undefined) return requested
   const env = deps.env ?? process.env
-  const mode = env.SENSEGREP_JEV_MODE
-  if (mode !== undefined) {
-    if (!["off","evidence","rerank","both"].includes(mode)) throw new Error("Invalid SENSEGREP_JEV_MODE")
-    return mode as JevMode
+  if (getNetworkPolicy(env) === "local-only") return "off"
+  const valid = (value: unknown): value is JevMode => typeof value === 'string' && ['off','evidence','rerank','both'].includes(value)
+  if (requested !== undefined) {
+    if (!valid(requested)) throw new Error('Invalid Jev mode')
+    return requested
   }
-  if (env.SENSEGREP_JEV_API_KEY?.trim()) return "both"
+  if (env.SENSEGREP_JEV_MODE !== undefined) {
+    if (!valid(env.SENSEGREP_JEV_MODE)) throw new Error('Invalid SENSEGREP_JEV_MODE')
+    return env.SENSEGREP_JEV_MODE
+  }
+  let config: {mode?:unknown;apiKey?:unknown} | undefined
   try {
-    const config = await (deps.readConfig ?? (async () => JSON.parse(await fs.readFile(path.join(Global.Path.config,"jev.json"),"utf8"))))()
-    if (typeof config.apiKey === "string" && config.apiKey.trim()) return "both"
-  } catch { /* No dedicated configuration: retain offline retrieval. */ }
-  return "off"
+    config = await (deps.readConfig ?? (async () => JSON.parse(await fs.readFile(path.join(Global.Path.config,'jev.json'),'utf8'))))()
+  } catch { /* Missing configuration keeps remote evaluation disabled. */ }
+  if (config?.mode === undefined) {
+    if (env.SENSEGREP_JEV_API_KEY?.trim() || typeof config?.apiKey === 'string' && config.apiKey.trim()) {
+      deps.onWarning?.('Jev is disabled: credentials alone no longer enable remote evaluation. To keep Jev as your default, explicitly set mode: "both" in jev.json or SENSEGREP_JEV_MODE=both; --jev both enables one invocation.')
+    }
+    return 'off'
+  }
+  if (!valid(config.mode)) throw new Error('Invalid Jev configuration mode')
+  return config.mode
 }
 export function rankWithJev(results: WorkingResult[], scores: Map<string, JevScores>, strategy: JevRanking): WorkingResult[] {
   if (strategy === "eligible") {
@@ -278,11 +299,22 @@ export async function evaluateWithJev(query: string, results: WorkingResult[], o
   const diagnostics: JevDiagnostics = { status: "skipped", mode: options.mode, model: JEV_MODEL, models: [], evaluated: 0,
     candidates: shortlist.length, cacheHits: 0, requests: 0, inputTokens: 0, outputTokens: 0, cost: 0, elapsedMs: 0, batchSize, ranking, panel, splitRequests: 0,
     contractHash: hash({ version: VERSION, model: JEV_MODEL, policy, baseQuestions, panel, batchSize, fields: ["query", "selected", "candidates", "constants", "relations"] }) }
-  const finish = (ordered = results) => { diagnostics.evaluated = scores.size; diagnostics.elapsedMs = Date.now() - started; return { results: ordered, scores, truncated, diagnostics } }
+  let usageReportedRequests = 0
+  const finish = (ordered = results) => {
+    diagnostics.unknownUsageRequests = Math.max(0, diagnostics.requests - usageReportedRequests)
+    diagnostics.usageComplete = diagnostics.unknownUsageRequests === 0
+    diagnostics.evaluated = scores.size
+    diagnostics.elapsedMs = Date.now() - started
+    diagnostics.stageResults = [stageDiagnostic(diagnostics, options.stage ?? options.rubric ?? (options.featureQuestions ? 'features' : 'candidate-assessment'))]
+    diagnostics.reasons = diagnostics.reason ? [diagnostics.reason] : []
+    return { results: ordered, scores, truncated, diagnostics }
+  }
   if (options.mode === "off" || !shortlist.length) return finish()
+  if (getNetworkPolicy() === "local-only") { diagnostics.reason = "local-only"; return finish() }
   options.signal?.throwIfAborted()
   const key = deps.apiKey ?? await configuredKey()
   if (!key) { diagnostics.status = "fallback"; diagnostics.reason = "missing-api-key"; return finish() }
+  const requestKey: string = key
   if (query.length > 8000) { diagnostics.status = "fallback"; diagnostics.reason = "invalid-input-budget"; return finish() }
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), Math.max(1, options.timeoutMs ?? 8000))
@@ -339,13 +371,14 @@ export async function evaluateWithJev(query: string, results: WorkingResult[], o
     }]))),
   })
   let failed = false
+  const failureReasons = new Set<string>()
   let blockedStatus:number | undefined
   async function request(batch: WorkingResult[]): Promise<void> {
     if (signal.aborted || blockedStatus) { failed = true; return }
     const body = bodyFor(batch)
     const serialized = JSON.stringify(body)
     const split = async () => {
-      if (batch.length < 2) { failed = true; return }
+      if (batch.length < 2) { failed = true; failureReasons.add("context-overflow"); return }
       diagnostics.splitRequests!++
       const midpoint = Math.ceil(batch.length / 2)
       await request(batch.slice(0, midpoint)); await request(batch.slice(midpoint))
@@ -365,18 +398,17 @@ export async function evaluateWithJev(query: string, results: WorkingResult[], o
         } catch { /* Missing/corrupt entries are misses. */ }
       }
       if (!raw) {
-        signal.throwIfAborted(); diagnostics.requests++
-        const response = await (deps.fetch ?? fetch)(ENDPOINT, { method: "POST", redirect: "error", signal,
-          headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, body: serialized })
-        // Provider context limits may be stricter than our conservative estimate.
-        if (response.status === 413 || response.status === 400 && batch.length > 1) { await response.body?.cancel(); await split(); return }
-        if (!response.ok) {
-          // Authorization/quota rejection applies to the request stream, not a
-          // particular source. Stop scheduling batches; keep valid in-flight work.
-          if([401,402,403,429].includes(response.status)) blockedStatus=response.status
-          await response.body?.cancel(); throw new Error("request-failed")
+        try {
+          raw = await sendJevRequest(ENDPOINT, serialized, { apiKey: requestKey, signal, fetch: deps.fetch,
+            onAttempt: () => { diagnostics.requests++ } })
+        } catch (error) {
+          if (error instanceof JevTransportError && error.code === 'context-overflow' && batch.length > 1) {
+            await split(); return
+          }
+          if (error instanceof JevTransportError && error.status && [401,402,403,429].includes(error.status)) blockedStatus=error.status
+          throw error
         }
-        raw = await response.json()
+        if (typeof raw.usage?.cost === 'number' && Number.isFinite(raw.usage.cost) && raw.usage.cost >= 0) usageReportedRequests++
         diagnostics.inputTokens += nonnegative(raw.usage?.input_tokens)
         diagnostics.outputTokens += nonnegative(raw.usage?.output_tokens)
         diagnostics.cost += nonnegative(raw.usage?.cost)
@@ -399,7 +431,10 @@ export async function evaluateWithJev(query: string, results: WorkingResult[], o
       parsed.forEach((s, i) => scores.set(jevResultKey(batch[i]), s))
       const model = typeof raw.model === "string" && /^[\w./-]{1,100}$/.test(raw.model) ? raw.model : JEV_MODEL
       if (!diagnostics.models.includes(model)) diagnostics.models.push(model)
-    } catch { failed = true }
+    } catch (error) {
+      failed = true
+      failureReasons.add(signal.aborted ? 'deadline' : error instanceof JevTransportError ? error.code : 'invalid-response')
+    }
   }
   function parseBatch(raw: any, batch: WorkingResult[]) {
     return batch.map((_, i) => {
@@ -486,7 +521,7 @@ export async function evaluateWithJev(query: string, results: WorkingResult[], o
   diagnostics.status = scores.size === shortlist.length ? "complete" : scores.size ? "partial" : "fallback"
   if (signal.aborted) diagnostics.reason = "deadline"
   else if (blockedStatus) diagnostics.reason = `provider-rejected-${blockedStatus}`
-  else if (failed) diagnostics.reason = "request-failed"
+  else if (failed) diagnostics.reason = [...failureReasons][0] ?? "request-failed"
   if (diagnostics.status !== "complete") return finish()
   if (options.mode === "evidence") return finish(results.map(r => {
     const judged = scores.get(jevResultKey(r))
@@ -554,7 +589,7 @@ export async function assessJevPacket(query: string, results: WorkingResult[], o
     criteria: s, reason: fullyAssessed ? verdict === "not-assessed" ? "uncertain-model-evidence" : undefined : evaluation.diagnostics.reason ?? "packet-incomplete-or-too-large" }
 }
 
+/** Aggregate phase diagnostics without hiding failures or missing usage. */
 export function mergeJevDiagnostics(target: JevDiagnostics, extra: JevDiagnostics) {
-  for (const key of ["requests", "cacheHits", "inputTokens", "outputTokens", "cost", "elapsedMs"] as const) target[key] += extra[key]
-  target.models = [...new Set([...target.models, ...extra.models])]
+  mergeStageDiagnostics(target, extra)
 }

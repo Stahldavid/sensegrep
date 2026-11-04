@@ -59,6 +59,20 @@ describe("EmbeddingsRemote Bedrock", () => {
     vi.doUnmock("node:fs")
   })
 
+  it("does not cache Bedrock documents when its effective endpoint is unknown", async () => {
+    vi.stubEnv("SENSEGREP_NETWORK_POLICY", "allow")
+    vi.stubEnv("SENSEGREP_DOCUMENT_CACHE_REVISION", "v1")
+    vi.stubEnv("SENSEGREP_DOCUMENT_CACHE_ACCOUNT", "test")
+    try {
+      sendMock.mockResolvedValue({ body: new TextEncoder().encode(JSON.stringify({ embeddings: [sizedVector(256, 3, 4)] })) })
+      const { EmbeddingsRemote } = await import("./embeddings-remote.js")
+      EmbeddingsRemote.configure({ provider: "bedrock", embedModel: "cohere.embed-v4:0", embedDim: 256, region: "us-east-1" })
+      await EmbeddingsRemote.embed("document", { taskType: "RETRIEVAL_DOCUMENT" })
+      await EmbeddingsRemote.embed("document", { taskType: "RETRIEVAL_DOCUMENT" })
+      expect(sendMock).toHaveBeenCalledTimes(2)
+    } finally { vi.unstubAllEnvs() }
+  })
+
   it("invokes Bedrock with search_query and normalizes float embeddings", async () => {
     sendMock.mockResolvedValue({
       body: new TextEncoder().encode(
@@ -351,7 +365,32 @@ describe("EmbeddingsRemote OpenAI-compatible", () => {
 
     await EmbeddingsRemote.embed("cancel me", { skipValidation: true, signal: controller.signal })
 
-    expect(fetchMock.mock.calls[0][1].signal).toBe(controller.signal)
+    const requestSignal = fetchMock.mock.calls[0][1].signal
+    expect(requestSignal.aborted).toBe(false)
+    controller.abort(new Error('synthetic caller cancellation'))
+    expect(requestSignal.aborted).toBe(true)
+    expect(requestSignal.reason).toBe(controller.signal.reason)
+  })
+
+  it("enforces the deadline during an in-flight request", async () => {
+    fetchMock.mockImplementation((_url,init)=>new Promise((_resolve,reject)=>{
+      init.signal.addEventListener('abort',()=>reject(init.signal.reason),{once:true})
+    }))
+    const { EmbeddingsRemote } = await import('./embeddings-remote.js')
+    EmbeddingsRemote.configure({provider:'openai',embedModel:'test-embedding',embedDim:3,
+      baseUrl:'http://127.0.0.1:1234/v1',apiKey:'synthetic-deadline'})
+    await expect(EmbeddingsRemote.embed('deadline',{skipValidation:true,retryDeadlineMs:30})).rejects.toMatchObject({name:'TimeoutError'})
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("charges retries to the same quota before sending another request", async () => {
+    fetchMock.mockResolvedValue(new Response('',{status:503,headers:{'retry-after':'0'}}))
+    const { EmbeddingsRemote } = await import('./embeddings-remote.js')
+    EmbeddingsRemote.configure({provider:'openai',embedModel:'test-embedding',embedDim:3,
+      baseUrl:'http://127.0.0.1:1234/v1',apiKey:'synthetic-retry-quota',
+      rateLimit:{rpm:1,maxRetries:1,retryBaseDelayMs:1}})
+    await expect(EmbeddingsRemote.embed('retry quota',{skipValidation:true,retryDeadlineMs:30})).rejects.toBeDefined()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
   it("keeps Qwen3 embedding inputs within the 32K token limit", async () => {

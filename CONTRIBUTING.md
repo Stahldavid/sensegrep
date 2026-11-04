@@ -4,7 +4,7 @@ Thank you for your interest in contributing to sensegrep! This guide will help y
 
 ## Prerequisites
 
-- **Node.js** >= 18
+- **Node.js 24** recommended (`.nvmrc`). Development tooling also supports `^22.12.0 || ^24.0.0 || >=26.0.0`; do not infer published runtime requirements from development-only dependencies.
 - **npm** (comes with Node.js)
 - **Git**
 
@@ -15,14 +15,20 @@ Thank you for your interest in contributing to sensegrep! This guide will help y
 git clone https://github.com/Stahldavid/sensegrep.git
 cd sensegrep
 
-# Install dependencies
-npm install
+# Install the locked dependencies
+npm ci
 
 # Build all packages
 npm run build
 
-# Run tests
-npm test
+# Validate without rebuilding three times
+npm run check:types
+npm run test:unit
+npm run test:node
+npm run test:python
+npm run version:check
+npm run release:verify
+npm run check:docs
 ```
 
 ## Project Structure
@@ -73,6 +79,8 @@ For changes to the VS Code extension, also run:
 ```bash
 npm test --workspace sensegrep
 ```
+
+Contract changes must preserve failure states and source identity. Research labels must be independently reviewed and grouped to avoid development/holdout leakage; `scripts/evaluation-contract.mjs` validates registrations. See [the implementation and validation record](docs/reliability-integrity-2026-09-25.md).
 
 Concurrency changes must include overlapping-operation tests. Index persistence changes must prove that the previously active index remains readable when staging or writes fail.
 

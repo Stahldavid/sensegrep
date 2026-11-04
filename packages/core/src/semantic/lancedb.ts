@@ -1,3 +1,13 @@
+import { GenerationLeases } from "./generation-leases.js"
+import { withCloneGuard, findCloneDependents, cloneDependencyDepth, recordCloneDependency, removeCloneDependency } from "./clone-dependencies.js"
+import { isDeepStrictEqual } from "node:util"
+import { observeIndexSpec, recordedRecipeHash, type IndexSpecObservation } from "./index-spec.js"
+import { createSourceManifest, sourceSnapshotId, validateSourceManifest, type SourceManifest } from "./source-manifest.js"
+import { readRepositoryId } from "../project/repository-identity.js"
+import { linkSharedSourceObjects, readSourceObject, writeSourceObject } from "./source-object-store.js"
+import { writeGenerationSourceRefs, removeGenerationSourceRefs, collectSourceObjects } from "./source-object-retention.js"
+import { withSharedSourceGuard } from "./shared-source-retention.js"
+import { withRepositoryIndexBudget } from "./repository-index-budget.js"
 import * as lancedb from "@lancedb/lancedb"
 import path from "path"
 import fs from "fs/promises"
@@ -36,6 +46,11 @@ export namespace VectorStore {
     root: string
     profile?: string
     tableName?: string
+    sourceSnapshot?: { id: string; manifest: SourceManifest }
+    indexSpec?: IndexSpecObservation
+    indexSpecHash?: string
+    indexSpecHashScope?: "recorded-recipe-v1"
+    indexingRuntimeIdentity?: string
     embeddings: {
       provider: string
       model?: string
@@ -63,6 +78,8 @@ export namespace VectorStore {
       size: number
       mtimeMs: number
       hash?: string
+      sourceSha256?: string
+      sourceHashKind?: "sha256-raw-v1"
       chunks?: string[]
       /** Pre-computed collapsible regions for tree-shaking */
       collapsibleRegions?: CollapsibleRegion[]
@@ -84,6 +101,11 @@ export namespace VectorStore {
     root: z.string().min(1),
     profile: z.string().min(1).optional(),
     tableName: z.string().min(1).optional(),
+    sourceSnapshot: z.object({ id: z.string().regex(/^sha256:[a-f0-9]{64}$/), manifest: z.unknown() }).optional(),
+    indexSpec: z.object({ version: z.literal(1), status: z.literal("incomplete"), embedding: z.object({ provider: z.string(), model: z.string().nullable(), dimension: z.number(), configurationHash: z.string().optional() }), chunking: z.record(z.string(), z.union([z.string(), z.number()])).nullable(), missing: z.array(z.string()) }).optional(),
+    indexSpecHash: z.string().regex(/^sha256:[a-f0-9]{64}$/).optional(),
+    indexSpecHashScope: z.literal("recorded-recipe-v1").optional(),
+    indexingRuntimeIdentity: z.string().regex(/^sha256:[a-f0-9]{64}$/).optional(),
     embeddings: z.object({
       provider: z.string().min(1),
       model: z.string().optional(),
@@ -115,6 +137,8 @@ export namespace VectorStore {
       size: z.number(),
       mtimeMs: z.number(),
       hash: z.string().optional(),
+      sourceSha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+      sourceHashKind: z.literal("sha256-raw-v1").optional(),
       chunks: z.array(z.string()).optional(),
       collapsibleRegions: z.array(CollapsibleRegionSchema).optional(),
     })),
@@ -176,6 +200,19 @@ export namespace VectorStore {
 
   export function getIndexStoragePath(projectPath: string): string {
     return projectDir(projectPath)
+  }
+
+  export function isViewReleased(projectPath: string): boolean {
+    return existsSync(path.join(projectDir(projectPath), ".released-view.json"))
+  }
+
+  /** Only cold views coordinate; established worktrees index independently. */
+  export async function withSharedBootstrap<T>(projectPath: string, fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    if (process.env.SENSEGREP_SHARED_OBJECTS !== "1" || await readIndexMeta(projectPath)) return fn()
+    const repositoryId = await readRepositoryId(projectPath)
+    if (!repositoryId) return fn()
+    const scope = crypto.createHash("sha256").update(JSON.stringify([repositoryId, Instance.profile])).digest("hex")
+    return withSharedSourceGuard(path.join(Global.Path.data, "repository-bootstrap", scope), fn, signal)
   }
 
   function indexMetaPath(projectPath: string): string {
@@ -315,6 +352,28 @@ export namespace VectorStore {
 
   const dbCache = new Map<string, Promise<LanceDBConnection>>()
   const tableCache = new Map<string, Promise<LanceTable>>()
+  let nativeSession: lancedb.Session | undefined
+  let nativeBudget: { indexBytes: number; metadataBytes: number } | undefined
+  function getNativeSession(): lancedb.Session {
+    if (nativeSession) return nativeSession
+    const budget = (name: string, fallback: number) => {
+      const value = Number(process.env[name] ?? fallback)
+      if (!Number.isSafeInteger(value) || value < 0 || value > 4096) throw new Error(`${name} must be an integer from 0 to 4096 MiB`)
+      return value * 1024 * 1024
+    }
+    nativeBudget = { indexBytes: budget("SENSEGREP_INDEX_CACHE_MIB", 256), metadataBytes: budget("SENSEGREP_METADATA_CACHE_MIB", 64) }
+    nativeSession = new lancedb.Session(BigInt(nativeBudget.indexBytes), BigInt(nativeBudget.metadataBytes))
+    return nativeSession
+  }
+
+  export function getResourceUsage() {
+    return { connectionsCached: dbCache.size, tablesCached: tableCache.size, maximumConnectionsCached: 16, maximumTablesCached: 64,
+      nativeCacheBytes: nativeSession ? Number(nativeSession.sizeBytes()) : 0, nativeCacheBudget: nativeBudget ?? null }
+  }
+
+  function trimCache<K, V>(cache: Map<K, V>, maximum: number): void {
+    while (cache.size > maximum) cache.delete(cache.keys().next().value!)
+  }
 
   function tableCacheKey(projectPath: string, tableName: string): string {
     return `${projectPath}:${Instance.profile}:${tableName}:${Embeddings.getProvider()}:${Embeddings.getModel()}:${Embeddings.getDimension()}`
@@ -387,9 +446,10 @@ export namespace VectorStore {
     const dir = projectDir(projectPath)
     const p = (async () => {
       await fs.mkdir(dir, { recursive: true })
-      return lancedb.connect(dir)
+      return lancedb.connect(dir, { session: getNativeSession() })
     })()
     dbCache.set(cacheKey, p)
+    trimCache(dbCache, 16)
     return p
   }
 
@@ -399,7 +459,22 @@ export namespace VectorStore {
     if (!text) return null
     try {
       const result = IndexMetaSchema.safeParse(JSON.parse(text))
-      if (result.success) return result.data as IndexMeta
+      if (result.success) {
+        const meta = result.data as IndexMeta
+        if (await resolveProjectPath(meta.root) !== await resolveProjectPath(projectPath) || (meta.profile !== undefined && meta.profile !== Instance.profile)) throw new Error("Index metadata checkout/profile binding mismatch")
+        const expectedSpec = observeIndexSpec(meta)
+        // Earlier observations did not record configuration identity.
+        if (meta.indexSpec && !meta.indexSpecHash && !meta.indexSpec.embedding.configurationHash) delete expectedSpec.embedding.configurationHash
+        if (meta.indexSpec && !isDeepStrictEqual(meta.indexSpec, expectedSpec)) throw new Error("Index specification observation does not match metadata")
+        if (meta.indexSpecHash && (!meta.indexSpec || meta.indexSpecHashScope !== "recorded-recipe-v1" || recordedRecipeHash(meta.indexSpec) !== meta.indexSpecHash)) throw new Error("Unverifiable index specification identity")
+        if (meta.sourceSnapshot) {
+          const manifest = validateSourceManifest(meta.sourceSnapshot.manifest)
+          const expected = createSourceManifest(manifest.repositoryId, meta.files)
+          if (!expected || sourceSnapshotId(manifest) !== meta.sourceSnapshot.id || sourceSnapshotId(expected) !== meta.sourceSnapshot.id) throw new Error("Source manifest does not match metadata")
+          meta.sourceSnapshot.manifest = manifest
+        }
+        return meta
+      }
       log.warn("Invalid index metadata", { projectPath, issues: result.error.issues.length })
       return null
     } catch (error) {
@@ -412,13 +487,22 @@ export namespace VectorStore {
   }
 
   export async function writeIndexMeta(projectPath: string, meta: IndexMeta): Promise<void> {
+    await linkSharedSourceObjects(projectDir(projectPath), projectPath, meta.files)
+    await writeGenerationSourceRefs(projectDir(projectPath), meta.tableName ?? TABLE_NAME, meta.files)
+    const repositoryId = await readRepositoryId(projectPath)
+    const manifest = repositoryId ? createSourceManifest(repositoryId, meta.files) : undefined
+    const { sourceSnapshot: _previousSnapshot, indexSpec: _previousSpec, indexSpecHash: _previousSpecHash, indexSpecHashScope: _previousScope, ...currentMeta } = meta
+    const indexSpec = observeIndexSpec(currentMeta)
+    const observedMeta = { ...currentMeta, indexSpec, indexSpecHash: recordedRecipeHash(indexSpec), indexSpecHashScope: "recorded-recipe-v1" as const }
+    const nextMeta = manifest ? { ...observedMeta, sourceSnapshot: { id: sourceSnapshotId(manifest), manifest } } : observedMeta
     const dir = projectDir(projectPath)
     await fs.mkdir(dir, { recursive: true })
     const filepath = indexMetaPath(projectPath)
     const temporaryPath = `${filepath}.${process.pid}.${crypto.randomUUID()}.tmp`
     try {
-      await fs.writeFile(temporaryPath, `${JSON.stringify(meta, null, 2)}\n`, { encoding: "utf8", flag: "wx" })
-      await fs.rename(temporaryPath, filepath)
+      await fs.writeFile(temporaryPath, `${JSON.stringify(nextMeta, null, 2)}\n`, { encoding: "utf8", flag: "wx" })
+      await withRepositoryIndexBudget(projectPath, dir, () => fs.rename(temporaryPath, filepath))
+      await fs.rm(path.join(dir, ".released-view.json"), { force: true })
     } catch (error) {
       await fs.rm(temporaryPath, { force: true }).catch(() => {})
       throw error
@@ -452,22 +536,57 @@ export namespace VectorStore {
       .filter((project) => isSameOrInside(project.root, requestedPath))
       .sort((a, b) => b.root.length - a.root.length || b.updatedAt - a.updatedAt)
 
-    const best = candidates[0]
-    if (!best) return null
-
-    const relative = path.relative(best.root, requestedPath).replace(/\\/g, "/").replace(/\/$/, "")
-    return {
-      root: best.root,
-      meta: best.meta,
-      requestedPath,
-      subdirPrefix: relative || undefined,
+    for (const best of candidates) {
+      const meta = await readIndexMeta(best.root)
+      if (!meta) continue
+      const relative = path.relative(best.root, requestedPath).replace(/\\/g, "/").replace(/\/$/, "")
+      return { root: best.root, meta, requestedPath, subdirPrefix: relative || undefined }
     }
+    return null
   }
 
   /**
    * Find the most recently indexed project
    * Useful when SENSEGREP_ROOT is not set and we need to auto-detect the project
    */
+  export async function findSharedIndex(projectPath: string, compatible: (meta: IndexMeta) => boolean, signal?: AbortSignal): Promise<{ root: string; meta: IndexMeta; collection: LanceTable; release: () => Promise<void> } | null> {
+    signal?.throwIfAborted()
+    if (process.env.SENSEGREP_SHARED_OBJECTS !== "1") return null
+    const repositoryId = await readRepositoryId(projectPath)
+    if (!repositoryId) return null
+    const candidates = (await listIndexedProjects()).filter(candidate => candidate.root !== projectPath && compatible(candidate.meta)).sort((a, b) => b.updatedAt - a.updatedAt)
+    for (const candidate of candidates) {
+      signal?.throwIfAborted()
+      if (await readRepositoryId(candidate.root).catch(() => undefined) !== repositoryId) continue
+      const meta = await readIndexMeta(candidate.root)
+      if (!meta || !compatible(meta)) continue
+      const generation = meta.tableName ?? TABLE_NAME
+      let release: (() => Promise<void>) | undefined
+      try {
+        release = await new GenerationLeases(projectDir(candidate.root), generation).acquire(signal)
+        const collection = await getCollectionUnsafe(candidate.root, meta.embeddings.dimension, generation)
+        const linked = await linkSharedSourceObjects(projectDir(projectPath), projectPath, meta.files, signal)
+        if (linked.unavailable) {
+          for (const file of Object.values(meta.files)) {
+            if (file.sourceHashKind !== "sha256-raw-v1" || !file.sourceSha256) continue
+            try { await readSourceObject(projectDir(projectPath), file.sourceSha256, { signal }); continue }
+            catch (error: any) { if (error?.code !== "ENOENT") throw error }
+            try {
+              const raw = await readSourceObject(projectDir(candidate.root), file.sourceSha256, { signal })
+              await writeSourceObject(projectDir(projectPath), raw, { expectedSha256: file.sourceSha256, signal })
+            } catch (error: any) { if (error?.code !== "ENOENT") throw error }
+          }
+        }
+        return { root: candidate.root, meta, collection, release }
+      } catch (error) {
+        await release?.()
+        signal?.throwIfAborted()
+        log.warn("Shared index seed unavailable", { root: candidate.root, error: String(error) })
+      }
+    }
+    return null
+  }
+
   export async function getMostRecentIndexedProject(): Promise<string | null> {
     try {
       const mostRecent = (await listIndexedProjects()).sort((a, b) => b.updatedAt - a.updatedAt)[0]
@@ -770,6 +889,7 @@ export namespace VectorStore {
     })()
 
     tableCache.set(key, p)
+    trimCache(tableCache, 64)
     return p
   }
 
@@ -778,15 +898,15 @@ export namespace VectorStore {
    * Use this only when you need to read stats before configuring embeddings.
    * @param expectedDim - If provided, uses this dimension for validation/creation instead of reading from global config
    */
-  export async function getCollectionUnsafe(projectPath: string, expectedDim?: number): Promise<LanceTable> {
+  export async function getCollectionUnsafe(projectPath: string, expectedDim?: number, generation?: string): Promise<LanceTable> {
     const db = await connect(projectPath)
-    const tableName = (await readIndexMeta(projectPath))?.tableName ?? TABLE_NAME
+    const tableName = generation ?? (await readIndexMeta(projectPath))?.tableName ?? TABLE_NAME
     return await openExistingTable(db, projectPath, tableName)
   }
 
-  export async function openCollectionReadOnly(projectPath: string): Promise<LanceTable> {
+  export async function openCollectionReadOnly(projectPath: string, generation?: string): Promise<LanceTable> {
     const db = await connect(projectPath)
-    const tableName = (await readIndexMeta(projectPath))?.tableName ?? TABLE_NAME
+    const tableName = generation ?? (await readIndexMeta(projectPath))?.tableName ?? TABLE_NAME
     return openReadableTable(db, projectPath, tableName)
   }
 
@@ -796,7 +916,7 @@ export namespace VectorStore {
     return ensureTable(db, projectPath, expectedDim, tableName)
   }
 
-  export async function inspectCollectionSchema(projectPath: string): Promise<{
+  export async function inspectCollectionSchema(projectPath: string, generation?: string): Promise<{
     exists: boolean
     tableName: string
     schemaCompatible: boolean
@@ -805,7 +925,7 @@ export namespace VectorStore {
     missingFields: string[]
     vectorDimension?: number
   }> {
-    const tableName = (await readIndexMeta(projectPath))?.tableName ?? TABLE_NAME
+    const tableName = generation ?? (await readIndexMeta(projectPath))?.tableName ?? TABLE_NAME
     const db = await connect(projectPath)
     let table: LanceTable
     try {
@@ -835,6 +955,44 @@ export namespace VectorStore {
     return { collection, tableName }
   }
 
+  /** Native copy-on-write manifests preserve one coherent query/ranking surface. */
+  export async function forkCollection(projectPath: string, source: LanceTable, sourceProjectPath = projectPath, signal?: AbortSignal): Promise<{ collection: LanceTable; tableName: string; shared: boolean }> {
+    signal?.throwIfAborted()
+    const releaseSource = typeof source.name === "string" ? await new GenerationLeases(projectDir(sourceProjectPath), source.name).acquire(signal) : undefined
+    try {
+    const targetDirectory = projectDir(projectPath)
+    const sourceDirectory = projectDir(sourceProjectPath)
+    const tableName = `chunks_${Date.now()}_${crypto.randomUUID().replaceAll("-", "")}`
+    const targetAddress = { directory: targetDirectory, table: tableName }
+    const sourceAddress = { directory: sourceDirectory, table: source.name }
+    if (process.env.SENSEGREP_SHARED_OBJECTS === "1" && typeof source.name === "string") {
+      const sourceRepository = await readRepositoryId(sourceProjectPath)
+      if (sourceRepository && sourceRepository === await readRepositoryId(projectPath)) {
+        const fork = await withCloneGuard(async () => {
+          const maximum = Number(process.env.SENSEGREP_COW_MAX_DEPTH ?? 8)
+          if (!Number.isSafeInteger(maximum) || maximum < 1 || maximum > 64) throw new Error("SENSEGREP_COW_MAX_DEPTH must be an integer from 1 to 64")
+          if (await cloneDependencyDepth(sourceAddress) >= maximum) return null
+          const db = await connect(projectPath)
+          const version = await source.version()
+          await recordCloneDependency(sourceAddress, targetAddress)
+          try {
+            const collection = await db.cloneTable(tableName, path.join(sourceDirectory, `${source.name}.lance`), { sourceVersion: version, isShallow: true })
+            return { collection, tableName, shared: true }
+          } catch (error) {
+            // A partially created clone may still refer to the source: retain its pin.
+            if (!(await db.tableNames()).includes(tableName)) await removeCloneDependency(targetAddress)
+            throw error
+          }
+        }, { signal })
+        if (fork) return fork
+      }
+    }
+    const staged = await createStagingCollection(projectPath, await readVectorDimension(source) ?? Embeddings.getDimension())
+    try { await copyCollection(source, staged.collection, signal); return { ...staged, shared: false } }
+    catch (error) { await dropCollectionTable(projectPath, staged.tableName); throw error }
+    } finally { await releaseSource?.() }
+  }
+
   /** Copy raw Arrow batches without embedding or changing the active generation. */
   export async function copyCollection(source: LanceTable, target: LanceTable, signal?: AbortSignal): Promise<void> {
     for await (const batch of source.query()) {
@@ -854,8 +1012,14 @@ export namespace VectorStore {
   }
 
   export async function dropCollectionTable(projectPath: string, tableName: string): Promise<void> {
-    const db = await connect(projectPath)
-    await db.dropTable(tableName)
+    await withCloneGuard(async () => {
+      const address = { directory: projectDir(projectPath), table: tableName }
+      if ((await findCloneDependents(address)).length) throw new Error(`Index generation ${tableName} is retained by copy-on-write views`)
+      const db = await connect(projectPath)
+      if ((await db.tableNames()).includes(tableName)) await db.dropTable(tableName)
+      await removeCloneDependency(address)
+      await removeGenerationSourceRefs(projectDir(projectPath), tableName)
+    })
     for (const key of tableCache.keys()) {
       if (key.startsWith(`${projectPath}:${Instance.profile}:${tableName}:`)) tableCache.delete(key)
     }
@@ -866,6 +1030,8 @@ export namespace VectorStore {
     const tableNames = await db.tableNames()
     const retentionMs = Math.max(60_000, Number(process.env.SENSEGREP_INDEX_RETENTION_MS ?? 24 * 60 * 60_000))
     const retainGenerations = Math.max(1, Number(process.env.SENSEGREP_INDEX_RETAIN_GENERATIONS ?? 2))
+    const maximumGenerations = Number(process.env.SENSEGREP_INDEX_MAX_GENERATIONS ?? 32)
+    if (!Number.isSafeInteger(maximumGenerations) || maximumGenerations < retainGenerations) throw new Error("SENSEGREP_INDEX_MAX_GENERATIONS must be an integer at least SENSEGREP_INDEX_RETAIN_GENERATIONS")
     const cutoff = Date.now() - retentionMs
     const generations = tableNames
       .filter((name) => name !== activeTableName && name.startsWith("chunks_"))
@@ -873,10 +1039,14 @@ export namespace VectorStore {
       .filter((entry) => Number.isFinite(entry.timestamp))
       .sort((left, right) => right.timestamp - left.timestamp)
     const inactive = generations
-      .filter((entry, index) => index >= retainGenerations && entry.timestamp < cutoff)
+      .filter((entry, index) => index >= retainGenerations && (entry.timestamp < cutoff || index >= maximumGenerations))
       .map((entry) => entry.name)
     for (const tableName of inactive) {
-      await dropCollectionTable(projectPath, tableName).catch((error) => {
+      await withCloneGuard(async () => {
+        if ((await findCloneDependents({ directory: projectDir(projectPath), table: tableName })).length) return
+        await new GenerationLeases(getIndexStoragePath(projectPath), tableName)
+          .collect(() => dropCollectionTable(projectPath, tableName))
+      }).catch((error) => {
         log.warn("Failed to remove inactive index table", {
           projectPath,
           tableName,
@@ -886,7 +1056,87 @@ export namespace VectorStore {
     }
   }
 
+  export async function collectInactiveSources(projectPath: string): Promise<void> {
+    const db = await connect(projectPath)
+    await collectSourceObjects(projectDir(projectPath), { generationIds: await db.tableNames() })
+  }
+
+  async function collectReleasedTables(projectPath: string): Promise<number> {
+    const directory = projectDir(projectPath)
+    if (existsSync(indexMetaPath(projectPath)) || !existsSync(path.join(directory, ".released-view.json"))) return (await (await connect(projectPath)).tableNames()).length
+    return withCloneGuard(async () => {
+      const db = await connect(projectPath)
+      let tables = await db.tableNames()
+      let progress: boolean
+      do {
+        progress = false
+        for (const table of tables) {
+          if ((await findCloneDependents({ directory, table })).length) continue
+          const dropped = await new GenerationLeases(directory, table).collect(() => dropCollectionTable(projectPath, table))
+          if (dropped) progress = true
+        }
+        tables = await db.tableNames()
+      } while (progress && tables.length)
+      if (tables.length === 0) await fs.rm(path.join(directory, "code-graph-cache.json"), { force: true })
+      return tables.length
+    })
+  }
+
+  /** Release a logical view; native bases and live readers remain retained. */
+  export async function releaseIndexView(projectPath: string): Promise<{ released: boolean; retainedTables: number }> {
+    return Instance.provide({ directory: projectPath, profile: Instance.profile, fn: async () => {
+      projectPath = Instance.directory
+      const { Indexer } = await import("./indexer.js")
+      return Indexer.withProjectMutation(async () => {
+        const meta = await readIndexMeta(projectPath)
+        const directory = projectDir(projectPath)
+        await fs.mkdir(directory, { recursive: true })
+        const repositoryId = meta?.sourceSnapshot?.manifest.repositoryId ?? await readRepositoryId(projectPath).catch(() => undefined)
+        const marker = path.join(directory, ".released-view.json")
+        const temporary = `${marker}.${crypto.randomUUID()}.tmp`
+        try {
+          await fs.writeFile(temporary, JSON.stringify({ version: 1, root: Instance.directory, profile: Instance.profile, repositoryId }), { flag: "wx", mode: 0o600 })
+          await fs.rename(temporary, marker)
+        } finally { await fs.rm(temporary, { force: true }) }
+        await fs.rm(indexMetaPath(projectPath), { force: true })
+        clearProjectCache(projectPath)
+        return { released: true, retainedTables: await collectReleasedTables(projectPath) }
+      })
+    } })
+  }
+
+  /** Collect explicitly released views in the selected repository/profile. */
+  export async function collectReleasedViews(projectPath: string): Promise<{ views: number; retainedTables: number }> {
+    const repositoryId = await readRepositoryId(projectPath)
+    if (!repositoryId) throw new Error("Repository GC requires explicit repository registration")
+    let views = 0, retainedTables = 0
+    const { Indexer } = await import("./indexer.js")
+    for (const entry of await fs.readdir(BASE_PATH, { withFileTypes: true })) {
+      if (!entry.isDirectory() || !entry.name.startsWith("project_")) continue
+      const filename = path.join(BASE_PATH, entry.name, ".released-view.json")
+      const stat = await fs.lstat(filename).catch(() => null)
+      if (!stat) continue
+      if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 64 * 1024) throw new Error("Unsafe released-view marker")
+      const marker = JSON.parse(await fs.readFile(filename, "utf8"))
+      if (marker.version !== 1 || marker.repositoryId !== repositoryId || marker.profile !== Instance.profile) continue
+      if (typeof marker.root !== "string" || projectDir(marker.root) !== path.join(BASE_PATH, entry.name)) throw new Error("Released-view binding mismatch")
+      await Instance.provide({ directory: marker.root, profile: Instance.profile, fn: () => Indexer.withProjectMutation(async () => {
+        retainedTables += await collectReleasedTables(marker.root); views++
+      }) })
+    }
+    return { views, retainedTables }
+  }
+
   export async function optimizeForSearch(collection: LanceTable, rowCount: number): Promise<boolean> {
+    // Preserve shared fragments and inherited ANN indexes until the bounded-depth
+    // checkpoint. Native compaction here would materialize the entire view.
+    if (process.env.SENSEGREP_SHARED_OBJECTS === "1" && typeof collection.name === "string") {
+      const retained = await withCloneGuard(async () => {
+        const address = { directory: projectDir(Instance.directory), table: collection.name }
+        return await cloneDependencyDepth(address) > 0 || (await findCloneDependents(address)).length > 0
+      })
+      if (retained) return false
+    }
     const configured = Number(process.env.SENSEGREP_ANN_MIN_CHUNKS ?? 10_000)
     if (!Number.isFinite(configured) || configured < 0) {
       throw new Error(`SENSEGREP_ANN_MIN_CHUNKS must be a non-negative number, got "${process.env.SENSEGREP_ANN_MIN_CHUNKS}".`)
@@ -1361,11 +1611,13 @@ export namespace VectorStore {
   }
 
   export async function deleteCollection(projectPath: string): Promise<void> {
-    clearProjectCache(projectPath)
-    await fs.rm(projectDir(projectPath), { recursive: true, force: true })
+    // Logical removal is immediate; physical reclamation observes writers,
+    // reader leases and copy-on-write references (including extension callers).
+    await releaseIndexView(projectPath)
   }
 
   export async function hasCollection(projectPath: string): Promise<boolean> {
+    if (existsSync(path.join(projectDir(projectPath), ".released-view.json")) && !existsSync(indexMetaPath(projectPath))) return false
     try {
       await fs.stat(projectDir(projectPath))
     } catch {

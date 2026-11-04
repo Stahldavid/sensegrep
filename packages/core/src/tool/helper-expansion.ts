@@ -1,4 +1,4 @@
-import fs from "node:fs/promises"
+import { readProjectSource } from "../file/source-reader.js"
 import path from "node:path"
 import { createHash } from "node:crypto"
 import { TreeSitterChunking } from "../semantic/chunking-treesitter.js"
@@ -46,9 +46,7 @@ async function expandWithinBudget(resources: SearchResources, results: WorkingRe
     const relative = path.relative(resources.projectDirectory, absolute)
     if (relative.startsWith("..") || path.isAbsolute(relative)) continue
     try {
-      const stat = await fs.stat(absolute)
-      if (stat.size > 512_000) { inspectionLimited=true; continue }
-      const source = await fs.readFile(absolute, "utf8")
+      const {source} = await readProjectSource(resources.projectDirectory,file,{maxBytes:512_000,signal})
       const indexedHash = resources.meta?.files?.[file]?.hash
       if (indexedHash && createHash("sha1").update(source).digest("hex") !== indexedHash) { inspectionLimited=true; continue }
       sourceByFile.set(file,source)
@@ -69,10 +67,10 @@ async function expandWithinBudget(resources: SearchResources, results: WorkingRe
             const stem = candidate.replace(/\.[cm]?[jt]sx?$/, "")
             return stem === base || stem === `${base}/index`
           })
-          if (matches.length !== 1) continue
+          if (matches.length !== 1) { inspectionLimited=true; continue }
           targetFile = fileMap.get(matches[0])!
         }
-        if (!allowedFiles.has(targetFile)) continue
+        if (!allowedFiles.has(targetFile)) { inspectionLimited=true; continue }
         if (!edges.some((edge) => edge.file === targetFile && edge.symbol === call.target && edge.relation.caller === evidenceKey(anchor) && edge.relation.line === call.line))
           edges.push({ file: targetFile, symbol: call.target, source: anchor, relation: {
             caller: evidenceKey(anchor), file, line: call.line, target: `${targetFile}:${call.target}`,
@@ -116,9 +114,7 @@ async function expandWithinBudget(resources: SearchResources, results: WorkingRe
       try {
         let source=sourceByFile.get(edge.file)
         if(source===undefined) {
-          const absolute=path.resolve(resources.projectDirectory,edge.file)
-          if((await fs.stat(absolute)).size>512_000) throw Error('Source too large')
-          source=await fs.readFile(absolute,'utf8')
+          source=(await readProjectSource(resources.projectDirectory,edge.file,{maxBytes:512_000,signal})).source
         }
         const fresh=!targetHash || createHash('sha1').update(source).digest('hex')===targetHash
         targetFreshness.set(edge.file,fresh)

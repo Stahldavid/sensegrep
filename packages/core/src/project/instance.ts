@@ -17,7 +17,9 @@ function normalizeProfile(profile?: string): string {
 export const Instance = {
   async provide<R>(input: { directory: string; profile?: string; init?: () => Promise<any>; fn: () => R | Promise<R> }): Promise<R> {
     const resolved = await fs.realpath(input.directory).catch(() => path.resolve(input.directory))
-    return directoryContext.run({ directory: resolved, profile: normalizeProfile(input.profile) }, async () => {
+    const current = directoryContext.getStore()
+    const profile = input.profile === undefined && current?.directory === resolved ? current.profile : normalizeProfile(input.profile)
+    return directoryContext.run({ directory: resolved, profile }, async () => {
       await input.init?.()
       return await input.fn()
     })

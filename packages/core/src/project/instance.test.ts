@@ -11,6 +11,12 @@ function deferred() {
 }
 
 describe("Instance", () => {
+  it("inherits a nested same-directory profile but not across projects", async () => {
+    await Instance.provide({ directory: ".", profile: "alpha", fn: async () => {
+      await Instance.provide({ directory: ".", fn: () => expect(Instance.profile).toBe("alpha") })
+      await Instance.provide({ directory: "packages", fn: () => expect(Instance.profile).not.toBe("alpha") })
+    } })
+  })
   it("isolates project directories across concurrent operations", async () => {
     const firstStarted = deferred()
     const secondStarted = deferred()

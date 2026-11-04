@@ -1,5 +1,8 @@
+import { GenerationLeases } from "./generation-leases.js"
+import { readProjectSource } from "../file/source-reader.js"
 import fs from "node:fs/promises"
 import path from "node:path"
+import { randomUUID } from "node:crypto"
 import { Instance } from "../project/instance.js"
 import { VectorStore } from "./lancedb.js"
 import { TreeSitterChunking } from "./chunking-treesitter.js"
@@ -33,7 +36,7 @@ export namespace CodeGraph {
     "if", "for", "while", "switch", "catch", "function", "return", "typeof", "new", "super", "import",
   ])
   let cached: { key: string; snapshot: Snapshot } | undefined
-  const CACHE_VERSION = 4
+  const CACHE_VERSION = 5
 
   type PersistedSnapshot = {
     version: number
@@ -72,7 +75,7 @@ export namespace CodeGraph {
 
   async function persistSnapshot(root: string, key: string, snapshot: Snapshot): Promise<void> {
     const cachePath = path.join(VectorStore.getIndexStoragePath(root), "code-graph-cache.json")
-    const temporaryPath = `${cachePath}.${process.pid}.tmp`
+    const temporaryPath = `${cachePath}.${process.pid}.${randomUUID()}.tmp`
     const serialized: PersistedSnapshot = {
       version: CACHE_VERSION,
       key,
@@ -86,7 +89,6 @@ export namespace CodeGraph {
     }
     try {
       await fs.writeFile(temporaryPath, `${JSON.stringify(serialized)}\n`, "utf8")
-      await fs.rm(cachePath, { force: true })
       await fs.rename(temporaryPath, cachePath)
     } catch {
       await fs.rm(temporaryPath, { force: true }).catch(() => {})
@@ -135,13 +137,16 @@ export namespace CodeGraph {
     return "call"
   }
 
-  export async function build(options: { maxDocuments?: number } = {}): Promise<Snapshot> {
+  export async function build(options: { maxDocuments?: number; cache?: boolean } = {}): Promise<Snapshot> {
     const resolved = await VectorStore.resolveIndexedProject(Instance.directory)
     if (!resolved?.meta) throw new Error("Semantic index not found. Run `sensegrep index` first.")
+    const releaseGeneration = await new GenerationLeases(VectorStore.getIndexStoragePath(resolved.root), resolved.meta.tableName ?? "chunks").acquire()
+    try {
     const maxDocuments = Math.max(1, Math.floor(options.maxDocuments ?? 20_000))
-    const cacheKey = `${resolved.root}\0${resolved.meta.updatedAt}\0${maxDocuments}`
-    if (process.env.NODE_ENV !== "test" && cached?.key === cacheKey) return cached.snapshot
-    if (process.env.NODE_ENV !== "test") {
+    const cacheKey = JSON.stringify([resolved.root, Instance.profile, resolved.meta.tableName ?? "chunks", resolved.meta.updatedAt, maxDocuments])
+    const useCache = options.cache ?? process.env.NODE_ENV !== "test"
+    if (useCache && cached?.key === cacheKey) return cached.snapshot
+    if (useCache) {
       const persisted = await readPersistedSnapshot(resolved.root, cacheKey)
       if (persisted) {
         cached = { key: cacheKey, snapshot: persisted }
@@ -149,10 +154,10 @@ export namespace CodeGraph {
       }
     }
 
-    const schema = await VectorStore.inspectCollectionSchema(resolved.root)
+    const schema = await VectorStore.inspectCollectionSchema(resolved.root, resolved.meta.tableName ?? "chunks")
     const collection = schema.schemaCompatible
-      ? await VectorStore.getCollectionUnsafe(resolved.root, resolved.meta.embeddings.dimension)
-      : await VectorStore.openCollectionReadOnly(resolved.root)
+      ? await VectorStore.getCollectionUnsafe(resolved.root, resolved.meta.embeddings.dimension, resolved.meta.tableName ?? "chunks")
+      : await VectorStore.openCollectionReadOnly(resolved.root, resolved.meta.tableName ?? "chunks")
     const columns = ["id", "content", "file", "startLine", "endLine", "symbolName", "symbolType", "parentScope"]
     if (schema.fields.includes("calls")) columns.push("calls")
     if (schema.fields.includes("imports")) columns.push("imports")
@@ -244,11 +249,12 @@ export namespace CodeGraph {
       let calls: Array<{ target: string; scheduled: boolean; module?: string; line?: number }>
       if (TreeSitterChunking.isSupported(file)) {
         if (!callsByFile.has(file)) {
-          const absolute = path.resolve(resolved.root, file)
-          const relative = path.relative(resolved.root, absolute)
-          callsByFile.set(file, relative.startsWith("..") || path.isAbsolute(relative)
+          const indexed = resolved.meta.files?.[file]
+          callsByFile.set(file, indexed?.sourceHashKind !== "sha256-raw-v1" || !indexed.sourceSha256
             ? Promise.resolve(undefined)
-            : fs.readFile(absolute, "utf8").then((content) => TreeSitterChunking.graphCalls(content, file)).catch(() => undefined))
+            : readProjectSource(resolved.root, file)
+              .then((current) => current.rawSha256 === indexed.sourceSha256 ? TreeSitterChunking.graphCalls(current.source, file) : undefined)
+              .catch(() => undefined))
         }
         const fullCalls = await callsByFile.get(file)
         calls = fullCalls
@@ -314,11 +320,12 @@ export namespace CodeGraph {
       graphCoverage: totalEdges === 0 ? 1 : references.length / totalEdges,
     }
     const snapshot = { symbols, nodes, outgoing, references, documents: documents.length, truncated, metrics }
-    if (process.env.NODE_ENV !== "test") {
+    if (useCache) {
       cached = { key: cacheKey, snapshot }
       await persistSnapshot(resolved.root, cacheKey, snapshot)
     }
     return snapshot
+    } finally { await releaseGeneration() }
   }
 
   function selectDefinitions(graph: Snapshot, symbol: string, id?: string): Location[] {

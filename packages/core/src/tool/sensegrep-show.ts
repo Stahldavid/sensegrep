@@ -6,7 +6,7 @@ import { decodeResultId } from "./result-id.js"
 import { runShowResult } from "./show-result.js"
 
 export const SenseGrepShowParametersSchema = z.object({
-  resultId: z.string().min(1),
+  resultId: z.string().min(1).max(16_384),
   before: z.number().int().nonnegative().max(10_000).default(0),
   after: z.number().int().nonnegative().max(10_000).default(0),
   expand: z.boolean().default(false),
@@ -16,16 +16,17 @@ export const SenseGrepShowParametersSchema = z.object({
 export const SenseGrepShowTool = Tool.define("sensegrep-show", {
   description: "Expand a compact Sensegrep result card by its deterministic result ID.",
   parameters: SenseGrepShowParametersSchema,
-  async execute(params): Promise<Tool.Result<Record<string, unknown>>> {
+  async execute(params, ctx): Promise<Tool.Result<Record<string, unknown>>> {
     const target = decodeResultId(params.resultId)
     const base = await runShowResult({
       rootDir: Instance.directory,
       resultId: params.resultId,
       before: params.before,
       after: params.after,
+      signal: ctx.abort,
     })
     let graph: Record<string, unknown> | undefined
-    if (params.expand && target.symbol) {
+    if (params.expand && target.symbol && base.freshness.targetFresh === true) {
       const canonicalId = `${target.file}:${target.startLine}:${target.endLine}:${target.symbol}`
       const [references, impact] = await Promise.all([
         CodeGraph.findReferences(target.symbol, { id: canonicalId, limit: params.maxNodes }),
@@ -36,7 +37,10 @@ export const SenseGrepShowTool = Tool.define("sensegrep-show", {
     return {
       ...base,
       command: params.expand ? "expand" : "show",
-      ...(graph ? { graph } : {}),
+      ...(graph ? { graph, graphStatus: "index-freshness-unverified", warnings: [...base.warnings, "The graph is index-derived; its freshness is not established by the target content hash."] } : {}),
+      ...(params.expand && target.symbol && base.freshness.targetFresh !== true
+        ? { graphStatus: "unavailable", warnings: [...base.warnings, "Graph expansion requires a verified target; refresh search and try again."] }
+        : {}),
     }
   },
 })

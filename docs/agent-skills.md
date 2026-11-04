@@ -7,8 +7,8 @@ across Claude Code, Cursor, Codex, OpenCode, and other compatible agents.
 The thesis stays the same regardless of how the agent talks to sensegrep: AI agents should
 not read more code, they should read the right code. sensegrep combines semantic search,
 exact matching, and AST-aware structural retrieval to deliver smaller, more relevant
-context. A skill is what makes the agent reach for sensegrep instead of grep in the first
-place.
+context. A skill helps route conceptual discovery to Sensegrep while leaving known strings and
+exhaustive occurrence audits to direct text search.
 
 ## Two runtimes: MCP tools vs the CLI
 
@@ -20,8 +20,8 @@ exposes its engine two ways, and there is one skill for each:
 | `sensegrep` | MCP tools | `sensegrep_search`, `sensegrep_detect_duplicates`, … tool calls | Yes — shipped by the plugin |
 | `sensegrep-cli` | CLI | `sensegrep search "…" --json`, `sensegrep detect-duplicates --json`, … shell commands | No |
 
-Both deliver the same retrieval quality. The difference is purely the interface the agent
-uses.
+Both expose the engine through different interfaces. Compare actual versions, arguments,
+configuration and evidence limits rather than assuming every installation is equivalent.
 
 ### When to use the MCP skill (`sensegrep`)
 
@@ -63,10 +63,10 @@ Then index a project once and the agent can search it:
 sensegrep index
 ```
 
-If you prefer not to use the installer, you can also paste the contents of
-[`skills/sensegrep-cli/SKILL.md`](../skills/sensegrep-cli/SKILL.md) into your agent's
-instructions file (for example `AGENTS.md`) — the skill body is plain Markdown guidance plus
-the exact commands.
+When distributing manually, copy the whole `skills/sensegrep-cli/` folder, including
+references, into the selected agent's skill directory. Keep `AGENTS.md` as a short
+router; do not paste the command manual into it. Installation and indexing are
+explicit setup operations, not a prerequisite for reading this document.
 
 ## Installing the MCP skill
 
@@ -101,3 +101,11 @@ run the CLI. MCP-oriented skills live in the plugin bundles.
 - [MCP Server Setup](mcp-setup.md) — the MCP runtime
 - [CLI Reference](cli-reference.md) — every `sensegrep` command and flag
 - [Parallel-Agent Workflows](parallel-agents.md) — sharing one index across concurrent agents
+
+## Maintaining skill distributions
+
+The canonical MCP source is `plugins/sensegrep/skills/sensegrep/`; the CLI source is
+`skills/sensegrep-cli/`. After changing the MCP skill or its reference, run
+`node scripts/sync-agent-skills.mjs --check`. Use `--write` to intentionally refresh
+the Claude/Cursor distribution, then review the exact diff. Installed user skills
+and plugin caches are separate consumers; a source edit does not reload them.

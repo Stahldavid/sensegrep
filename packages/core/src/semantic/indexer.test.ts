@@ -1,5 +1,6 @@
 import path from "node:path"
-import { mkdir, rm, writeFile, stat } from "node:fs/promises"
+import crypto from "node:crypto"
+import { mkdir, rm, writeFile, stat, readFile, readlink } from "node:fs/promises"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const TEST_DIR = path.join(process.cwd(), ".test-indexer")
@@ -43,6 +44,7 @@ const testChunkingSignature = {
 vi.mock("./lancedb.js", () => ({
   VectorStore: {
     DEFAULT_DISTANCE_METRIC: "cosine",
+    getIndexStoragePath: () => path.join(TEST_DIR, ".index-store"),
     readIndexMeta,
     getCollection,
     getCollectionUnsafe,
@@ -202,6 +204,34 @@ describe("Indexer incremental updates", () => {
     await rm(TEST_DIR, { recursive: true, force: true })
   })
 
+  it.skipIf(process.platform !== "linux")("recovers a dead owner only in the same PID namespace", async () => {
+    const { Indexer } = await import("./indexer.js")
+    const { Global } = await import("../global/index.js")
+    const hash = crypto.createHash("sha1").update(path.resolve(TEST_DIR)).digest("hex").slice(0, 16)
+    const lock = path.join(Global.Path.data, "locks", `index-${hash}.lock`)
+    const scope = `${(await readFile("/proc/sys/kernel/random/boot_id", "utf8")).trim()}:${await readlink("/proc/self/ns/pid")}`
+    await mkdir(path.dirname(lock), { recursive: true })
+    await writeFile(lock, JSON.stringify({ pid: 2147483647, pidScope: scope }))
+    try {
+      await Indexer.indexProjectIncremental({ timeoutMs: 2000 })
+      await expect(stat(lock)).rejects.toMatchObject({ code: "ENOENT" })
+    } finally { await rm(lock, { force: true }) }
+  })
+
+  it("does not recover an owner with an unknown PID namespace", async () => {
+    const { Indexer } = await import("./indexer.js")
+    const { Global } = await import("../global/index.js")
+    const hash = crypto.createHash("sha1").update(path.resolve(TEST_DIR)).digest("hex").slice(0, 16)
+    const lock = path.join(Global.Path.data, "locks", `index-${hash}.lock`)
+    const owner = JSON.stringify({ pid: 2147483647, pidScope: "unknown" })
+    await mkdir(path.dirname(lock), { recursive: true })
+    await writeFile(lock, owner)
+    try {
+      await expect(Indexer.indexProjectIncremental({ timeoutMs: 50 })).rejects.toThrow("Timed out")
+      expect(await readFile(lock, "utf8")).toBe(owner)
+    } finally { await rm(lock, { force: true }) }
+  })
+
   it("reindexes changed files by file instead of partial chunk updates", async () => {
     const { Indexer } = await import("./indexer.js")
 
@@ -215,6 +245,43 @@ describe("Indexer incremental updates", () => {
     expect(replaceFileDocuments).toHaveBeenCalledWith({ staging: true }, "src/a.ts", expect.any(Array))
     expect(writeIndexMeta).toHaveBeenCalledTimes(1)
     expect(writeIndexMeta.mock.calls[0][1].chunking).toEqual(testChunkingSignature)
+    expect(writeIndexMeta.mock.calls[0][1].files["src/a.ts"].sourceSha256).toBe(crypto.createHash("sha256").update("export const a = 2\n").digest("hex"))
+  })
+
+  it.each(["full", "incremental", "watcher"])("stores immutable source before %s metadata publication", async (mode) => {
+    const { Indexer } = await import("./indexer.js")
+    const { readSourceObject } = await import("./source-object-store.js")
+    const bytes = Buffer.from("export const a = 2\n")
+    const sha256 = crypto.createHash("sha256").update(bytes).digest("hex")
+    const storage = path.join(TEST_DIR, ".index-store")
+    writeIndexMeta.mockImplementationOnce(async (_root, meta) => {
+      expect(meta.files["src/a.ts"].sourceSha256).toBe(sha256)
+      expect(await readSourceObject(storage, sha256)).toEqual(bytes)
+    })
+    if (mode === "full") { readIndexMeta.mockResolvedValue(null); await Indexer.indexProject() }
+    else if (mode === "watcher") await Indexer.updateFile("src/a.ts")
+    else await Indexer.indexProjectIncremental()
+    expect(writeIndexMeta).toHaveBeenCalledOnce()
+    await writeFile(path.join(TEST_DIR, "src/a.ts"), "changed after publication")
+    expect(await readSourceObject(storage, sha256)).toEqual(bytes)
+  })
+
+  it("replaces rows when source bytes change even if chunk hashes match", async () => {
+    const meta = await readIndexMeta()
+    meta.files["src/a.ts"].chunks = [crypto.createHash("sha1").update("export const a = 2").digest("hex")]
+    const { Indexer } = await import("./indexer.js")
+    await Indexer.indexProjectIncremental()
+    expect(replaceFileDocuments).toHaveBeenCalled()
+    expect(writeIndexMeta.mock.calls[0][1].files["src/a.ts"].sourceSha256).toBe(crypto.createHash("sha256").update("export const a = 2\n").digest("hex"))
+  })
+
+  it("retains existing indexed data if stable UTF-8 reading fails", async () => {
+    await writeFile(path.join(TEST_DIR, "src/a.ts"), Buffer.from([0xff]))
+    const { Indexer } = await import("./indexer.js")
+    await Indexer.indexProjectIncremental()
+    expect(deleteByFile).not.toHaveBeenCalled()
+    expect(writeIndexMeta.mock.calls[0][1].files["src/a.ts"].hash).toBe("old-hash")
+    expect(writeIndexMeta.mock.calls[0][1].files["src/a.ts"].sourceSha256).toBeUndefined()
   })
 
   it("keeps the active snapshot untouched when staged persistence fails", async () => {
@@ -246,6 +313,7 @@ describe("Indexer incremental updates", () => {
     expect(createStagingCollection).not.toHaveBeenCalled()
     expect(copyCollection).not.toHaveBeenCalled()
     expect(replaceFileDocuments).not.toHaveBeenCalled()
+    expect(writeIndexMeta.mock.calls[0][1].files["src/a.ts"].sourceSha256).toBeUndefined()
   })
 
   it("plans embedding work without calling the provider or mutating the index", async () => {
@@ -273,6 +341,51 @@ describe("Indexer incremental updates", () => {
     expect(writeIndexMeta).not.toHaveBeenCalled()
   })
 
+  it("applies the timeout while waiting in the process queue", async () => {
+    let unblock!: () => void
+    let entered!: () => void
+    const gate = new Promise<void>((resolve) => { unblock = resolve })
+    const started = new Promise<void>((resolve) => { entered = resolve })
+    files.mockImplementation(async function* () {
+      entered()
+      await gate
+      yield "src/a.ts"
+    })
+    const { Indexer } = await import("./indexer.js")
+    const first = Indexer.indexProject()
+    await started
+    try {
+      await expect(Indexer.indexProject({ timeoutMs: 20 })).rejects.toThrow("Timed out waiting")
+    } finally {
+      unblock()
+      await first
+    }
+  })
+
+  it("cancels a queued index without blocking its successor", async () => {
+    let unblock!: () => void
+    let entered!: () => void
+    const gate = new Promise<void>((resolve) => { unblock = resolve })
+    const started = new Promise<void>((resolve) => { entered = resolve })
+    let calls = 0
+    files.mockImplementation(async function* () {
+      if (++calls === 1) { entered(); await gate }
+      yield "src/a.ts"
+    })
+    const { Indexer } = await import("./indexer.js")
+    const first = Indexer.indexProject()
+    await started
+    const controller = new AbortController()
+    const cancelled = Indexer.indexProject({ signal: controller.signal })
+    const third = Indexer.indexProject()
+    controller.abort(new Error("cancelled while queued"))
+    await expect(cancelled).rejects.toThrow("cancelled while queued")
+    unblock()
+    await first
+    await third
+    expect(calls).toBe(2)
+  })
+
   it("separates index batches from Ollama HTTP requests in plans and full progress", async () => {
     getConfig.mockReturnValue({ provider: "ollama", embedModel: "qwen3-embedding:0.6b", embedDim: 3 })
     readIndexMeta.mockResolvedValue(null)
@@ -290,6 +403,7 @@ describe("Indexer incremental updates", () => {
     const progress: any[] = []
     await Indexer.indexProject({ onProgress: (event) => progress.push(event) })
     expect(progress.some((event) => event.phase === "embed" && event.requests === 3 && event.batches === 1)).toBe(true)
+    expect(writeIndexMeta.mock.calls[0][1].files["src/a.ts"].sourceSha256).toBe(crypto.createHash("sha256").update("export const a = 2\n").digest("hex"))
   })
 
   it("updates collapsible regions during watched file updates", async () => {
@@ -313,6 +427,7 @@ describe("Indexer incremental updates", () => {
     expect(replaceFileDocuments).toHaveBeenCalledWith({ staging: true }, "src/a.ts", expect.any(Array))
     expect(writeIndexMeta).toHaveBeenCalledTimes(1)
     expect(writeIndexMeta.mock.calls[0][1].files["src/a.ts"].collapsibleRegions).toEqual(regions)
+    expect(writeIndexMeta.mock.calls[0][1].files["src/a.ts"].sourceSha256).toBe(crypto.createHash("sha256").update("export const a = 2\n").digest("hex"))
     expect(writeIndexMeta.mock.calls[0][1].chunking).toEqual(testChunkingSignature)
   })
 
@@ -323,6 +438,15 @@ describe("Indexer incremental updates", () => {
     await expect(Indexer.updateFile("src/a.ts")).rejects.toThrow("Chunking policy changed")
     expect(embedDocumentsReusingFile).not.toHaveBeenCalled()
     expect(replaceFileDocuments).not.toHaveBeenCalled()
+  })
+
+  it("rejects a watched embedding configuration change before reusing or embedding vectors", async () => {
+    const meta = await readIndexMeta()
+    readIndexMeta.mockResolvedValue({ ...meta, embeddings: { ...meta.embeddings, configFingerprint: "different endpoint or account configuration" } })
+    const { Indexer } = await import("./indexer.js")
+    await expect(Indexer.updateFile("src/a.ts")).rejects.toThrow("Embedding configuration changed")
+    expect(embedDocumentsReusingFile).not.toHaveBeenCalled()
+    expect(writeIndexMeta).not.toHaveBeenCalled()
   })
 
   it("removes generated files from index metadata during file updates", async () => {

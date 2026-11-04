@@ -1,4 +1,8 @@
-import { describe, expect, it } from "vitest"
+import { build } from "esbuild"
+import { randomUUID } from "node:crypto"
+import { spawn } from "node:child_process"
+import { GenerationLeases } from "./generation-leases.js"
+import { describe, expect, it, vi } from "vitest"
 import { VectorStore } from "./lancedb.js"
 import fs from "node:fs/promises"
 import os from "node:os"
@@ -80,6 +84,48 @@ describe("VectorStore distance scoring", () => {
     })
   })
 
+  it("keeps an inactive table while leased and collects it after release", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "sensegrep-retain-"))
+    try {
+      await Instance.provide({ directory: root, profile: "default", fn: async () => {
+        const now = Date.now()
+        const clock = vi.spyOn(Date, "now")
+        let old: Awaited<ReturnType<typeof VectorStore.createStagingCollection>>
+        try {
+          clock.mockReturnValue(now - 200_000_000)
+          old = await VectorStore.createStagingCollection(root, 3)
+          clock.mockReturnValue(now - 190_000_000)
+          await VectorStore.createStagingCollection(root, 3)
+          clock.mockReturnValue(now - 180_000_000)
+          await VectorStore.createStagingCollection(root, 3)
+        } finally { clock.mockRestore() }
+        const leases = new GenerationLeases(VectorStore.getIndexStoragePath(root), old.tableName)
+        const bundle = path.resolve("node_modules/.cache", `generation-db-${randomUUID()}.mjs`)
+        await fs.mkdir(path.dirname(bundle), { recursive: true })
+        await build({ entryPoints: [path.resolve("packages/core/test-fixtures/generation-lease-worker.ts")], outfile: bundle,
+          bundle: true, platform: "node", format: "esm", packages: "external", logLevel: "silent" })
+        const child = spawn(process.execPath, [bundle, VectorStore.getIndexStoragePath(root), old.tableName],
+          { stdio: ["ignore", "ignore", "pipe", "ipc"] })
+        try {
+          await new Promise<void>((resolve, reject) => { child.once("message", () => resolve()); child.once("error", reject); child.once("exit", code => reject(new Error(`reader exited: ${code}`))) })
+          await VectorStore.cleanupInactiveTables(root, "active-placeholder")
+          expect((await VectorStore.inspectCollectionSchema(root, old.tableName)).exists).toBe(true)
+          const released = new Promise<void>(resolve => child.once("message", () => resolve()))
+          child.send!("release")
+          await released
+        } finally {
+          if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL")
+          await fs.rm(bundle, { force: true })
+        }
+        await VectorStore.cleanupInactiveTables(root, "active-placeholder")
+        expect((await VectorStore.inspectCollectionSchema(root, old.tableName)).exists).toBe(false)
+        await expect(leases.acquire()).rejects.toThrow("being collected")
+      } })
+    } finally {
+      await VectorStore.deleteCollection(root).catch(() => {})
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
   it("inspects a missing collection without creating a table", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "sensegrep-readonly-"))
     try {

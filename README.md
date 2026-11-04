@@ -34,7 +34,7 @@ Traditional search tools (grep, ripgrep, ast-grep) match **text patterns**. sens
 
 ## Quickstart
 
-Optional remote evaluation: [Jev setup, evidence-aware reranking, group labels and duplicate judgments](docs/jev.md). It is off by default and works alongside local Ollama embeddings.
+Optional remote evaluation: [Jev setup, evidence-aware reranking, group labels and duplicate judgments](docs/jev.md). It requires explicit `--jev` or configured mode consent; a key alone does not enable it. `SENSEGREP_NETWORK_POLICY=local-only` blocks remote inference and downloads while allowing loopback embeddings.
 
 ### Claude Code Plugin (recommended)
 
@@ -319,6 +319,10 @@ Diagnostic commands are strictly read-only. An incompatible index reports `migra
 
 Changed files reuse vectors for content-identical chunks, even when neighboring chunks or metadata changed. Full indexes checkpoint staging tables and skip IDs already persisted after a restart. For large indexes, LanceDB ANN and scalar indexes are created automatically at 10,000 chunks; set `SENSEGREP_ANN_MIN_CHUNKS=0` to disable or choose another threshold.
 
+### Shared worktree views
+
+Checkouts explicitly registered to the same repository can opt into shared physical data with `SENSEGREP_SHARED_OBJECTS=1`. Compatible worktrees bootstrap through LanceDB copy-on-write manifests, retain private changes, and share bounded source/embedding caches. Native caches, generation retention, repository storage admission and deduplicated source replicas have explicit limits. See [setup, lifecycle and limits](docs/shared-worktree-indexes.md), the [measured COW results](docs/cow-view-benchmark.md), and the [CLI commands](packages/cli/README.md).
+
 ### Language plugins
 
 Language support can be extended without modifying core. A plugin exports a `LanguageSupport` object (default, `language`, or `languages[]`) with its extensions and optional `chunk(content, filePath)` implementation. Add project-relative ESM modules or package names to `languagePlugins` in `sensegrep.config.json`, or set `SENSEGREP_LANGUAGE_PLUGINS` to a comma-separated list.
@@ -340,18 +344,18 @@ sensegrep search "auth flow"
 
 # Recommended: Gemini embeddings (best quality)
 export SENSEGREP_PROVIDER=gemini
-export GEMINI_API_KEY="your_ai_studio_key"
+export GEMINI_API_KEY="<your-api-key>"
 sensegrep search "auth flow" --provider gemini --embed-model gemini-embedding-001
 
 # OpenAI-compatible provider
 export SENSEGREP_PROVIDER=openai
-export SENSEGREP_OPENAI_API_KEY="your_api_key"
+export SENSEGREP_OPENAI_API_KEY="<your-api-key>"
 export SENSEGREP_OPENAI_BASE_URL="https://api.fireworks.ai/inference/v1"
 sensegrep search "auth flow" --provider openai --embed-model fireworks/qwen3-embedding-8b
 
 # OpenRouter + Qwen3 Embedding 8B with smaller Matryoshka vectors
 export SENSEGREP_PROVIDER=openai
-export SENSEGREP_OPENAI_API_KEY="your_openrouter_key"
+export SENSEGREP_OPENAI_API_KEY="<your-api-key>"
 export SENSEGREP_OPENAI_BASE_URL="https://openrouter.ai/api/v1"
 export SENSEGREP_EMBED_MODEL="qwen/qwen3-embedding-8b"
 export SENSEGREP_EMBED_DIM=1024
@@ -359,7 +363,7 @@ export SENSEGREP_OPENAI_BATCH_SIZE=96
 
 # Amazon Bedrock + Cohere Embed v4
 export AWS_REGION="us-east-1"
-export SENSEGREP_BEDROCK_API_KEY="your_bedrock_api_key"
+export SENSEGREP_BEDROCK_API_KEY="<your-api-key>"
 sensegrep search "auth flow" --provider bedrock --embed-model cohere.embed-v4:0 --embed-dim 1536
 ```
 
@@ -394,7 +398,7 @@ Common environment variables:
 - `SENSEGREP_PROFILE` (named side-by-side index profile)
 - `SENSEGREP_LANGUAGE_PLUGINS` (comma-separated ESM language plugins)
 - `SENSEGREP_OPENROUTER_REFERER` / `SENSEGREP_OPENROUTER_TITLE` (optional OpenRouter attribution headers)
-- `SENSEGREP_BEDROCK_API_KEY` (Amazon Bedrock bearer API key; omit when using the AWS SDK credential chain)
+- `SENSEGREP_BEDROCK_API_KEY` (Amazon Bedrock API credential; omit when using the AWS SDK credential chain)
 - `SENSEGREP_BEDROCK_REGION` / `AWS_REGION` / `AWS_DEFAULT_REGION` (Amazon Bedrock)
 - `SENSEGREP_ROOT` (MCP root directory)
 - `SENSEGREP_WATCH` (MCP watcher toggle)
