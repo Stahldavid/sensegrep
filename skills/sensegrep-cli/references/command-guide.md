@@ -1,11 +1,13 @@
 # CLI command and evidence reference
 
-Read only the section needed for the task. Resolve flags against the executable version; the entrypoint governs setup, privacy and scope. Run example commands from the target project, not this reference directory.
+Reference for CLI 1.20.1. Read only the section needed for the task and resolve flags against the installed executable version; the entrypoint governs setup, privacy and scope. Run example commands from the target project, not this reference directory.
 
 ## Local execution and evidence quality
 
 - On Windows PowerShell, use `sensegrep.cmd` if execution policy blocks npm's `sensegrep.ps1` wrapper. No policy change is needed.
+- When upgrading older Windows runtimes to 1.20.1, stop existing Sensegrep indexers, watchers, MCP servers and daemons first, then restart the updated runtimes together. Windows lock keys now normalize case; do not mix old and new writers on the same checkout during the upgrade.
 - For local embeddings, set `provider: "ollama"`, `embedModel: "qwen3-embedding:0.6b"`, `embedDim: 1024`, and `baseUrl: "http://127.0.0.1:11434"` in `~/.config/sensegrep/config.json`. Confirm the resolved provider with `selftest`; environment and CLI overrides can take precedence.
+- Each executor resolves its own configuration, provider endpoint and tokenizer path. A model installed on one host is not automatically available on another. Local-only operation also requires an already installed ripgrep; do not copy credentials, homes or mutable database directories between executors.
 - When indexing is in the authorized scope, use incremental `index --no-watch`. A missing index does not by itself authorize indexing; known text lookups need no index.
 - Start conceptual searches with a domain or framework when known (for example, "Clerk session token refresh"). If results are weak, reformulate before raising the result limit. Avoid premature kind filters: a business rule may live in a helper rather than a framework mutation.
 - Follow relevant result IDs with `show`, then verify claims in source. `confidence` is a ranking heuristic, not a calibrated probability that a result answers the question.
@@ -450,14 +452,14 @@ Inspect `sensegrep selftest --json`: find the `embeddings.config` check and its 
 - Policy/tokenizer changes invalidate the index signature. Run `sensegrep index --no-watch` for the authorized migration; watch refuses to mix policies. A fresh install can require a full rebuild even if the source files are unchanged.
 - `--profile` isolates indexes, not configuration. Reuse the same config/environment for both indexing and searches within a profile. Keep experimental indexes separate from the default index.
 
-Configuration belongs in `~/.config/sensegrep/config.json`. For settings and reproducible comparisons, see [chunking documentation](https://github.com/Stahldavid/sensegrep/blob/main/docs/chunking.md).
+Configuration belongs in `~/.config/sensegrep/config.json`. For settings and reproducible comparisons, see [chunking documentation](https://github.com/Stahldavid/sensegrep/blob/f85bd9cb89776d4e560f59cef5c697414a02e339/docs/chunking.md).
 
 ### Identity and historical source
 
 Preserve the projected `index` identity fields: `indexGenerationId` identifies the local table opened, and `sourceSnapshotId` identifies the indexed source manifest when available. The legacy `snapshotId` is a generation alias. `repositoryId` requires explicit registration; root/profile locate local state. `indexSpecHashScope=recorded-recipe-v1` identifies the recorded recipe, including its declared unknowns; it does not prove reproducible provider output.
 
-Newly indexed source bytes are stored before publication and retained by hash per checkout/profile. Snapshot capture uses verified historical objects first; legacy indexes can fall back to live bytes only if they match the manifest. Generation references, pins and storage budgets govern retention; legacy or unknown references conservatively defer collection. Source bundles and references cover the indexed-file universe, not semantic completeness of the repository. See the [CLI snapshot commands](../../../packages/cli/README.md#transfer-an-indexed-source-bundle) and the [architecture contract](../../../docs/parallel-agent-architecture.md).
+Newly indexed source bytes are stored before publication and retained by hash per checkout/profile. Snapshot capture uses verified historical objects first; legacy indexes can fall back to live bytes only if they match the manifest. Generation references, pins and storage budgets govern retention; legacy or unknown references conservatively defer collection. Source bundles and references cover the indexed-file universe, not semantic completeness of the repository. See the [CLI snapshot commands](https://github.com/Stahldavid/sensegrep/blob/f85bd9cb89776d4e560f59cef5c697414a02e339/packages/cli/README.md#transfer-an-indexed-source-bundle) and the [architecture contract](https://github.com/Stahldavid/sensegrep/blob/f85bd9cb89776d4e560f59cef5c697414a02e339/docs/parallel-agent-architecture.md).
 
 ### Efficient worktree views
 
-After explicit repository registration, `SENSEGREP_SHARED_OBJECTS=1` enables compatible native copy-on-write views, repository-scoped source/embedding objects and bounded cache/admission policies. Check the built CLI before using `repository release|gc` or `snapshot pin|unpin|gc`; these commands affect retained index/replica state. `snapshot fetch` v2 reuses verified local objects and resumes partial transfers without activating an index. See [shared views and limits](../../../docs/shared-worktree-indexes.md).
+After explicit repository registration, `SENSEGREP_SHARED_OBJECTS=1` enables compatible native copy-on-write views, repository-scoped source/embedding objects and bounded cache/admission policies. Check the built CLI before using `repository release|gc` or `snapshot pin|unpin|gc`; these commands affect retained index/replica state. `snapshot fetch` v2 reuses verified local objects and resumes partial transfers without activating an index. See [shared views and limits](https://github.com/Stahldavid/sensegrep/blob/f85bd9cb89776d4e560f59cef5c697414a02e339/docs/shared-worktree-indexes.md).

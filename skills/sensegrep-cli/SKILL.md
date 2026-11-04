@@ -24,6 +24,8 @@ For local-only retrieval, verify the resolved provider/model/endpoint. In runtim
 
 Prefer compact JSON cards, then `show` for selected IDs. Retain retrieval mode/universe, index identity, budgets, freshness and warnings. Truncation and incomplete coverage limit claims of absence; expand only missing evidence. Ranking/confidence and answer-sufficiency heuristics are not calibrated probabilities or proof of completeness.
 
+For parallel agents, worktrees or portable references, read the [identity and worktree contracts](references/command-guide.md#identity-and-historical-source). Branch and HEAD do not identify dirty content. Sharing requires explicit repository registration and opt-in; each executor keeps its own mutable index state.
+
 Resume cursors are bound to the index snapshot, query and filters; restart discovery if those inputs changed. Distinguish omitted output from unscanned candidates. Report actual CLI wall time separately from internal retrieval metrics.
 
 ## References by task
