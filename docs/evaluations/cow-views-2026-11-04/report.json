@@ -1,0 +1,277 @@
+{
+  "command": "node scripts/benchmark-cow-views.mjs 3 10 2000 32",
+  "results": [
+    {
+      "mode": "copy",
+      "runtime": "bundled current TypeScript source",
+      "node": "v24.16.0",
+      "platform": "linux 6.18.33.2-microsoft-standard-WSL2",
+      "cpu": "AMD Ryzen 9 8940HX with Radeon Graphics",
+      "logicalCpus": 32,
+      "totalMemoryBytes": 16349106176,
+      "clients": 3,
+      "registeredRoots": 4,
+      "samplesPerClient": 10,
+      "corpusDocuments": 2000,
+      "dimensions": 32,
+      "source": {
+        "tableBytes": 716419,
+        "dataBytes": 709299,
+        "files": 8
+      },
+      "resources": {
+        "connectionsCached": 4,
+        "tablesCached": 0,
+        "maximumConnectionsCached": 16,
+        "maximumTablesCached": 64,
+        "nativeCacheBytes": 4232800,
+        "nativeCacheBudget": {
+          "indexBytes": 268435456,
+          "metadataBytes": 67108864
+        }
+      },
+      "peakRssBytes": 545017856,
+      "result": [
+        {
+          "scenario": "unchanged",
+          "operations": 30,
+          "sharedViews": 0,
+          "forkMs": {
+            "p50": 181.516302,
+            "p95": 255.69483000000002,
+            "min": 91.2138359999999,
+            "max": 292.436852
+          },
+          "mutationMs": {
+            "p50": 0.0007310000000870787,
+            "p95": 0.0018029999999953361,
+            "min": 0.0005309999996825354,
+            "max": 0.001863999999841326
+          },
+          "forkPlusMutationMs": {
+            "p50": 181.51703300000008,
+            "p95": 255.69559100000004,
+            "min": 91.21436699999958,
+            "max": 292.43808499999994
+          },
+          "ownTableBytesBefore": {
+            "p50": 724661,
+            "p95": 724661,
+            "min": 724657,
+            "max": 724661
+          },
+          "ownDataBytesBefore": {
+            "p50": 715668,
+            "p95": 715668,
+            "min": 715668,
+            "max": 715668
+          },
+          "ownTableBytesAfter": {
+            "p50": 724661,
+            "p95": 724661,
+            "min": 724657,
+            "max": 724661
+          },
+          "ownDataBytesAfter": {
+            "p50": 715668,
+            "p95": 715668,
+            "min": 715668,
+            "max": 715668
+          },
+          "rssBeforeBytes": 187445248,
+          "rssAfterBytes": 510631936
+        },
+        {
+          "scenario": "one-file-change",
+          "operations": 30,
+          "sharedViews": 0,
+          "forkMs": {
+            "p50": 178.9789729999993,
+            "p95": 223.08146499999975,
+            "min": 90.66883700000017,
+            "max": 226.60685399999966
+          },
+          "mutationMs": {
+            "p50": 42.33588400000008,
+            "p95": 79.64769400000023,
+            "min": 34.30867000000035,
+            "max": 80.34321199999977
+          },
+          "forkPlusMutationMs": {
+            "p50": 221.9303379999992,
+            "p95": 259.22347999999965,
+            "min": 160.1322450000007,
+            "max": 260.915524
+          },
+          "ownTableBytesBefore": {
+            "p50": 724661,
+            "p95": 724661,
+            "min": 724657,
+            "max": 724661
+          },
+          "ownDataBytesBefore": {
+            "p50": 715668,
+            "p95": 715668,
+            "min": 715668,
+            "max": 715668
+          },
+          "ownTableBytesAfter": {
+            "p50": 736748,
+            "p95": 736752,
+            "min": 736742,
+            "max": 736752
+          },
+          "ownDataBytesAfter": {
+            "p50": 722901,
+            "p95": 722901,
+            "min": 722901,
+            "max": 722901
+          },
+          "rssBeforeBytes": 510631936,
+          "rssAfterBytes": 545017856
+        }
+      ],
+      "providerCalls": 0,
+      "parseWork": "not measured: materialized deterministic fixture",
+      "nativeCompaction": "not invoked",
+      "timingScope": "fork plus optional one-file replacement; validation and deletion excluded",
+      "memoryScope": "one child process per mode, sequential scenarios, shared source handle, client table handles closed after each operation"
+    },
+    {
+      "mode": "cow",
+      "runtime": "bundled current TypeScript source",
+      "node": "v24.16.0",
+      "platform": "linux 6.18.33.2-microsoft-standard-WSL2",
+      "cpu": "AMD Ryzen 9 8940HX with Radeon Graphics",
+      "logicalCpus": 32,
+      "totalMemoryBytes": 16349106176,
+      "clients": 3,
+      "registeredRoots": 4,
+      "samplesPerClient": 10,
+      "corpusDocuments": 2000,
+      "dimensions": 32,
+      "source": {
+        "tableBytes": 716419,
+        "dataBytes": 709299,
+        "files": 8
+      },
+      "resources": {
+        "connectionsCached": 4,
+        "tablesCached": 0,
+        "maximumConnectionsCached": 16,
+        "maximumTablesCached": 64,
+        "nativeCacheBytes": 43608,
+        "nativeCacheBudget": {
+          "indexBytes": 268435456,
+          "metadataBytes": 67108864
+        }
+      },
+      "peakRssBytes": 397869056,
+      "result": [
+        {
+          "scenario": "unchanged",
+          "operations": 30,
+          "sharedViews": 30,
+          "forkMs": {
+            "p50": 34.88041700000008,
+            "p95": 61.427687000000105,
+            "min": 6.81891799999994,
+            "max": 63.919024000000036
+          },
+          "mutationMs": {
+            "p50": 0.0008209999999735373,
+            "p95": 0.002123999999980697,
+            "min": 0.0006109999999353022,
+            "max": 0.002865000000042528
+          },
+          "forkPlusMutationMs": {
+            "p50": 34.881098000000065,
+            "p95": 61.42837900000018,
+            "min": 6.819738999999913,
+            "max": 63.91989600000005
+          },
+          "ownTableBytesBefore": {
+            "p50": 2009,
+            "p95": 2009,
+            "min": 2008,
+            "max": 2009
+          },
+          "ownDataBytesBefore": {
+            "p50": 0,
+            "p95": 0,
+            "min": 0,
+            "max": 0
+          },
+          "ownTableBytesAfter": {
+            "p50": 2009,
+            "p95": 2009,
+            "min": 2008,
+            "max": 2009
+          },
+          "ownDataBytesAfter": {
+            "p50": 0,
+            "p95": 0,
+            "min": 0,
+            "max": 0
+          },
+          "rssBeforeBytes": 182607872,
+          "rssAfterBytes": 363790336
+        },
+        {
+          "scenario": "one-file-change",
+          "operations": 30,
+          "sharedViews": 30,
+          "forkMs": {
+            "p50": 33.42612300000019,
+            "p95": 62.02725199999986,
+            "min": 6.932761000000028,
+            "max": 66.93461900000011
+          },
+          "mutationMs": {
+            "p50": 35.859939999999824,
+            "p95": 43.77044599999999,
+            "min": 29.442767000000003,
+            "max": 46.88975000000005
+          },
+          "forkPlusMutationMs": {
+            "p50": 69.51447599999983,
+            "p95": 104.99430099999995,
+            "min": 37.08693199999993,
+            "max": 105.79769799999985
+          },
+          "ownTableBytesBefore": {
+            "p50": 2009,
+            "p95": 2009,
+            "min": 2008,
+            "max": 2009
+          },
+          "ownDataBytesBefore": {
+            "p50": 0,
+            "p95": 0,
+            "min": 0,
+            "max": 0
+          },
+          "ownTableBytesAfter": {
+            "p50": 14192,
+            "p95": 14196,
+            "min": 14189,
+            "max": 14196
+          },
+          "ownDataBytesAfter": {
+            "p50": 7233,
+            "p95": 7233,
+            "min": 7233,
+            "max": 7233
+          },
+          "rssBeforeBytes": 363790336,
+          "rssAfterBytes": 397869056
+        }
+      ],
+      "providerCalls": 0,
+      "parseWork": "not measured: materialized deterministic fixture",
+      "nativeCompaction": "not invoked",
+      "timingScope": "fork plus optional one-file replacement; validation and deletion excluded",
+      "memoryScope": "one child process per mode, sequential scenarios, shared source handle, client table handles closed after each operation"
+    }
+  ]
+}

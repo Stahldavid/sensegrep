@@ -1,3 +1,4 @@
+import { assertNetworkAllowed } from "../util/network-policy.js"
 // Ripgrep utility functions
 import path from "path"
 import { Global } from "../global/index.js"
@@ -165,6 +166,7 @@ export namespace Ripgrep {
       const filename = `ripgrep-${version}-${config.platform}.${config.extension}`
       const url = `https://github.com/BurntSushi/ripgrep/releases/download/${version}/${filename}`
 
+      assertNetworkAllowed(url)
       const response = await fetch(url)
       if (!response.ok) throw new DownloadFailedError({ url, status: response.status })
 

@@ -1,3 +1,4 @@
+import { RefreshQueue } from "./refresh-queue.js"
 import path from "node:path"
 import fs from "node:fs/promises"
 import crypto from "node:crypto"
@@ -10,6 +11,7 @@ import { shouldIgnoreIndexedFile, clearProjectIndexFilterCache } from "./index-f
 export namespace IndexWatcher {
   export type Options = {
     rootDir: string
+    profile?: string
     intervalMs?: number
     onIndex?: (
       result: Awaited<ReturnType<typeof Indexer.indexProjectIncremental>>,
@@ -18,13 +20,13 @@ export namespace IndexWatcher {
   }
 
   export type Handle = {
+    active: boolean
     stop: () => Promise<void>
   }
 
   const log = Log.create({ service: "semantic.watch" })
   const DEFAULT_INTERVAL_MS = 60_000
   const MAX_CONSECUTIVE_ERRORS = 3
-  const BACKOFF_MULTIPLIER = 2
   const LOCK_STALE_MS = 120_000 // 2 minutes — if PID check fails AND lock is older than this, consider stale
   let watcherPromise: Promise<typeof import("@parcel/watcher")> | null = null
 
@@ -37,17 +39,9 @@ export namespace IndexWatcher {
 
   // ── Watcher lock (prevents duplicate watchers on the same project) ──
 
-  function getProjectHash(projectPath: string): string {
-    let hash = 0
-    for (let i = 0; i < projectPath.length; i++) {
-      hash = (hash << 5) - hash + projectPath.charCodeAt(i)
-      hash = hash & hash
-    }
-    return Math.abs(hash).toString(16)
-  }
-
-  function lockPath(rootDir: string): string {
-    return path.join(Global.Path.data, ".lancedb", `project_${getProjectHash(rootDir)}`, "watcher.lock")
+  function lockPath(rootDir: string, profile: string): string {
+    const hash = crypto.createHash("sha256").update(`${rootDir}\0${profile}`).digest("hex")
+    return path.join(Global.Path.data, ".lancedb", `watcher_${hash}`, "watcher.lock")
   }
 
   async function canonicalizeRootDir(rootDir: string): Promise<string> {
@@ -63,26 +57,25 @@ export namespace IndexWatcher {
     try {
       process.kill(pid, 0)
       return true
-    } catch {
-      return false
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code === 'EPERM'
     }
   }
 
-  async function acquireLock(rootDir: string, entrypoint: string): Promise<string | null> {
-    const lockFile = lockPath(rootDir)
+  async function acquireLock(rootDir: string, entrypoint: string, profile: string): Promise<string | null> {
+    const lockFile = lockPath(rootDir, profile)
     await fs.mkdir(path.dirname(lockFile), { recursive: true })
     const token = crypto.randomUUID()
 
     while (true) {
       try {
         const handle = await fs.open(lockFile, "wx")
-        await handle.writeFile(JSON.stringify({
+        try { await handle.writeFile(JSON.stringify({
           pid: process.pid,
           token,
           startedAt: Date.now(),
           entrypoint,
-        }))
-        await handle.close()
+        })) } finally { await handle.close() }
         return token
       } catch (error: any) {
         if (error?.code !== "EEXIST") throw error
@@ -106,9 +99,9 @@ export namespace IndexWatcher {
     }
   }
 
-  async function releaseLock(rootDir: string, token: string): Promise<void> {
+  async function releaseLock(rootDir: string, token: string, profile: string): Promise<void> {
     try {
-      const lockFile = lockPath(rootDir)
+      const lockFile = lockPath(rootDir, profile)
       const raw = await fs.readFile(lockFile, "utf8")
       const lock = JSON.parse(raw) as { pid: number; token?: string }
       // Only remove if it's our lock
@@ -123,7 +116,10 @@ export namespace IndexWatcher {
   function shouldIgnore(rootDir: string, fullPath: string): boolean {
     const rel = path.relative(rootDir, fullPath)
     if (!rel || rel.startsWith("..")) return true
-    if (path.basename(rel) === ".gitignore") return true
+    if ([".gitignore", ".ignore", ".sensegrepignore"].includes(path.basename(rel))) {
+      clearProjectIndexFilterCache(rootDir)
+      return false
+    }
     if (path.basename(rel) === ".sensegreprc.json" || path.basename(rel) === "sensegrep.config.json") {
       clearProjectIndexFilterCache(rootDir)
       return false
@@ -163,42 +159,17 @@ export namespace IndexWatcher {
     }
   }
 
-  /**
-   * Auto-detect the project root directory to watch
-   * Priority:
-   * 1. Explicit rootDir parameter
-   * 2. Current working directory if it has an index
-   * 3. Most recently indexed project
-   * 4. Fallback to cwd
-   */
+  // Never select a different project based on global indexing activity.
   async function resolveRootDir(explicitRoot?: string): Promise<string> {
-    // If explicitly provided, use it
-    if (explicitRoot) return explicitRoot
-
-    const cwd = process.cwd()
-
-    // Check if cwd has an index
-    const { VectorStore } = await import("./lancedb.js")
-    const hasIndex = await VectorStore.hasCollection(cwd)
-    if (hasIndex) {
-      log.info("using current directory with existing index", { rootDir: cwd })
-      return cwd
-    }
-
-    // Try to find most recent indexed project
-    const mostRecent = await VectorStore.getMostRecentIndexedProject()
-    if (mostRecent) {
-      log.info("using most recently indexed project", { rootDir: mostRecent })
-      return mostRecent
-    }
-
-    // Fallback to cwd (will be validated)
-    log.warn("no indexed projects found, using current directory", { rootDir: cwd })
-    return cwd
+    return explicitRoot ?? process.cwd()
   }
 
   export async function start(options: Options & { entrypoint?: string }): Promise<Handle> {
     // Auto-detect or use explicit root directory
+    const profile = options.profile ?? Instance.profile
+    if (!/^[A-Za-z0-9._-]+$/.test(profile)) throw new Error('Invalid watcher profile')
+    const intervalMs=options.intervalMs??DEFAULT_INTERVAL_MS
+    if (!Number.isFinite(intervalMs)||intervalMs<1||intervalMs>2_147_483_647) throw new Error('Invalid watcher interval')
     const resolvedRootDir = await resolveRootDir(options.rootDir)
     const rootDir = await canonicalizeRootDir(resolvedRootDir)
 
@@ -207,126 +178,60 @@ export namespace IndexWatcher {
 
     // Acquire lock — skip if another watcher is already running on this project
     const entrypoint = options.entrypoint ?? "unknown"
-    const lockToken = await acquireLock(rootDir, entrypoint)
+    const lockToken = await acquireLock(rootDir, entrypoint, profile)
     if (!lockToken) {
-      return { stop: async () => {} }
+      return { active: false, stop: async () => {} }
     }
 
-    const intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS
-    let dirty = false
-    let running = false
-    let pending = false
-    let consecutiveErrors = 0
-    let lastError: unknown = null
-    let currentInterval = intervalMs
-    let intervalHandle: NodeJS.Timeout | null = null
-
-    const markDirty = (events: { path: string }[]) => {
-      for (const event of events) {
-        if (!event?.path) continue
-        if (shouldIgnore(rootDir, event.path)) continue
-        dirty = true
-        break
-      }
-    }
-
-    const flush = async () => {
-      if (running) {
-        pending = true
-        return
-      }
-      if (!dirty) return
-
-      // Check if we've hit max consecutive errors
-      if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-        log.error("max consecutive errors reached, pausing watcher", {
-          errors: consecutiveErrors,
-          rootDir,
-        })
-        const detail = lastError ? `: ${String(lastError)}` : ""
-        options.onError?.(
-          new Error(
-            `Watcher paused after ${consecutiveErrors} consecutive errors${detail}. Check embeddings config and directory: ${rootDir}`,
-          ),
-        )
-        return
-      }
-
-      running = true
-      dirty = false
-      try {
-        const result = await Instance.provide({
-          directory: rootDir,
-          fn: () => Indexer.indexProjectIncremental(),
-        })
-        options.onIndex?.(result as any)
-
-        // Success - reset error count and interval
-        consecutiveErrors = 0
-        lastError = null
-        if (currentInterval !== intervalMs) {
-          currentInterval = intervalMs
-          resetInterval()
-        }
-      } catch (error) {
-        consecutiveErrors++
-        lastError = error
-        log.error("watch index error", {
-          error: String(error),
-          consecutiveErrors,
-          rootDir,
-        })
+    let stopped = false
+    const refresh = new RefreshQueue({
+      intervalMs,
+      maxFailures: MAX_CONSECUTIVE_ERRORS,
+      run: async signal => {
+        const result = await Instance.provide({directory:rootDir,profile,
+          fn:()=>Indexer.indexProjectIncremental({signal,respectReleasedView:true})})
+        try { options.onIndex?.(result) }
+        catch (error) { log.warn('Watcher observer failed', {error:String(error)}) }
+      },
+      onError: (error, failures) => {
+        log.error('watch index error', {error:String(error),failures,rootDir,profile})
         options.onError?.(error)
-
-        // Apply backoff strategy
-        if (consecutiveErrors > 1 && consecutiveErrors < MAX_CONSECUTIVE_ERRORS) {
-          currentInterval = intervalMs * Math.pow(BACKOFF_MULTIPLIER, consecutiveErrors - 1)
-          log.warn("applying backoff strategy", {
-            newInterval: currentInterval,
-            consecutiveErrors,
-          })
-          resetInterval()
-        }
-      } finally {
-        running = false
-        if (pending) {
-          pending = false
-          dirty = true
-          void flush()
-        }
-      }
+      },
+    })
+    const markDirty = (events: {path:string}[]) => {
+      if (!stopped && events.some(event=>event?.path && !shouldIgnore(rootDir,event.path))) refresh.markDirty()
     }
 
-    const resetInterval = () => {
-      if (intervalHandle) {
-        clearInterval(intervalHandle)
-      }
-      intervalHandle = setInterval(() => {
-        void flush()
-      }, currentInterval)
-      intervalHandle.unref?.()
-    }
-
-    resetInterval()
-
-    const Watcher = await loadWatcher()
-    const subscription = await Watcher.subscribe(rootDir, (error, events) => {
+    let subscription: Awaited<ReturnType<(typeof import("@parcel/watcher"))["subscribe"]>>
+    try {
+      const Watcher = await loadWatcher()
+      subscription = await Watcher.subscribe(rootDir, (error, events) => {
       if (error) {
         log.error("watch error", { error: String(error) })
-        options.onError?.(error)
+        try { options.onError?.(error) }
+        catch (observerError) { log.warn('Watcher observer failed',{error:String(observerError)}) }
         return
       }
       if (!events || events.length === 0) return
-      markDirty(events)
+      if (!stopped) markDirty(events)
     })
+    } catch (error) {
+      stopped = true
+      await refresh.stop()
+      await releaseLock(rootDir, lockToken, profile)
+      throw error
+    }
 
     return {
+      active: true,
       stop: async () => {
-        if (intervalHandle) {
-          clearInterval(intervalHandle)
+        if (stopped) return
+        stopped = true
+        try { await subscription.unsubscribe() }
+        finally {
+          try { await refresh.stop() }
+          finally { await releaseLock(rootDir, lockToken, profile) }
         }
-        await subscription.unsubscribe()
-        await releaseLock(rootDir, lockToken)
       },
     }
   }

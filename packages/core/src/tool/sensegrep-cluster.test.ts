@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+vi.mock("../semantic/generation-leases.js", () => ({ GenerationLeases: class { async acquire() { return async () => {} } } }))
+
 const readIndexMeta = vi.fn()
 const resolveIndexedProject = vi.fn()
 const clearProjectCache = vi.fn()
@@ -20,6 +22,7 @@ vi.mock("../file/ripgrep.js", () => ({
 
 vi.mock("../semantic/lancedb.js", () => ({
   VectorStore: {
+    getIndexStoragePath: () => "/mock-index",
     readIndexMeta,
     resolveIndexedProject,
     clearProjectCache,

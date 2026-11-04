@@ -7,6 +7,8 @@ import { parseArgs, validateKnownFlags } from "./args.js"
 import { runAnalysisCommand } from "./analysis-commands.js"
 import { CliUsageError } from "./cli-errors.js"
 import { runDaemonCommand } from "./daemon.js"
+import { repositoryCommand } from "./repository-command.js"
+import { snapshotCommand } from "./snapshot-command.js"
 import { runEval, runInvestigate } from "./agent-commands.js"
 import {
   assignNumberParam,
@@ -309,6 +311,19 @@ async function run() {
 
   if (command === "daemon") {
     await runDaemonCommand(positional[0], flags, rootDir)
+    return
+  }
+
+  if (command === "repository") {
+    const core = await loadCore()
+    writeJson(await repositoryCommand(core as unknown as Parameters<typeof repositoryCommand>[0], rootDir,
+      typeof flags.profile === "string" ? flags.profile : undefined, positional))
+    return
+  }
+
+  if (command === "snapshot") {
+    const core = await loadCore()
+    await snapshotCommand(core as unknown as Parameters<typeof snapshotCommand>[0], rootDir, flags, positional)
     return
   }
 

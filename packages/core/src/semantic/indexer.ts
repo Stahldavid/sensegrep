@@ -1,3 +1,6 @@
+import { GenerationLeases } from "./generation-leases.js"
+import { withSourceRetentionPin } from "./source-object-retention.js"
+import { getIndexingRuntimeIdentity } from "./indexing-runtime-identity.js"
 import { Log } from "../util/log.js"
 import { Instance } from "../project/instance.js"
 import { shouldIgnoreIndexedFile, clearProjectIndexFilterCache } from "./index-filters.js"
@@ -26,6 +29,8 @@ import fs from "fs/promises"
 import crypto from "crypto"
 import { AsyncLocalStorage } from "node:async_hooks"
 import { classifyFileRole } from "./file-role.js"
+import { readProjectSource } from "../file/source-reader.js"
+import { writeSourceObject } from "./source-object-store.js"
 
 const log = Log.create({ service: "semantic.indexer" })
 
@@ -38,6 +43,8 @@ export namespace Indexer {
     size: number
     mtimeMs: number
     hash?: string
+    sourceSha256?: string
+    sourceHashKind?: "sha256-raw-v1"
     chunks?: string[]
     /** Pre-computed collapsible regions for tree-shaking */
     collapsibleRegions?: TreeShaker.CollapsibleRegion[]
@@ -98,7 +105,6 @@ export namespace Indexer {
     return Math.max(1, Math.floor(parsed))
   })()
   const INDEX_LOCK_TIMEOUT_MS = 10 * 60_000
-  const INDEX_LOCK_STALE_MS = 30 * 60_000
   const heldIndexLocks = new AsyncLocalStorage<Set<string>>()
   const processLockTails = new Map<string, Promise<void>>()
 
@@ -138,6 +144,8 @@ export namespace Indexer {
     onProgress?: (progress: IndexProgress) => void
     signal?: AbortSignal
     resume?: boolean
+    /** Background watchers must not recreate an explicitly released view. */
+    respectReleasedView?: boolean
   }
 
   export type IndexPlan = {
@@ -244,18 +252,28 @@ export namespace Indexer {
     try {
       process.kill(pid, 0)
       return true
-    } catch {
-      return false
+    } catch (error: any) {
+      // EPERM means the process exists but belongs to another user.
+      return error?.code === "EPERM"
     }
   }
 
-  async function acquireProcessLock(rootDir: string): Promise<() => void> {
+  async function acquireProcessLock(rootDir: string, options: IndexRunOptions, deadline: number): Promise<() => void> {
     const previous = processLockTails.get(rootDir) ?? Promise.resolve()
     let releaseGate!: () => void
     const gate = new Promise<void>((resolve) => { releaseGate = resolve })
     const tail = previous.then(() => gate)
     processLockTails.set(rootDir, tail)
-    await previous
+    try {
+      await waitForLock(previous, options.signal, deadline, rootDir)
+    } catch (error) {
+      // Keep the gate in the chain until its predecessor finishes, then unblock successors.
+      void previous.then(releaseGate)
+      if (processLockTails.get(rootDir) === tail) void tail.then(() => {
+        if (processLockTails.get(rootDir) === tail) processLockTails.delete(rootDir)
+      })
+      throw error
+    }
 
     let released = false
     return () => {
@@ -266,81 +284,157 @@ export namespace Indexer {
     }
   }
 
-  async function acquireIndexLock(rootDir: string, options: IndexRunOptions = {}): Promise<() => Promise<void>> {
-    const lockPath = projectLockPath(rootDir)
-    const start = Date.now()
-    const lockTimeoutMs = options.timeoutMs && options.timeoutMs > 0
-      ? Math.min(INDEX_LOCK_TIMEOUT_MS, options.timeoutMs)
-      : INDEX_LOCK_TIMEOUT_MS
-    await fs.mkdir(path.dirname(lockPath), { recursive: true })
-    let lastNotice = 0
-    const token = crypto.randomUUID()
-
-    while (true) {
-      try {
-        const handle = await fs.open(lockPath, "wx")
-        await handle.writeFile(JSON.stringify({
-          pid: process.pid,
-          root: rootDir,
-          token,
-          startedAt: Date.now(),
-        }))
-        await handle.close()
-        return async () => {
-          const owner = await fs.readFile(lockPath, "utf8")
-            .then((raw) => JSON.parse(raw) as { token?: string })
-            .catch(() => null)
-          if (owner?.token === token) await fs.rm(lockPath, { force: true }).catch(() => {})
-        }
-      } catch (error: any) {
-        if (error?.code !== "EEXIST") throw error
-
-        const owner = await fs.readFile(lockPath, "utf8")
-          .then((raw) => JSON.parse(raw) as { pid?: number })
-          .catch(() => null)
-        const stat = await fs.stat(lockPath).catch(() => null)
-        const ownerIsDead = typeof owner?.pid === "number" && !isPidAlive(owner.pid)
-        const unreadableAndStale = !owner && !!stat && Date.now() - stat.mtimeMs > INDEX_LOCK_STALE_MS
-        if (ownerIsDead || unreadableAndStale) {
-          await fs.rm(lockPath, { force: true }).catch(() => {})
-          continue
-        }
-
-        if (Date.now() - start > lockTimeoutMs) {
-          throw new Error(`Timed out waiting for sensegrep index lock for ${rootDir}`)
-        }
-
-        if (Date.now() - lastNotice > 5_000) {
-          lastNotice = Date.now()
-          options.onProgress?.({
-            phase: "lock",
-            current: Date.now() - start,
-            total: lockTimeoutMs,
-            message: `Index already running for this project; waiting for lock (${Math.ceil((Date.now() - start) / 1000)}s)`,
-          })
-        }
-
-        await wait(500)
-      }
+  async function waitForLock(promise: Promise<void>, signal: AbortSignal | undefined, deadline: number, rootDir: string): Promise<void> {
+    signal?.throwIfAborted()
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) throw new Error(`Timed out waiting for sensegrep index lock for ${rootDir}`)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let onAbort: (() => void) | undefined
+    try {
+      await Promise.race([promise, new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`Timed out waiting for sensegrep index lock for ${rootDir}`)), remaining)
+        onAbort = () => reject(signal?.reason ?? new DOMException("Aborted", "AbortError"))
+        signal?.addEventListener("abort", onAbort, { once: true })
+        if (signal?.aborted) onAbort()
+      })])
+    } finally {
+      if (timer) clearTimeout(timer)
+      if (onAbort) signal?.removeEventListener("abort", onAbort)
     }
   }
 
-  async function withIndexLock<T>(options: IndexRunOptions, fn: () => Promise<T>): Promise<T> {
-    const rootDir = path.resolve(Instance.directory)
-    const inherited = heldIndexLocks.getStore()
-    if (inherited?.has(rootDir)) return fn()
+  // All modifications of the owner file, including stale recovery, are serialized.
+  // A crashed guard holder deliberately leaves the guard behind: automatically
+  // removing it would recreate the same compare-and-unlink race. An operator
+  // must verify that no indexer is running before removing that directory.
+  async function withLockGuard<T>(lockPath: string, rootDir: string, options: IndexRunOptions, deadline: number, fn: () => Promise<T>): Promise<T> {
+    const guardPath = `${lockPath}.guard`
+    while (true) {
+      options.signal?.throwIfAborted()
+      if (Date.now() >= deadline) throw new Error(`Timed out waiting for sensegrep index lock guard for ${rootDir}; if abandoned, verify all indexers have stopped before removing ${guardPath}`)
+      try {
+        await fs.mkdir(guardPath)
+        break
+      } catch (error: any) {
+        if (error?.code !== "EEXIST") throw error
+        await waitForLock(wait(Math.min(100, Math.max(0, deadline - Date.now()))), options.signal, deadline, rootDir)
+      }
+    }
+    try {
+      return await fn()
+    } finally {
+      await fs.rmdir(guardPath)
+    }
+  }
 
-    const releaseProcessLock = await acquireProcessLock(rootDir)
+  async function currentPidScope(): Promise<string | null> {
+    // kill(pid, 0) is only meaningful in the owner's PID namespace and boot.
+    // Other platforms and legacy files fail closed rather than guessing.
+    if (process.platform !== "linux") return null
+    try {
+      const [namespace, boot] = await Promise.all([
+        fs.readlink("/proc/self/ns/pid"), fs.readFile("/proc/sys/kernel/random/boot_id", "utf8"),
+      ])
+      return `${boot.trim()}:${namespace}`
+    } catch { return null }
+  }
+
+  async function acquireIndexLock(rootDir: string, options: IndexRunOptions, deadline: number): Promise<() => Promise<void>> {
+    const lockPath = projectLockPath(rootDir)
+    const start = Date.now()
+    const lockTimeoutMs = Math.max(0, deadline - start)
+    await fs.mkdir(path.dirname(lockPath), { recursive: true })
+    let lastNotice = 0
+    const token = crypto.randomUUID()
+    const pidScope = await currentPidScope()
+
+    while (true) {
+      options.signal?.throwIfAborted()
+      if (Date.now() >= deadline) throw new Error(`Timed out waiting for sensegrep index lock for ${rootDir}`)
+      const acquired = await withLockGuard(lockPath, rootDir, options, deadline, async () => {
+        try {
+          const handle = await fs.open(lockPath, "wx")
+          try {
+            await handle.writeFile(JSON.stringify({ pid: process.pid, pidScope, root: rootDir, token, startedAt: Date.now() }))
+          } finally {
+            await handle.close()
+          }
+          return true
+        } catch (error: any) {
+          if (error?.code !== "EEXIST") throw error
+        }
+        const owner = await fs.readFile(lockPath, "utf8")
+          .then((raw) => JSON.parse(raw) as { pid?: number; pidScope?: string })
+          .catch(() => null)
+        const ownerIsDead = !!pidScope && owner?.pidScope === pidScope && typeof owner.pid === "number" && !isPidAlive(owner.pid)
+        if (ownerIsDead) await fs.rm(lockPath, { force: true })
+        return false
+      })
+      if (acquired) {
+        return async () => {
+          // Release is not subject to the caller's cancelled signal or deadline.
+          // Keep retrying until exclusion can be released, or surface filesystem errors.
+          await withLockGuard(lockPath, rootDir, {}, Date.now() + INDEX_LOCK_TIMEOUT_MS, async () => {
+            const owner = await fs.readFile(lockPath, "utf8")
+              .then((raw) => JSON.parse(raw) as { token?: string })
+              .catch(() => null)
+            if (owner?.token === token) await fs.rm(lockPath, { force: true })
+          })
+        }
+      }
+      if (Date.now() - lastNotice > 5_000) {
+        lastNotice = Date.now()
+        options.onProgress?.({ phase: "lock", current: Date.now() - start, total: lockTimeoutMs,
+          message: `Index already running for this project; waiting for lock (${Math.ceil((Date.now() - start) / 1000)}s)` })
+      }
+      await waitForLock(wait(Math.min(500, Math.max(0, deadline - Date.now()))), options.signal, deadline, rootDir)
+    }
+  }
+
+  async function withIndexLock<T>(options: IndexRunOptions, fn: (options: IndexRunOptions) => Promise<T>, bootstrap = true): Promise<T> {
+    const rootDir = path.resolve(Instance.directory)
+    // Preserve display paths while excluding aliases of the same Windows
+    // resource. Older indexers used a case-sensitive hash and must be stopped
+    // before upgrading this protocol; never infer that their locks are stale.
+    const lockKey = process.platform === "win32" ? rootDir.toLowerCase() : rootDir
+    const inherited = heldIndexLocks.getStore()
+    if (inherited?.has(lockKey)) return fn(options)
+
+    const startedAt = Date.now()
+    const deadline = startedAt + (options.timeoutMs && options.timeoutMs > 0
+      ? Math.min(INDEX_LOCK_TIMEOUT_MS, options.timeoutMs) : INDEX_LOCK_TIMEOUT_MS)
+    const releaseProcessLock = await acquireProcessLock(lockKey, options, deadline)
     let releaseFileLock: (() => Promise<void>) | undefined
     try {
-      releaseFileLock = await acquireIndexLock(rootDir, options)
+      releaseFileLock = await acquireIndexLock(lockKey, options, deadline)
+      if (options.respectReleasedView && typeof VectorStore.isViewReleased === "function" && VectorStore.isViewReleased(rootDir)) throw new Error("Index view was released; run an explicit index operation to resume watching")
       const held = new Set(inherited)
-      held.add(rootDir)
-      return await heldIndexLocks.run(held, fn)
+      held.add(lockKey)
+      const remainingOptions = options.timeoutMs && options.timeoutMs > 0
+        ? { ...options, timeoutMs: Math.max(1, options.timeoutMs - (Date.now() - startedAt)) }
+        : options
+      const execute = () => {
+        const timeoutMs = options.timeoutMs && options.timeoutMs > 0 ? options.timeoutMs - (Date.now() - startedAt) : undefined
+        if (timeoutMs !== undefined && timeoutMs <= 0) throw new Error("Index deadline exceeded while waiting for shared bootstrap")
+        const effective = timeoutMs !== undefined ? { ...remainingOptions, timeoutMs } : remainingOptions
+        return withSourceRetentionPin(VectorStore.getIndexStoragePath(rootDir), () => heldIndexLocks.run(held, () => fn(effective)), options.signal)
+      }
+      const bootstrapSignal = AbortSignal.any([...(options.signal ? [options.signal] : []), AbortSignal.timeout(Math.max(1, deadline - Date.now()))])
+      return await (bootstrap && typeof VectorStore.withSharedBootstrap === "function" ? VectorStore.withSharedBootstrap(rootDir, execute, bootstrapSignal) : execute())
     } finally {
-      await releaseFileLock?.()
-      releaseProcessLock()
+      try { await releaseFileLock?.() } finally { releaseProcessLock() }
+      if (typeof VectorStore.collectInactiveSources === "function") await VectorStore.collectInactiveSources(rootDir).catch(error => log.warn("Source collection deferred", { error: String(error) }))
     }
+  }
+
+  /** @internal Test harness for exercising the same exclusion as indexing. */
+  export async function withIndexLockForTesting<T>(options: IndexRunOptions, fn: () => Promise<T>): Promise<T> {
+    return withIndexLock(options, fn)
+  }
+
+  /** @internal Shared exclusion for index lifecycle mutations such as release. */
+  export async function withProjectMutation<T>(fn: () => Promise<T>): Promise<T> {
+    return withIndexLock({}, fn, false)
   }
 
   function assertEmbeddingsConfigured(): void {
@@ -572,11 +666,18 @@ export namespace Indexer {
     files: VectorStore.IndexMeta["files"],
     mutate: (target: Awaited<ReturnType<typeof VectorStore.getCollection>>) => Promise<void>,
   ): Promise<void> {
-    const staging = await VectorStore.createStagingCollection(Instance.directory, meta.embeddings.dimension)
+    const startedAt = Date.now()
+    const nativeFork = typeof VectorStore.forkCollection === "function"
+    const staging = nativeFork ? await VectorStore.forkCollection(Instance.directory, collection) : await VectorStore.createStagingCollection(Instance.directory, meta.embeddings.dimension)
     let activated = false
+    let copyMs = 0, mutationMs = 0
     try {
-      await VectorStore.copyCollection(collection, staging.collection)
+      const copyStartedAt = Date.now()
+      if (!nativeFork) await VectorStore.copyCollection(collection, staging.collection)
+      copyMs = Date.now() - copyStartedAt
+      const mutationStartedAt = Date.now()
       await mutate(staging.collection)
+      mutationMs = Date.now() - mutationStartedAt
       const expected = Object.values(files).reduce((sum, file) => sum + (file.chunks?.length ?? 0), 0)
       const actual = (await VectorStore.getStats(staging.collection)).count
       if (actual !== expected) throw new Error(`Staged watcher index chunk mismatch: expected ${expected}, persisted ${actual}`)
@@ -585,6 +686,8 @@ export namespace Indexer {
       })
       activated = true
       VectorStore.clearProjectCache(Instance.directory)
+      log.info('watched mutation activated', {copyMs,mutationMs,elapsedMs:Date.now()-startedAt,
+        persistedRows:actual,profile:Instance.profile,atomicGeneration:true})
       await VectorStore.cleanupInactiveTables(Instance.directory, staging.tableName)
     } finally {
       if (!activated) await VectorStore.dropCollectionTable(Instance.directory, staging.tableName).catch(() => {})
@@ -772,6 +875,7 @@ export namespace Indexer {
     file: string
     stat: { size: number; mtimeMs: number }
     hash: string
+    sourceSha256: string
     collapsibleRegions: TreeShaker.CollapsibleRegion[]
     documents: Document[]
   }
@@ -864,7 +968,7 @@ export namespace Indexer {
             return null
           }
 
-          const content = await fs.readFile(fullPath, "utf8").catch(() => "")
+          const { source: content, rawSha256, rawBytes } = await readProjectSource(Instance.directory, file, { maxBytes: MAX_FILE_SIZE, signal: run.signal })
           if (!content.trim()) return null
           if (isProbablyMinifiedOrGenerated(file, content)) {
             log.info("skipping generated or minified file", { filePath: file, size: stat.size })
@@ -874,6 +978,7 @@ export namespace Indexer {
           const { collapsibleRegions, documents } = await analyzeFile(file, content)
 
           if (documents.length === 0) return null
+          await writeSourceObject(VectorStore.getIndexStoragePath(Instance.directory), rawBytes, { expectedSha256: rawSha256, maxBytes: MAX_FILE_SIZE, signal: run.signal })
           filesParsed++
           chunksPrepared += documents.length
 
@@ -881,6 +986,7 @@ export namespace Indexer {
             file,
             stat: { size: stat.size, mtimeMs: stat.mtimeMs },
             hash: hashContent(content),
+            sourceSha256: rawSha256,
             collapsibleRegions,
             documents,
           } as PreparedFile
@@ -919,6 +1025,8 @@ export namespace Indexer {
           size: item.stat.size,
           mtimeMs: item.stat.mtimeMs,
           hash: item.hash,
+          sourceSha256: item.sourceSha256,
+          sourceHashKind: "sha256-raw-v1",
           chunks: item.documents.map((d) => d.hash),
           collapsibleRegions: item.collapsibleRegions,
         }
@@ -942,12 +1050,12 @@ export namespace Indexer {
         ? await VectorStore.openCollectionReadOnly(Instance.directory).catch(() => null)
         : null
       const resumeEnabled = options.resume !== false
-      const signature = crypto.createHash("sha1").update(JSON.stringify({
+      const signature = crypto.createHash("sha256").update(JSON.stringify({
         embeddings: embeddingConfigFingerprint(config),
         chunking: getChunkingSignature(config),
         files: Object.entries(fileStats)
           .sort(([left], [right]) => left.localeCompare(right))
-          .map(([file, stat]) => [file, stat.hash]),
+          .map(([file, stat]) => [file, stat.sourceSha256]),
       })).digest("hex")
       const previousResume = resumeEnabled ? await readResumeState() : null
       if (previousResume && previousResume.signature !== signature) {
@@ -1036,6 +1144,7 @@ export namespace Indexer {
           root: Instance.directory,
           profile: Instance.profile,
           tableName: staging.tableName,
+          indexingRuntimeIdentity: await getIndexingRuntimeIdentity(),
           embeddings: {
             provider: config.provider,
             model: config.embedModel,
@@ -1095,7 +1204,7 @@ export namespace Indexer {
     chunks: number
     duration: number
   }> {
-    return withIndexLock(options, () => indexProjectUnlocked(options))
+    return withIndexLock(options, (lockedOptions) => indexProjectUnlocked(lockedOptions))
   }
 
   /**
@@ -1112,6 +1221,7 @@ export namespace Indexer {
   }> {
     const start = Date.now()
     const run = createRunContext(options)
+    let sharedSeed: Awaited<ReturnType<typeof VectorStore.findSharedIndex>> = null
     try {
       log.info("starting incremental index", { project: Instance.directory })
       assertEmbeddingsConfigured()
@@ -1125,15 +1235,26 @@ export namespace Indexer {
       log.info("found files to scan", { count: files.length })
       run.emit({ phase: "scan", current: files.length, total: files.length, message: `Found ${files.length} indexable files` })
 
-      const meta = await VectorStore.readIndexMeta(Instance.directory)
+      let meta = await VectorStore.readIndexMeta(Instance.directory)
       const config = Embeddings.getConfig()
       const provider = config.provider
       const dimension = config.embedDim
       const model = config.embedModel
       const chunking = getChunkingSignature(config)
+      const indexingRuntimeIdentity = await getIndexingRuntimeIdentity()
+
+      if (!meta && !truncatedByMaxFiles && typeof VectorStore.findSharedIndex === "function") {
+        sharedSeed = await VectorStore.findSharedIndex(Instance.directory, candidate =>
+          !!indexingRuntimeIdentity && candidate.indexingRuntimeIdentity === indexingRuntimeIdentity &&
+          candidate.embeddings.provider === provider && candidate.embeddings.model === model && candidate.embeddings.dimension === dimension &&
+          candidate.embeddings.configFingerprint === embeddingConfigFingerprint(config) &&
+          candidate.embeddings.distanceMetric === VectorStore.DEFAULT_DISTANCE_METRIC && sameChunkingSignature(candidate.chunking, chunking), run.signal)
+        meta = sharedSeed?.meta ?? null
+      }
 
       if (
         !meta ||
+        (meta.indexingRuntimeIdentity !== undefined && meta.indexingRuntimeIdentity !== indexingRuntimeIdentity) ||
         meta.embeddings?.dimension !== dimension ||
         meta.embeddings?.provider !== provider ||
         meta.embeddings?.model !== model ||
@@ -1153,7 +1274,7 @@ export namespace Indexer {
         }
       }
 
-      const collection = await VectorStore.getCollection(Instance.directory)
+      const collection = sharedSeed?.collection ?? await VectorStore.getCollection(Instance.directory)
       const stats = await VectorStore.getStats(collection)
       const actualChunks = stats.count
 
@@ -1204,11 +1325,11 @@ export namespace Indexer {
           const prev = previous[file]
 
           // Fast path: unchanged by size + mtime
-          if (prev && prev.size === current.size && prev.mtimeMs === current.mtimeMs) {
+          if (!sharedSeed && prev && prev.size === current.size && prev.mtimeMs === current.mtimeMs) {
             return { action: "skip", file, stats: prev }
           }
 
-          const content = await fs.readFile(fullPath, "utf8").catch(() => "")
+          const { source: content, rawSha256: sourceSha256, rawBytes } = await readProjectSource(Instance.directory, file, { maxBytes: MAX_FILE_SIZE, signal: run.signal })
           if (!content.trim()) {
             return { action: "delete", file }
           }
@@ -1219,8 +1340,8 @@ export namespace Indexer {
           const hash = hashContent(content)
 
           // Unchanged by content hash
-          if (prev && prev.hash && prev.hash === hash) {
-            return { action: "skip", file, stats: { ...current, hash, chunks: prev.chunks, collapsibleRegions: prev.collapsibleRegions } }
+          if (prev && prev.hash && prev.hash === hash && (prev.sourceHashKind !== "sha256-raw-v1" || prev.sourceSha256 === sourceSha256)) {
+            return { action: "skip", file, stats: { ...current, hash, sourceSha256: prev.sourceSha256, sourceHashKind: prev.sourceHashKind, chunks: prev.chunks, collapsibleRegions: prev.collapsibleRegions } }
           }
 
           // File changed - chunk and prepare documents
@@ -1231,33 +1352,20 @@ export namespace Indexer {
           }
 
           const chunkHashes = documents.map((d) => d.hash)
-
-          // Check for unchanged chunk hashes. Changed files are reindexed as a
-          // whole file to avoid stale/duplicate chunks in append-oriented stores.
-          if (prev?.chunks && prev.chunks.length === chunkHashes.length) {
-            let changed = false
-            for (let j = 0; j < chunkHashes.length; j++) {
-              if (chunkHashes[j] !== prev.chunks[j]) {
-                changed = true
-                break
-              }
-            }
-
-            if (!changed) {
-              return { action: "skip", file, stats: { ...current, hash, chunks: chunkHashes, collapsibleRegions: prev.collapsibleRegions } }
-            }
-          }
+          await writeSourceObject(VectorStore.getIndexStoragePath(Instance.directory), rawBytes, { expectedSha256: sourceSha256, maxBytes: MAX_FILE_SIZE, signal: run.signal })
 
           // Full reindex for this file
-          return { action: "full_reindex", file, stats: { ...current, hash, chunks: chunkHashes, collapsibleRegions }, documents }
+          return { action: "full_reindex", file, stats: { ...current, hash, sourceSha256, sourceHashKind: "sha256-raw-v1" as const, chunks: chunkHashes, collapsibleRegions }, documents }
         } catch (err) {
           failed++
           log.warn("failed to prepare file for incremental index", { file, error: err instanceof Error ? err.message : String(err) })
-          return null
+          const prev = previous[file]
+          return prev ? { action: "skip", file, stats: prev } : null
         }
       })
 
       // --- Phase 2: Process actions sequentially (vector store operations) ---
+      if (sharedSeed && failed > 0) throw new Error("Cannot publish a shared worktree view because some target files could not be read; retry after correcting the source errors")
       const filesToReplace: string[] = []
       const filesToRemove: string[] = []
       const docsToAdd: { id: string; content: string; contentRaw: string; metadata: Record<string, string | number | boolean | null> }[] = []
@@ -1333,12 +1441,13 @@ export namespace Indexer {
       const estimatedTokens = docsToAdd.reduce((total, document) => total + estimateEmbeddingTokens(document.content), 0)
 
       // Stage mutations so a killed process cannot damage the active snapshot.
-      const hasChanges = filesToReplace.length > 0 || filesToRemove.length > 0 || (!truncatedByMaxFiles && remaining.size > 0)
-      const staging = hasChanges ? await VectorStore.createStagingCollection(Instance.directory, dimension) : null
+      const hasChanges = !!sharedSeed || filesToReplace.length > 0 || filesToRemove.length > 0 || (!truncatedByMaxFiles && remaining.size > 0)
+      const nativeFork = typeof VectorStore.forkCollection === "function"
+      const staging = hasChanges ? nativeFork ? await VectorStore.forkCollection(Instance.directory, collection, sharedSeed?.root, run.signal) : await VectorStore.createStagingCollection(Instance.directory, dimension) : null
       const target = staging?.collection ?? collection
       let activated = false
       try {
-        if (staging) await VectorStore.copyCollection(collection, target, run.signal)
+        if (staging && !nativeFork) await VectorStore.copyCollection(collection, target, run.signal)
         if (embeddedRows.length > 0) {
           let chunksPersisted = 0
           for (const file of filesToReplace) {
@@ -1404,6 +1513,7 @@ export namespace Indexer {
           root: Instance.directory,
           profile: Instance.profile,
           tableName: staging?.tableName ?? meta.tableName,
+          indexingRuntimeIdentity: meta.indexingRuntimeIdentity,
           embeddings: {
             provider,
             model,
@@ -1450,6 +1560,7 @@ export namespace Indexer {
       })
       throw error
     } finally {
+      await sharedSeed?.release()
       run.dispose()
     }
   }
@@ -1462,7 +1573,7 @@ export namespace Indexer {
     removed: number
     mode: "incremental" | "full"
   }> {
-    return withIndexLock(options, () => indexProjectIncrementalUnlocked(options))
+    return withIndexLock(options, (lockedOptions) => indexProjectIncrementalUnlocked(lockedOptions))
   }
 
   /**
@@ -1492,7 +1603,7 @@ export namespace Indexer {
       return
     }
 
-    const content = await fs.readFile(fullPath, "utf8").catch(() => "")
+    const { source: content, rawSha256, rawBytes } = await readProjectSource(Instance.directory, filePath, { maxBytes: MAX_FILE_SIZE })
     if (isProbablyMinifiedOrGenerated(filePath, content)) {
       await deleteIndexedFileIfPresent(filePath)
       return
@@ -1504,6 +1615,10 @@ export namespace Indexer {
 
     const existingMeta = await VectorStore.readIndexMeta(Instance.directory)
     if (!existingMeta) throw new Error("No index metadata; run sensegrep index --no-watch before watched updates")
+    const effectiveConfig = Embeddings.getConfig()
+    if (existingMeta.embeddings.provider !== effectiveConfig.provider || existingMeta.embeddings.model !== effectiveConfig.embedModel || existingMeta.embeddings.dimension !== effectiveConfig.embedDim ||
+      (existingMeta.embeddings.configFingerprint !== undefined && existingMeta.embeddings.configFingerprint !== embeddingConfigFingerprint(effectiveConfig))) throw new Error("Embedding configuration changed; rebuild before applying watched updates")
+    if (existingMeta.indexingRuntimeIdentity && existingMeta.indexingRuntimeIdentity !== await getIndexingRuntimeIdentity()) throw new Error("Indexing runtime changed; rebuild before applying watched updates")
     if (!sameChunkingSignature(existingMeta.chunking, getChunkingSignature(Embeddings.getConfig()))) {
       throw new Error("Chunking policy changed; run sensegrep index --no-watch to rebuild before applying watched updates")
     }
@@ -1513,6 +1628,7 @@ export namespace Indexer {
       return
     }
     assertEmbeddingsConfigured()
+    await writeSourceObject(VectorStore.getIndexStoragePath(Instance.directory), rawBytes, { expectedSha256: rawSha256, maxBytes: MAX_FILE_SIZE })
     const collection = await VectorStore.getCollection(Instance.directory)
     const docsToAdd = documents.map(({ id, content: docContent, contentRaw, metadata }) => ({
       id,
@@ -1525,6 +1641,8 @@ export namespace Indexer {
       size: stat.size,
       mtimeMs: stat.mtimeMs,
       hash: hashContent(content),
+      sourceSha256: rawSha256,
+      sourceHashKind: "sha256-raw-v1" as const,
       chunks: documents.map((d) => d.hash),
       collapsibleRegions,
     } }
@@ -1609,11 +1727,14 @@ export namespace Indexer {
     tableName?: string
     snapshotId?: string
     recommendedCommand?: string
+    resources?: ReturnType<typeof VectorStore.getResourceUsage>
   }> {
     const resolved = await VectorStore.resolveIndexedProject(Instance.directory)
     if (!resolved?.meta) return { indexed: false, chunks: 0, files: 0 }
 
-    const schema = await VectorStore.inspectCollectionSchema(resolved.root)
+    const releaseGeneration = await new GenerationLeases(VectorStore.getIndexStoragePath(resolved.root), resolved.meta.tableName ?? "chunks").acquire()
+    try {
+    const schema = await VectorStore.inspectCollectionSchema(resolved.root, resolved.meta.tableName ?? "chunks")
     const entries = scopedMetaEntries(resolved.meta, resolved.subdirPrefix)
 
     // Calculate expected chunks from meta
@@ -1626,7 +1747,7 @@ export namespace Indexer {
 
     let actualChunks: number | undefined
     if (schema.exists) {
-      const collection = await VectorStore.openCollectionReadOnly(resolved.root)
+      const collection = await VectorStore.openCollectionReadOnly(resolved.root, resolved.meta.tableName ?? "chunks")
       actualChunks = await countActualChunks(collection, resolved.subdirPrefix)
     }
     const chunkMismatch = actualChunks !== undefined && expectedChunks > 0 && actualChunks !== expectedChunks
@@ -1645,15 +1766,17 @@ export namespace Indexer {
       missingFields: schema.missingFields,
       tableName: schema.tableName,
       snapshotId: `${schema.tableName}:${resolved.meta.updatedAt}`,
+      ...(typeof VectorStore.getResourceUsage === "function" ? { resources: VectorStore.getResourceUsage() } : {}),
       ...(schema.migrationRequired ? { recommendedCommand: "sensegrep index --full --no-watch" } : {}),
     }
+    } finally { await releaseGeneration() }
   }
 
   /**
    * Verify index against current filesystem content using hashes only (no reindex).
    * Also checks for consistency between metadata and LanceDB table.
    */
-  export async function verifyIndex(options: { signal?: AbortSignal; contentHash?: boolean } = {}): Promise<{
+  export async function verifyIndex(options: { signal?: AbortSignal; contentHash?: boolean; resolved?: NonNullable<Awaited<ReturnType<typeof VectorStore.resolveIndexedProject>>> } = {}): Promise<{
     indexed: boolean
     files: number
     changed: number
@@ -1674,11 +1797,13 @@ export namespace Indexer {
     snapshotId?: string
     recommendedCommand?: string
   }> {
-    const resolved = await VectorStore.resolveIndexedProject(Instance.directory)
+    const resolved = options.resolved ?? await VectorStore.resolveIndexedProject(Instance.directory)
     if (!resolved?.meta) {
       return { indexed: false, files: 0, changed: 0, missing: 0, removed: 0 }
     }
     const meta = resolved.meta
+    const releaseGeneration = await new GenerationLeases(VectorStore.getIndexStoragePath(resolved.root), meta.tableName ?? "chunks").acquire(options.signal)
+    try {
 
     const files = await getFiles(options.signal)
     const previous = Object.fromEntries(scopedMetaEntries(meta, resolved.subdirPrefix)) as Record<string, FileStat>
@@ -1734,10 +1859,10 @@ export namespace Indexer {
       }
     }
 
-    const schema = await VectorStore.inspectCollectionSchema(resolved.root)
+    const schema = await VectorStore.inspectCollectionSchema(resolved.root, meta.tableName ?? "chunks")
     let actualChunks: number | undefined
     if (schema.exists) {
-      const collection = await VectorStore.openCollectionReadOnly(resolved.root)
+      const collection = await VectorStore.openCollectionReadOnly(resolved.root, meta.tableName ?? "chunks")
       actualChunks = await countActualChunks(collection, resolved.subdirPrefix)
     }
     const chunkMismatch = actualChunks !== undefined && expectedChunks > 0 && actualChunks !== expectedChunks
@@ -1763,5 +1888,6 @@ export namespace Indexer {
       snapshotId: `${schema.tableName}:${meta.updatedAt}`,
       ...(schema.migrationRequired ? { recommendedCommand: "sensegrep index --full --no-watch" } : {}),
     }
+    } finally { await releaseGeneration() }
   }
 }

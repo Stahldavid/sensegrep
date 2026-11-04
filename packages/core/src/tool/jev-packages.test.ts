@@ -141,3 +141,37 @@ describe('implementation packages',()=>{
     expect(result.evidence.partitions).toBe(1)
   })
 })
+
+describe('atomic source identity regressions',()=>{
+  it('charges repeated identical sources once inside a package',()=>{
+    const a=source('a')
+    const result=selectImplementationPackages([{root:a,sources:[a,{...a}],candidate:a,bounded:false}],1,10,()=>10)
+    expect(result.results).toHaveLength(1)
+    expect(result.estimatedTokens).toBe(10)
+  })
+  it('does not conflate equal symbol names in different files',()=>{
+    const a=source('rule'),b={...a,file:'other.ts'}
+    const result=selectImplementationPackages([a,b].map(root=>({root,sources:[root],candidate:root,bounded:false})),2,100,()=>10,{maxPerSymbol:1})
+    expect(result.results).toHaveLength(2)
+  })
+  it('retains a containing root instead of dropping it on partial overlap',()=>{
+    const method={...source('method'),file:'x.ts',startLine:10,endLine:20}
+    const root={...source('root'),file:'x.ts',startLine:1,endLine:100},helper=source('helper')
+    const packets=[{root:method,sources:[method],candidate:method,bounded:false},{root,sources:[root,helper],candidate:root,bounded:false}]
+    const result=selectImplementationPackages(packets,5,1000,()=>10)
+    expect(result.selected).toHaveLength(2)
+    expect(result.results).toEqual([method,root,helper])
+    expect(selectImplementationPackages(packets,5,20,()=>10).selected).toHaveLength(1)
+  })
+  it('honors strict physical per-file limits atomically',()=>{
+    const a=source('a'),b={...child('b',a),file:a.file,startLine:4,endLine:6}
+    const packets=implementationPackages([a],[a,b])
+    expect(selectImplementationPackages(packets,1,1000,()=>10,{maxPerFile:1}).results).toHaveLength(0)
+    expect(selectImplementationPackages(packets,1,1000,()=>10,{maxPerFile:0}).results).toHaveLength(2)
+  })
+  it('reserves the original vector leader rather than a fused lexical score',()=>{
+    const local={...source('lexical'),semanticScore:1,retrievalRanks:{lexical:1},vectorSimilarity:undefined}
+    const vector={...source('vector'),semanticScore:.2,retrievalRanks:{vector:1},vectorSimilarity:.9}
+    expect(packageShortlist([local,source('noise'),vector],2).map(row=>row.file)).toEqual([local.file,vector.file])
+  })
+})

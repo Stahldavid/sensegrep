@@ -44,6 +44,7 @@ export function resolveAgentDetail(value: unknown, diagnostic = false): AgentDet
 function warningCode(message: string): string {
   const normalized = message.toLowerCase()
   if (normalized.startsWith("jev")) return "JEV_FALLBACK"
+  if (normalized.includes("freshness is unknown")) return "INDEX_FRESHNESS_UNKNOWN"
   if (normalized.includes("stale")) return "INDEX_STALE"
   if (normalized.includes("embedding") || normalized.includes("lexical-fallback") || normalized.includes("provider")) return "EMBEDDING_FALLBACK"
   if (normalized.includes("schema") || normalized.includes("migration")) return "INDEX_INCOMPATIBLE"
@@ -61,8 +62,23 @@ function projectWarnings(warnings: unknown): Array<{ code: string; message: stri
 
 function projectIndex(index: any): Record<string, unknown> | undefined {
   if (!index) return undefined
+  // Physical generations and source snapshots are distinct contracts. Older
+  // responses named the generation `snapshotId`; retain it under its actual
+  // meaning instead of promoting it to a content identity.
+  const stringIdentity = (value: unknown) => typeof value === "string" && value.length > 0 ? value : undefined
+  const identity = defined({
+    repositoryId: stringIdentity(index.repositoryId),
+    checkoutId: stringIdentity(index.checkoutId),
+    executorId: stringIdentity(index.executorId),
+    indexGenerationId: stringIdentity(index.indexGenerationId) ?? (index.snapshotId !== index.sourceSnapshotId ? stringIdentity(index.snapshotId) : undefined),
+    sourceSnapshotId: stringIdentity(index.sourceSnapshotId),
+    indexSpecHash: stringIdentity(index.indexSpecHash),
+    indexSpecHashScope: stringIdentity(index.indexSpecHashScope),
+    profile: stringIdentity(index.profile),
+    root: stringIdentity(index.root),
+  })
   if (index.freshnessScope === "target-location" || index.scope === "target-location") {
-    return { status: index.targetFresh === false ? "stale" : "fresh", scope: "target-location" }
+    return { ...identity, status: index.targetFresh === false ? "stale" : index.targetFresh === true ? "fresh" : "unknown", scope: "target-location" }
   }
   const status = index.schemaCompatible === false
     ? "incompatible"
@@ -71,7 +87,7 @@ function projectIndex(index: any): Record<string, unknown> | undefined {
       : index.fresh === false
         ? "stale"
         : "unknown"
-  return { status }
+  return { ...identity, status }
 }
 
 function projectRetrieval(raw: any, status: unknown): Record<string, unknown> | undefined {
@@ -146,6 +162,7 @@ export function projectAgentResult(entry: any, rank: number, options: AgentProje
   if (diagnostics) {
     card.diagnostic = defined({
       jev: entry.jev,
+      retrievalRanks:entry.retrievalRanks,retrievalSources:entry.retrievalSources,channelScores:entry.channelScores,sourceVerified:entry.sourceVerified,
       rawDistance: entry.rawDistance,
       distanceMetric: entry.distanceMetric,
       language: entry.language,
@@ -181,6 +198,22 @@ function baseEnvelope(raw: any, options: AgentProjectionOptions): Record<string,
   })
 }
 
+function compactEvidence(value: any): Record<string, unknown> {
+  return defined({ status: value.status, verdict: value.verdict, calibrated: false,
+    fullyAssessed: value.fullyAssessed, scope: value.scope, packetHash: value.packetHash,
+    missingAspects: value.missingAspects, reason: value.reason,
+    ...(value.jevAssessment ? { jevAssessment: compactEvidence(value.jevAssessment) } : {}) })
+}
+function compactJev(value: any): Record<string, unknown> {
+  return defined({ status: value.status, mode: value.mode, model: value.model,
+    reason: value.reason, reasons: value.reasons, evaluated: value.evaluated,
+    candidates: value.candidates, requests: value.requests, cacheHits: value.cacheHits,
+    cost: value.cost, unknownUsageRequests: value.unknownUsageRequests,
+    packetStatus: value.packetStatus, contextStatus: value.contextStatus,
+    effectiveConfig: value.effectiveConfig,
+    stages: value.stageResults?.map((stage: any) => defined({stage:stage.stage,status:stage.status,reason:stage.reason})) })
+}
+
 export function projectSearchAgentResponse(raw: any, options: AgentProjectionOptions = {}): any {
   if (options.detail === "full") return raw
   const diagnostics = options.diagnostics === true || options.detail === "diagnostic"
@@ -190,8 +223,8 @@ export function projectSearchAgentResponse(raw: any, options: AgentProjectionOpt
   const response: Record<string, unknown> = {
     ...baseEnvelope(raw, options),
     answerSufficiency: raw.answerSufficiency ?? "not-assessed",
-    ...(raw.evidenceAssessment ? { evidenceAssessment: raw.evidenceAssessment } : {}),
-    ...(raw.jev ? { jev: diagnostics ? raw.jev : Object.fromEntries(Object.entries(raw.jev).filter(([k]) => k !== "trace" && k !== "selection")) } : {}),
+    ...(raw.evidenceAssessment ? { evidenceAssessment: diagnostics ? raw.evidenceAssessment : compactEvidence(raw.evidenceAssessment) } : {}),
+    ...(raw.jev ? { jev: diagnostics ? raw.jev : compactJev(raw.jev) } : {}),
     ...(raw.coverage ? {
       coverage: defined({
         changedFiles: raw.coverage.changedFiles,
@@ -353,6 +386,7 @@ export function projectDuplicateAgentResponse(raw: any, options: AgentProjection
       level: group.level,
       jev: group.jev,
       similarity: group.similarity,
+      behavioralEquivalence: "not-proven",
       type: group.duplicateType,
       savings: group.impact?.estimatedSavings,
       instances: (group.instances ?? []).map((instance: any) => projectDuplicateInstance(instance, options.includeCode === true)),
@@ -378,7 +412,7 @@ function projectGraphLocation(location: any): Record<string, unknown> {
 export function projectGraphAgentResponse(raw: any, options: AgentProjectionOptions = {}): any {
   if (options.detail === "full") return raw
   const diagnostics = options.diagnostics === true || options.detail === "diagnostic"
-  const base = { schemaVersion: AGENT_SCHEMA_VERSION, command: raw.command, status: raw.status ?? "complete" }
+  const base = baseEnvelope(raw, options)
   let response: Record<string, unknown>
   if (raw.command === "references") {
     response = {
@@ -450,7 +484,8 @@ export function withAgentOutputMetrics(payload: any, options: AgentBudgetOptions
   for (let iteration = 0; iteration < 10; iteration++) {
     measured = {
       ...payload,
-      budget: { ...payload.budget, usedBytes, usedTokens: Math.ceil(usedBytes / 4) },
+      budget: { ...payload.budget, sourceEstimatedTokens: payload.budget.sourceEstimatedTokens ?? payload.budget.usedTokens,
+        usedBytes, serializedEstimatedTokens: Math.ceil(usedBytes / 4), usedTokens: Math.ceil(usedBytes / 4), tokenEstimateMethod: "utf8-bytes-divided-by-four" },
     }
     const nextBytes = Buffer.byteLength(serialize(measured, options))
     if (nextBytes === usedBytes) return measured

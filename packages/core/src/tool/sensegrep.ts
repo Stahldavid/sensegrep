@@ -1,3 +1,5 @@
+import { describeIndexIdentity } from "../semantic/index-identity.js"
+import { GenerationLeases } from "../semantic/generation-leases.js"
 import { evaluateImplementationContext } from './jev-packages.js'
 import { packetFingerprint } from './jev-witness.js'
 import { EVIDENCE_POLICY } from './jev-policy.js'
@@ -60,8 +62,10 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     }
 
     const meta = resolved.meta
+  const releaseGeneration = await new GenerationLeases(VectorStore.getIndexStoragePath(resolved.root), resolved.meta.tableName ?? "chunks").acquire(ctx.abort)
+  try {
     const schema = typeof VectorStore.inspectCollectionSchema === "function"
-      ? await VectorStore.inspectCollectionSchema(resolved.root)
+      ? await VectorStore.inspectCollectionSchema(resolved.root, resolved.meta.tableName ?? "chunks")
       : { exists: true, tableName: meta.tableName ?? "chunks", schemaCompatible: true, migrationRequired: false, fields: [] as string[], missingFields: [] as string[] }
     const backwardCompatibleMissingFields = new Set(["calls", "fileKind", "fileRole"])
     const readableLegacySchema = schema.exists && schema.missingFields.every((field) => backwardCompatibleMissingFields.has(field))
@@ -73,7 +77,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
         status: "migration-required",
         title: params.query,
         metadata: { matches: 0, indexed: true, schemaCompatible: false, missingFields: schema.missingFields },
-        index: { fresh: null, schemaCompatible: false, snapshotId: `${schema.tableName}:${meta.updatedAt}` },
+        index: { fresh: null, schemaCompatible: false, ...describeIndexIdentity(resolved.root, Instance.profile, meta) },
         results: [],
         warnings: ["Index schema is incompatible and was left unchanged."],
         output: `Index migration required; missing fields: ${schema.missingFields.join(", ")}. Run \`sensegrep index --full --no-watch\`.`,
@@ -87,7 +91,8 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       embedDim: meta.embeddings.dimension,
     }
 
-    const jevMode = await resolveJevMode(params.jev)
+    const warnings: string[] = []
+    const jevMode = await resolveJevMode(params.jev, {onWarning:message=>warnings.push(message)})
     const jevRequested = jevMode !== "off"
     const stages = jevStages(jevMode,params.jevStages)
     let jev: Awaited<ReturnType<typeof evaluateWithJev>> | undefined
@@ -109,10 +114,9 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     }
     const startedAt = Date.now()
     const metrics: Record<string, number> = {}
-    const warnings: string[] = []
     // Clear any cached tables that might have wrong dimension expectations
     VectorStore.clearProjectCache(resolved.root)
-    const freshness = await getFreshnessSummary()
+    const freshness = await getFreshnessSummary(ctx.abort, resolved)
     const freshnessWarning = formatFreshnessWarning(freshness)
     if (freshnessWarning) warnings.push(freshnessWarning)
 
@@ -122,8 +126,8 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     // Get collection, passing the expected dimension from index metadata
     const collectionStartedAt = Date.now()
     const collection = schema.schemaCompatible
-      ? await VectorStore.getCollectionUnsafe(resolved.root, meta.embeddings.dimension)
-      : await VectorStore.openCollectionReadOnly(resolved.root)
+      ? await VectorStore.getCollectionUnsafe(resolved.root, meta.embeddings.dimension, meta.tableName ?? "chunks")
+      : await VectorStore.openCollectionReadOnly(resolved.root, resolved.meta.tableName ?? "chunks")
     metrics.collectionMs = Date.now() - collectionStartedAt
 
     const resources = {
@@ -166,6 +170,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
         file.replace(/\\/g, "/").replace(/^\.\//, ""),
         stat.collapsibleRegions ?? [],
       ])),
+      {signal:ctx.abort,indexedHashes:Object.fromEntries(Object.entries(meta.files??{}).map(([file,stat])=>[file.replace(/\\/g,'/'),stat.hash]))},
     )
 
     rankedResults = rankEvidence(params.query, rankedResults)
@@ -190,7 +195,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     const localDeduped = dedupeOverlapping(rankedResults)
     let dedupedResults = [...localDeduped, ...jevHelpers.filter(helper => (minScore === undefined || (helper.rerankScore ?? helper.semanticScore) >= minScore) && !localDeduped.some(local =>
       local.file === helper.file && local.startLine <= helper.endLine && helper.startLine <= local.endLine))]
-    const exactQuery = params.exact || params.symbol || params.name || /^[\w$]+(?:[.:/][\w$]+)*$/.test(params.query)
+    const exactQuery = Boolean(params.exact || params.symbol || params.name)
     // Discover one-hop implementations before semantic gates can reject a wrapper.
     // Local ranking remains separate and is never rewritten by graph-only discovery.
     if (jevRequested && stages.recovery && !exactQuery && params.hybrid !== false && !params.pattern) {
@@ -216,11 +221,15 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       params.maxPerFile === undefined && !params.exact ? flexibleDiversity(localDeduped,params.query,maxPerSymbol) : constrain(localDeduped),
       params.maxTokens,params.query,limit,params.purpose)
     const aspects = evidenceAspects(params.query, params.jevAspects)
-    const packageMode = params.commandName === 'context' && jevRequested && stages.evidence && !exactQuery
+    const packageCompatible = (params.jevPanel === undefined || params.jevPanel === 'staged')
+      && (params.jevRanking === undefined || params.jevRanking === 'eligible')
+      && (params.jevBatchSize === undefined || params.jevBatchSize === 1) && !params.jevBlocks
+    const packageMode = params.commandName === 'context' && jevMode === 'both'
+      && stages.ranking && stages.evidence && !exactQuery && packageCompatible
     let finalResults:WorkingResult[]
     if(packageMode) {
       const packaged=await evaluateImplementationContext(params.query,dedupedResults,{
-        aspects,limit,maxTokens:params.maxTokens??4000,candidates:params.jevCandidates??32,localResults:localPacket.results,
+        aspects,limit,maxTokens:params.maxTokens??12000,maxPerFile:params.maxPerFile,maxPerSymbol:params.maxPerSymbol,candidates:params.jevCandidates??32,localResults:localPacket.results,
         timeoutMs:params.jevTimeoutMs??30000,signal:ctx.abort,recovery:stages.recovery,
         expand:async parents=>{
           const expanded=await expandHelpers(resources,parents,params.query,collected.filters,new Set(collected.allowedFiles),ctx.abort,true)
@@ -230,7 +239,10 @@ export const SenseGrepTool = Tool.define("sensegrep", {
         },
       })
       jev=packaged.jev;jevEvidence=packaged.evidence;finalResults=packaged.results
-      jev.diagnostics.trace=candidateTrace({retrieved:collected.preDedupeResults,deduplicated:dedupedResults,selected:finalResults})
+      jev.diagnostics.effectiveConfig={pipeline:'implementation-packages',limit,maxTokens:params.maxTokens??12000,
+        candidates:params.jevCandidates??32,timeoutMs:params.jevTimeoutMs??30000,batchSize:1,panel:'package',
+        maxPerFile:params.maxPerFile??0,maxPerSymbol:params.maxPerSymbol??0}
+      jev.diagnostics.trace={...jev.diagnostics.trace,...candidateTrace({retrieved:collected.preDedupeResults,deduplicated:dedupedResults,selected:finalResults})}
       metrics.estimatedOutputTokens=packaged.estimatedTokens
       metrics.tokenBudgetTruncated=jev.diagnostics.packages?.rejected.some(r=>r.reason==='token-budget')?1:0
       if(jev.diagnostics.status!=='complete') warnings.push('Jev package evaluation incomplete; returned sources do not imply sufficient evidence.')
@@ -246,6 +258,10 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       timeoutMs: stages.evidence ? deadline.initial() : remainingJevMs(), signal: ctx.abort,
     }) : undefined
     if (jev) {
+      jev.diagnostics.effectiveConfig={pipeline:'symbols',mode:jevMode,limit,maxTokens:params.maxTokens,
+        candidates:params.jevCandidates??20,batchSize:jev.diagnostics.batchSize,panel:jev.diagnostics.panel,
+        ranking:jev.diagnostics.ranking,timeoutMs:params.jevTimeoutMs??8000,
+        ...(params.commandName==='context'&&jevMode==='both'&&!packageCompatible?{packageBypassReason:'explicit-ablation-options'}:{})}
       if(queryInterpretation) {
         mergeJevDiagnostics(jev.diagnostics,queryInterpretation.diagnostics)
         jev.diagnostics.queryInterpretation={assertedPremise:queryInterpretation.assertedPremise,openQuestion:queryInterpretation.openQuestion,status:queryInterpretation.diagnostics.status}
@@ -264,6 +280,13 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     let diversifiedResults:WorkingResult[] = []
     let coverageSelected:ReturnType<typeof selectEvidenceCoverage> | undefined
     const selectPacket = (seed: WorkingResult[] = []) => {
+      if (jevMode === 'evidence') {
+        // Post-hoc assessment preserves the original local source set and order.
+        return {...localPacket,results:localPacket.results.map(row=>{
+          const score=jev?.scores.get(jevResultKey(row))
+          return score?{...row,jev:score}:row
+        })}
+      }
       const evidence = labelEvidence(jev?.results ?? dedupedResults,jev?.truncated)
         .filter(r=>!r.jevOnly || usable() && Math.max(r.jev?.evidence ?? 0,r.jev?.dimensions?.dependency ?? 0)>= EVIDENCE_POLICY.admission)
       diversifiedResults = stages.evidence && usable() ? constrain(evidence)
@@ -634,6 +657,7 @@ export const SenseGrepTool = Tool.define("sensegrep", {
     const result = await Embeddings.withConfig(indexConfig as any, () =>
       Instance.provide({
         directory: resolved.root,
+        profile: Instance.profile,
         fn: run,
       }),
     )
@@ -656,9 +680,9 @@ export const SenseGrepTool = Tool.define("sensegrep", {
       command: params.commandName ?? "search",
       status: metrics.tokenBudgetTruncated ? "incomplete" : "complete",
       index: {
-        fresh: freshness ? !freshness.isStale : null,
+        fresh: freshness?.status === "unknown" ? null : freshness ? !freshness.isStale : null,
         schemaCompatible: schema.schemaCompatible,
-        snapshotId: `${meta.tableName ?? "chunks"}:${meta.updatedAt}`,
+        ...describeIndexIdentity(resolved.root, Instance.profile, meta),
       },
       ...result,
       answerSufficiency: evidence.status,
@@ -680,5 +704,6 @@ export const SenseGrepTool = Tool.define("sensegrep", {
         elapsedMs: metrics.totalMs ?? 0,
       },
     }
+  } finally { await releaseGeneration() }
   },
 })

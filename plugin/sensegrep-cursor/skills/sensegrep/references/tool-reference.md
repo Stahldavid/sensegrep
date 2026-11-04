@@ -129,7 +129,7 @@ query + structural filters
         ↓
   vector similarity search (AI embeddings, skipped when exact has a strong symbol hit)
         ↓
-  pattern (ripgrep post-filter — candidate budget depends on the installed runtime)
+  pattern (ripgrep post-filter — fetches limit×3 candidates internally to compensate)
         ↓
   dedup + diversify (maxPerFile, maxPerSymbol)
         ↓
@@ -161,7 +161,7 @@ scope/glob before concluding the code is absent.
 
 ### 2. `pattern` — ripgrep regex post-filter (after semantic search)
 
-Ripgrep runs on result files after semantic ranking. Only chunks where the regex matches are kept. Use `pattern` when you need to guarantee a specific identifier, call, or token appears. The internal candidate budget is version-dependent; inspect the installed contract instead of inferring it from the output limit. If a narrow pattern returns nothing, broaden the candidate search or use direct `rg` before concluding the code is absent.
+Ripgrep runs on result files after semantic ranking. Only chunks where the regex matches are kept. Use `pattern` when you need to guarantee a specific identifier, call, or token appears. Keep `limit` at the default (10) — the pipeline already fetches `limit × 3` candidates internally before filtering, so raising limit adds little when pattern is set.
 
 ```
 // Find auth functions that specifically call jwt.verify

@@ -48,8 +48,9 @@ describe("Claude plugin command MCP tool references", () => {
     const canonical = "plugins/sensegrep/skills/sensegrep";
     for (const guidance of AGENT_GUIDANCE) {
       const markdown = await readFile(path.join(ROOT, guidance), "utf8");
-      expect(markdown, guidance).toMatch(/conceptual[^\n]*`sensegrep(?:_search| search)`/i);
-      expect(markdown, guidance).toMatch(/(?:exact strings|known path)[^\n]*(?:direct text|`rg`)/i);
+      expect(markdown, guidance).toMatch(/(?:conceptual|uncertain)[^\n]*`sensegrep(?:_search| search)`/i);
+      expect(markdown, guidance).toMatch(/(?:exact|known)[^\n]*(?:literal|direct text|`rg`)/i);
+      expect(markdown, guidance).toMatch(/(?:exhaustive|complete occurrence)/i);
       const references = [...markdown.matchAll(/\]\((references\/[^)]+\.md)\)/g)].map((match) => match[1]);
       expect(references.length, guidance).toBeGreaterThan(0);
       for (const reference of new Set(references)) {

@@ -157,7 +157,9 @@ export function repairEvidencePacket(selected: WorkingResult[], baseline: Workin
 export function candidateTrace(stages: Record<string, WorkingResult[]>) {
   return Object.fromEntries(Object.entries(stages).map(([stage, rows]) => [stage, {
     count: rows.length, candidates: rows.map(r => ({ key: evidenceKey(r), file: r.file, symbol: r.metadata.symbolName,
-      sources: r.retrievalSources ?? [], localScore: r.jev?.localScore ?? r.rerankScore ?? r.semanticScore,
+      sources: r.retrievalSources ?? [], retrievalRanks:r.retrievalRanks,
+      vectorSimilarity:r.vectorSimilarity,lexicalScore:r.lexicalScore,fusionScore:r.fusionScore,
+      sourceVerified:r.metadata.sourceVerified,contentTruncated:!!r.contentTruncated,localScore: r.jev?.localScore ?? r.rerankScore ?? r.semanticScore,
       modelScore: r.jev?.modelScore, usefulMass: r.jev?.usefulMass, directMass: r.jev?.directMass, aspects: r.jev?.aspects, dimensions: r.jev?.dimensions,
       confidence: r.jev?.relevance?.confidence, relevance: r.jev?.relevance, contradiction: r.jev?.contradiction })),
   }]))

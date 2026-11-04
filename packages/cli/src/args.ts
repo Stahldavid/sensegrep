@@ -93,6 +93,8 @@ const ALLOWED_FLAGS_BY_COMMAND: Record<string, Set<string>> = {
   show: new Set([...GLOBAL_FLAGS, "before", "after", "include-rendered-output"]),
   expand: new Set([...GLOBAL_FLAGS, "before", "after", "max-nodes", "include-rendered-output"]),
   profiles: new Set(GLOBAL_FLAGS),
+  repository: new Set(["help", "h", "root", "profile", "json", "pretty"]),
+  snapshot: new Set(["help", "h", "root", "profile", "json", "pretty", "port", "repository", "snapshot", "destination", "artifact", "result", "file", "start", "end", "max-bytes", "retain-snapshots"]),
   daemon: new Set([...GLOBAL_FLAGS, "tool", "arguments", "watch"]),
   investigate: new Set([...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, "query", "max-tokens", "dry-run"]),
   eval: new Set([...GLOBAL_FLAGS, ...EMBEDDING_FLAGS, "limit"]),

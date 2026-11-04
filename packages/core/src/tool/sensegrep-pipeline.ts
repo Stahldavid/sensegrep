@@ -1,3 +1,7 @@
+import { describeIndexIdentity } from "../semantic/index-identity.js"
+import { GenerationLeases } from "../semantic/generation-leases.js"
+import { sourceContentHash, readProjectSource, validateSourceRange } from "../file/source-reader.js"
+import { createHash } from "node:crypto"
 import path from "path"
 import fs from "node:fs/promises"
 import { spawn } from "node:child_process"
@@ -7,6 +11,7 @@ import { VectorStore } from "../semantic/lancedb.js"
 import { Instance } from "../project/instance.js"
 import { GitScope } from "../project/git.js"
 import { Embeddings } from "../semantic/embeddings.js"
+import { embeddingConfigFingerprint } from "../semantic/embedding-config.js"
 import { Indexer } from "../semantic/indexer.js"
 import { Ripgrep } from "../file/ripgrep.js"
 import { TreeShaker } from "../semantic/tree-shaker.js"
@@ -34,6 +39,10 @@ export type WorkingResult = {
   startLine: number
   endLine: number
   semanticScore: number
+  vectorSimilarity?: number
+  lexicalScore?: number
+  fusionScore?: number
+  retrievalRanks?: { vector?: number; lexical?: number }
   rawDistance?: number
   distanceMetric?: VectorStore.DistanceMetric
   metadata: ResultMetadata
@@ -47,6 +56,10 @@ export type WorkingResult = {
 }
 
 export type StructuredSearchResult = {
+  retrievalRanks?: WorkingResult["retrievalRanks"]
+  retrievalSources?: WorkingResult["retrievalSources"]
+  channelScores?: {vector?:number;lexical?:number;fusion?:number}
+  sourceVerified?: boolean
   jev?: import("./jev.js").JevScores
   resultId: string
   file: string
@@ -142,6 +155,8 @@ export type RetrievalSummary = {
 type IndexMeta = NonNullable<Awaited<ReturnType<typeof VectorStore.readIndexMeta>>>
 
 export type FreshnessSummary = {
+  status?: "fresh" | "stale" | "unknown"
+  reason?: string
   indexed: boolean
   isStale: boolean
   changed: number
@@ -241,6 +256,7 @@ export function summarizeFreshness(
 ): FreshnessSummary {
   const chunkMismatch = (verify as any).chunkMismatch === true
   return {
+    status: !verify.indexed || verify.changed > 0 || verify.missing > 0 || verify.removed > 0 || chunkMismatch ? "stale" : "fresh",
     indexed: verify.indexed,
     isStale: !verify.indexed || verify.changed > 0 || verify.missing > 0 || verify.removed > 0 || chunkMismatch,
     changed: verify.changed,
@@ -253,12 +269,13 @@ export function summarizeFreshness(
   }
 }
 
-export async function getFreshnessSummary(): Promise<FreshnessSummary> {
+export async function getFreshnessSummary(signal?: AbortSignal, resolved?: NonNullable<Awaited<ReturnType<typeof VectorStore.resolveIndexedProject>>>): Promise<FreshnessSummary> {
+  signal?.throwIfAborted()
   let timeout: ReturnType<typeof setTimeout> | undefined
   const controller = new AbortController()
   try {
     const verify = await Promise.race([
-      Indexer.verifyIndex({ signal: controller.signal, contentHash: false }),
+      Indexer.verifyIndex({ signal: signal ? AbortSignal.any([signal, controller.signal]) : controller.signal, contentHash: false, resolved }),
       new Promise<undefined>((resolve) => {
         timeout = setTimeout(() => {
           controller.abort(new Error("Freshness verification timed out"))
@@ -267,8 +284,10 @@ export async function getFreshnessSummary(): Promise<FreshnessSummary> {
         timeout.unref?.()
       }),
     ])
+    signal?.throwIfAborted()
     if (!verify) {
       return {
+        status: "unknown", reason: "verification-timeout",
         indexed: true,
         isStale: false,
         changed: 0,
@@ -279,7 +298,9 @@ export async function getFreshnessSummary(): Promise<FreshnessSummary> {
     }
     return summarizeFreshness(verify)
   } catch {
+    signal?.throwIfAborted()
     return {
+      status: "unknown", reason: "verification-failed",
       indexed: true,
       isStale: false,
       changed: 0,
@@ -294,6 +315,7 @@ export async function getFreshnessSummary(): Promise<FreshnessSummary> {
 }
 
 export function formatFreshnessWarning(freshness: FreshnessSummary): string | undefined {
+  if (freshness.status === "unknown") return "Index freshness is unknown; verification did not complete."
   if (!freshness.isStale) return undefined
   const parts = [
     `changed=${freshness.changed}`,
@@ -312,7 +334,9 @@ export function prependFreshnessWarning(output: string, freshness: FreshnessSumm
 export async function withIndexedSearchResources<T extends ToolLikeResult>(
   query: string,
   fn: (resources: SearchResources) => Promise<T>,
+  signal?: AbortSignal,
 ): Promise<T> {
+  signal?.throwIfAborted()
   const resolved = await VectorStore.resolveIndexedProject(Instance.directory)
   if (!resolved?.meta.embeddings) {
     return {
@@ -327,8 +351,10 @@ export async function withIndexedSearchResources<T extends ToolLikeResult>(
   }
 
   const meta = resolved.meta
+  const releaseGeneration = await new GenerationLeases(VectorStore.getIndexStoragePath(resolved.root), resolved.meta.tableName ?? "chunks").acquire(signal)
+  try {
   const schema = typeof VectorStore.inspectCollectionSchema === "function"
-    ? await VectorStore.inspectCollectionSchema(resolved.root)
+    ? await VectorStore.inspectCollectionSchema(resolved.root, resolved.meta.tableName ?? "chunks")
     : { exists: true, tableName: meta.tableName ?? "chunks", schemaCompatible: true, migrationRequired: false, fields: [] as string[], missingFields: [] as string[] }
   const readableLegacySchema = schema.exists && schema.missingFields.every((field) => ["calls", "fileKind", "fileRole"].includes(field))
   if (!schema.schemaCompatible && !readableLegacySchema) {
@@ -338,7 +364,7 @@ export async function withIndexedSearchResources<T extends ToolLikeResult>(
       status: "migration-required",
       title: query,
       metadata: { matches: 0, indexed: true, schemaCompatible: false, missingFields: schema.missingFields },
-      index: { fresh: null, schemaCompatible: false, snapshotId: `${schema.tableName}:${meta.updatedAt}` },
+      index: { fresh: null, schemaCompatible: false, ...describeIndexIdentity(resolved.root, Instance.profile, meta) },
       warnings: ["Index schema is incompatible and was left unchanged."],
       output: `Index migration required; missing fields: ${schema.missingFields.join(", ")}. Run \`sensegrep index --full --no-watch\`.`,
     } as unknown as T
@@ -349,14 +375,22 @@ export async function withIndexedSearchResources<T extends ToolLikeResult>(
     embedDim: meta.embeddings.dimension,
   }
 
-  return Embeddings.withConfig(indexConfig as any, async () => {
+  return await Embeddings.withConfig(indexConfig as any, async () => {
     return Instance.provide({
       directory: resolved.root,
+      profile: Instance.profile,
       fn: async () => {
-        const freshness = await getFreshnessSummary()
+        if (meta.embeddings.configFingerprint && meta.embeddings.configFingerprint !== embeddingConfigFingerprint(Embeddings.getConfig())) {
+          return {
+            schemaVersion: 1, command: "search", status: "incompatible-embedding-config", title: query,
+            metadata: { indexed: true, incompatibleEmbeddingConfig: true },
+            output: "Embedding endpoint/configuration differs from the indexed vector space. Select the matching profile or reindex this profile.",
+          } as unknown as T
+        }
+        const freshness = await getFreshnessSummary(signal, resolved)
         const collection = schema.schemaCompatible
-          ? await VectorStore.getCollectionUnsafe(resolved.root, meta.embeddings.dimension)
-          : await VectorStore.openCollectionReadOnly(resolved.root)
+          ? await VectorStore.getCollectionUnsafe(resolved.root, meta.embeddings.dimension, meta.tableName ?? "chunks")
+          : await VectorStore.openCollectionReadOnly(resolved.root, resolved.meta.tableName ?? "chunks")
         return fn({
           meta,
           collection,
@@ -369,6 +403,7 @@ export async function withIndexedSearchResources<T extends ToolLikeResult>(
       },
     })
   })
+  } finally { await releaseGeneration() }
 }
 
 export function normalizeFilePath(file: string): string {
@@ -523,7 +558,7 @@ export async function runRipgrepOnFiles(
     }
 
     // Parse output: "file:line:text"
-    for (const line of output.trim().split("\n")) {
+    for (const line of output.split("\n")) {
       if (!line) continue
       const match = line.match(/^(.*):(\d+):(.*)$/)
       if (!match) continue
@@ -532,7 +567,7 @@ export async function runRipgrepOnFiles(
       matches.push({
         file: canonicalizeProjectFilePath(matchedPath),
         line: parseInt(lineNum, 10),
-        text: text.trim(),
+        text: text.replace(/\r$/, ""),
       })
       if (options?.maxMatches && matches.length >= options.maxMatches) return matches
     }
@@ -665,7 +700,9 @@ export function fuseHybridResults(semantic: WorkingResult[], lexical: WorkingRes
     const score = result.semanticScore > 1
       ? result.semanticScore
       : Math.min(1, result.semanticScore * 0.65 + rrf * 0.35)
-    return { ...result, semanticScore: score, retrievalSources: [semanticPosition ? "vector" : undefined, lexicalPosition ? "lexical" : undefined].filter((s): s is "vector" | "lexical" => !!s) }
+    return { ...result, semanticScore: score, fusionScore: score, retrievalRanks: {vector: semanticPosition, lexical: lexicalPosition},
+      vectorSimilarity: semanticPosition ? semantic[semanticPosition - 1].semanticScore : undefined,
+      lexicalScore: lexicalPosition ? lexical[lexicalPosition - 1].semanticScore : undefined, retrievalSources: [semanticPosition ? "vector" : undefined, lexicalPosition ? "lexical" : undefined].filter((s): s is "vector" | "lexical" => !!s) }
   }).sort((a, b) => b.semanticScore - a.semanticScore)
 }
 
@@ -1757,7 +1794,7 @@ export function annotateWorkingResults(results: WorkingResult[], params: CommonS
     const pathSegments = getMeaningfulPathSegments(result.file).map((segment) => segment.toLowerCase())
     for (const token of queryTokens) {
       if (pathSegments.some((segment) => segment.includes(token))) {
-        whyMatched.add(`path matched query token: ${token}`)
+        whyMatched.add(`path matched query term ${token}`)
       }
     }
 
@@ -2103,7 +2140,7 @@ export async function runGroupedSearch<TGroup extends { members: WorkingResult[]
         title: input.params.query,
         metadata: { matches: 0, indexed: true, [input.resultKey]: 0, freshness: resources.freshness },
         freshness: resources.freshness,
-        index: { fresh: !resources.freshness.isStale, schemaCompatible: resources.schema.schemaCompatible, snapshotId: `${resources.schema.tableName}:${resources.meta.updatedAt}` },
+        index: { fresh: resources.freshness.status === "unknown" ? null : !resources.freshness.isStale, schemaCompatible: resources.schema.schemaCompatible, ...describeIndexIdentity(resources.projectDirectory, Instance.profile, resources.meta) },
         retrieval: collected.retrieval,
         warnings: collected.warnings,
         output: prependFreshnessWarning("No matching results found for your query.", resources.freshness),
@@ -2171,7 +2208,7 @@ export async function runGroupedSearch<TGroup extends { members: WorkingResult[]
         ...(input.metadata?.(groups) ?? {}),
       },
       freshness: resources.freshness,
-      index: { fresh: !resources.freshness.isStale, schemaCompatible: resources.schema.schemaCompatible, snapshotId: `${resources.schema.tableName}:${resources.meta.updatedAt}` },
+      index: { fresh: resources.freshness.status === "unknown" ? null : !resources.freshness.isStale, schemaCompatible: resources.schema.schemaCompatible, ...describeIndexIdentity(resources.projectDirectory, Instance.profile, resources.meta) },
       retrieval: collected.retrieval,
       warnings: collected.warnings,
       budget: { tokensRequested: input.params.maxTokens, tokensUsed: estimatedTokens },
@@ -2185,7 +2222,7 @@ export async function runGroupedSearch<TGroup extends { members: WorkingResult[]
       }),
       output: prependFreshnessWarning(outputLines.join("\n"), resources.freshness),
     }
-  })
+  }, input.signal)
 }
 
 export { decodeResultId }
@@ -2194,14 +2231,16 @@ export async function reconstructSymbolResults(
   projectDirectory: string,
   results: WorkingResult[],
   indexedRegions: Record<string, TreeShaker.CollapsibleRegion[]> = {},
+  options: { signal?: AbortSignal; indexedHashes?: Record<string,string | undefined> } = {},
 ): Promise<WorkingResult[]> {
   const passthrough: WorkingResult[] = []
   const grouped = new Map<string, WorkingResult[]>()
   const regionsByFile = new Map<string, Promise<Awaited<ReturnType<typeof TreeShaker.extractRegions>>>>()
+  const sourceByFile = new Map<string, ReturnType<typeof readProjectSource>>()
   for (const result of results) {
     const symbol = typeof result.metadata.symbolName === "string" ? result.metadata.symbolName : ""
     if (!symbol) {
-      passthrough.push({ ...result, metadata: { ...result.metadata, chunksMatched: 1, snippetIntegrity: "partial" } })
+      passthrough.push({ ...result, contentTruncated: true, metadata: { ...result.metadata, chunksMatched: 1, snippetIntegrity: "partial", sourceVerified: false } })
       continue
     }
     const key = `${canonicalizeProjectFilePath(result.file)}\0${String(result.metadata.parentScope ?? "")}\0${symbol}`
@@ -2223,16 +2262,27 @@ export async function reconstructSymbolResults(
       const startLine = Math.min(...cluster.map((item) => item.startLine))
       const endLine = Math.max(...cluster.map((item) => item.endLine))
       let content = best.content
-      let snippetIntegrity: StructuredSearchResult["snippetIntegrity"] = cluster.length > 1 ? "complete" : "partial"
+      let snippetIntegrity: StructuredSearchResult["snippetIntegrity"] = "partial"
+      let sourceVerified = false
       try {
         const canonicalFile = canonicalizeProjectFilePath(best.file)
-        const source = await fs.readFile(path.join(projectDirectory, canonicalFile), "utf8")
-        const reconstructedContent = source.split(/\r?\n/).slice(startLine - 1, endLine).join("\n")
+        options.signal?.throwIfAborted()
+        let sourcePromise = sourceByFile.get(canonicalFile)
+        if (!sourcePromise) {
+          sourcePromise = readProjectSource(projectDirectory,canonicalFile,{signal:options.signal})
+          sourceByFile.set(canonicalFile,sourcePromise)
+        }
+        const {source,lines} = await sourcePromise
+        const indexedHash = options.indexedHashes?.[canonicalFile]
+        if (indexedHash && createHash('sha1').update(source).digest('hex') !== indexedHash) throw new Error('Indexed source changed')
+        validateSourceRange(lines,startLine,endLine)
+        sourceVerified = true
+        const reconstructedContent = lines.slice(startLine - 1, endLine).join("\n")
         if (reconstructedContent.trim()) {
           content = reconstructedContent
           let regionsPromise = regionsByFile.get(canonicalFile)
           if (!regionsPromise) {
-            const persistedRegions = indexedRegions[canonicalFile]
+            const persistedRegions = options.indexedHashes?.[canonicalFile] ? indexedRegions[canonicalFile] : undefined
             regionsPromise = persistedRegions
               ? Promise.resolve(persistedRegions)
               : TreeShaker.extractRegions(canonicalFile, source).catch(() => [])
@@ -2246,6 +2296,8 @@ export async function reconstructSymbolResults(
         }
         else snippetIntegrity = "parse-fallback"
       } catch {
+        options.signal?.throwIfAborted()
+        sourceVerified = false
         snippetIntegrity = "parse-fallback"
       }
       reconstructed.push({
@@ -2255,7 +2307,8 @@ export async function reconstructSymbolResults(
         startLine,
         endLine,
         whyMatched: [...new Set(cluster.flatMap((item) => item.whyMatched ?? []))],
-        metadata: { ...best.metadata, chunksMatched: cluster.length, snippetIntegrity },
+        metadata: { ...best.metadata, chunksMatched: cluster.length, snippetIntegrity, sourceVerified },
+        contentTruncated: best.contentTruncated || !sourceVerified || snippetIntegrity !== "complete",
       })
     }
   }
@@ -2266,11 +2319,17 @@ export function toStructuredSearchResult(result: WorkingResult): StructuredSearc
   const metadata = result.metadata
   return {
     jev: result.jev,
+    retrievalRanks: result.retrievalRanks,
+    retrievalSources: result.retrievalSources,
+    channelScores: {vector:result.vectorSimilarity,lexical:result.lexicalScore,fusion:result.fusionScore},
+    sourceVerified: typeof metadata.sourceVerified === 'boolean' ? metadata.sourceVerified : undefined,
     resultId: createResultId({
       file: canonicalizeProjectFilePath(result.file),
       startLine: result.startLine,
       endLine: result.endLine,
       symbol: typeof metadata.symbolName === "string" ? metadata.symbolName : undefined,
+      ...(metadata.snippetIntegrity === "complete" && !result.contentTruncated && !metadata.contentTruncated
+        ? { sourceHash: sourceContentHash(result.content) } : {}),
     }),
     file: result.file,
     startLine: result.startLine,

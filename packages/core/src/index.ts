@@ -9,6 +9,8 @@ export { SenseGrepSurveyTool } from "./tool/sensegrep-survey.js"
 export { SenseGrepClusterTool } from "./tool/sensegrep-cluster.js"
 export { Tool } from "./tool/tool.js"
 export { createResultId, decodeResultId, type ResultLocation } from "./tool/result-id.js"
+export { captureSourceBundle, captureIndexedSourceBundle, validateSourceBundle, storeSourceBundle, readStoredSourceBundle, serveSourceBundle, fetchSourceBundle, createPortableResultId, readPortableResult, type SourceBundle } from "./semantic/snapshot-bundle.js"
+export { pinReplicaSnapshot, unpinReplicaSnapshot, removeReplicaSnapshot, collectReplicaObjects } from "./semantic/replica-source-store.js"
 export {
   AGENT_SCHEMA_VERSION,
   AgentOutputJsonSchema,
@@ -38,6 +40,8 @@ export { DuplicateDetector } from "./semantic/duplicate-detector.js"
 export { CodeGraph } from "./semantic/code-graph.js"
 export { TreeShaker } from "./semantic/tree-shaker.js"
 export { Instance } from "./project/instance.js"
+export { registerRepository, readRepositoryId } from "./project/repository-identity.js"
+export { createSourceManifest, validateSourceManifest, sourceSnapshotId, type SourceManifest } from "./semantic/source-manifest.js"
 export { GitScope } from "./project/git.js"
 export { Bus } from "./bus/index.js"
 export { Log } from "./util/log.js"

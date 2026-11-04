@@ -142,15 +142,18 @@ describe("bounded Jev decisions", () => {
     expect(body.state.selected[0].symbol).toBe('encrypt')
     expect(Object.keys(body.questions)).toHaveLength(5)
   })
-  it("enables configured Jev by default with explicit opt-out precedence", async () => {
-    const readConfig=vi.fn(async()=>({apiKey:"dedicated-test-key"}))
-    expect(await resolveJevMode(undefined,{env:{},readConfig})).toBe("both")
-    expect(await resolveJevMode("off",{env:{SENSEGREP_JEV_MODE:"both"},readConfig})).toBe("off")
-    expect(await resolveJevMode(undefined,{env:{SENSEGREP_JEV_MODE:"off"},readConfig})).toBe("off")
-    expect(await resolveJevMode(undefined,{env:{OPENROUTER_API_KEY:"generic"},readConfig:async()=>({})})).toBe("off")
-    expect(await resolveJevMode(undefined,{env:{SENSEGREP_JEV_API_KEY:"dedicated"},readConfig})).toBe("both")
-    expect(await resolveJevMode(undefined,{env:{},readConfig:async()=>{throw new Error("missing")}})).toBe("off")
-    await expect(resolveJevMode(undefined,{env:{SENSEGREP_JEV_MODE:"invalid"},readConfig})).rejects.toThrow("Invalid SENSEGREP_JEV_MODE")
+  it("requires explicit consent independently from credentials", async () => {
+    const configured = async () => ({apiKey:'fixture',mode:'both'})
+    expect(await resolveJevMode(undefined,{env:{},readConfig:configured})).toBe('both')
+    expect(await resolveJevMode('off',{env:{SENSEGREP_JEV_MODE:'both'},readConfig:configured})).toBe('off')
+    const migrationWarning=vi.fn()
+    expect(await resolveJevMode(undefined,{env:{},readConfig:async()=>({apiKey:'fixture'}),onWarning:migrationWarning})).toBe('off')
+    expect(migrationWarning).toHaveBeenCalledWith(expect.stringContaining('credentials alone'))
+    expect(JSON.stringify(migrationWarning.mock.calls)).not.toContain('fixture')
+    expect(await resolveJevMode(undefined,{env:{SENSEGREP_JEV_API_KEY:'fixture'},readConfig:async()=>({})})).toBe('off')
+    expect(await resolveJevMode('both',{env:{SENSEGREP_NETWORK_POLICY:'local-only'},readConfig:configured})).toBe('off')
+    await expect(resolveJevMode(undefined,{env:{SENSEGREP_JEV_MODE:'invalid'},readConfig:configured})).rejects.toThrow('Invalid SENSEGREP_JEV_MODE')
+    await expect(resolveJevMode(undefined,{env:{},readConfig:async()=>({mode:'typo'})})).rejects.toThrow('Invalid Jev configuration mode')
   })
   it('verifies literal requirements with three-way choices without invented premises',async()=>{
     const fetcher=mock((_c,key)=>key==='contradiction'?0:.9)
@@ -368,4 +371,16 @@ describe("bounded Jev decisions", () => {
     expect(partial.verdict).toBe("not-assessed")
   })
 
+})
+
+describe("aggregate Jev phase diagnostics",()=>{
+  it("preserves a final verification failure after successful candidate judgments",async()=>{
+    const {mergeJevDiagnostics}=await import("./jev.js")
+    const base={mode:"both",model:"test",models:[],requests:0,cacheHits:0,inputTokens:0,outputTokens:0,cost:0,elapsedMs:0,evaluated:1,candidates:1}
+    const target={...base,status:"complete"} as any
+    mergeJevDiagnostics(target,{...base,status:"fallback",evaluated:0,reason:"invalid-response"} as any)
+    expect(target.status).toBe("partial")
+    expect(target.reasons).toContain("invalid-response")
+    expect(target.stageResults).toHaveLength(2)
+  })
 })

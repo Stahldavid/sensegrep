@@ -65,6 +65,7 @@ async function main() {
 
     console.log('Adding shebang to mcp...');
     addShebang(packagePath('mcp', 'dist', 'server.js'));
+    addShebang(packagePath('mcp', 'dist', 'http-server.js'));
 
     console.log('Building vscode extension...');
     cleanPackageDist('vscode');

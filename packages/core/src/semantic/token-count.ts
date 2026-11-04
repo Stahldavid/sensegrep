@@ -6,18 +6,33 @@ import { getEmbeddingConfig, type EmbeddingConfig } from "./embedding-config.js"
 
 const counters = new Map<string, { stamp: string; digest: string; tokenizer: Tokenizer }>()
 
+export class TokenizerConfigError extends Error {
+  readonly code = "invalid-configuration"
+  constructor(message: string, cause?: unknown) {
+    super(message, { cause })
+    this.name = "TokenizerConfigError"
+  }
+}
+
 function load(config: EmbeddingConfig) {
   if (!config.tokenizerPath) return undefined
-  const filename = path.resolve(config.tokenizerPath)
-  const stat = fs.statSync(filename)
-  const stamp = `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`
-  let entry = counters.get(filename)
-  if (!entry || entry.stamp !== stamp) {
-    const raw = fs.readFileSync(filename, "utf8")
-    entry = { stamp, digest: createHash("sha256").update(raw).digest("hex"), tokenizer: new Tokenizer(JSON.parse(raw), {}) }
-    counters.set(filename, entry)
+  if (process.platform !== "win32" && path.win32.isAbsolute(config.tokenizerPath) && !path.isAbsolute(config.tokenizerPath)) {
+    throw new TokenizerConfigError("Tokenizer path is a Windows path on a non-Windows executor; configure a readable local tokenizer file or remove tokenizerPath to use the estimate.")
   }
-  return entry
+  const filename = path.resolve(config.tokenizerPath)
+  try {
+    const stat = fs.statSync(filename)
+    const stamp = `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`
+    let entry = counters.get(filename)
+    if (!entry || entry.stamp !== stamp) {
+      const raw = fs.readFileSync(filename, "utf8")
+      entry = { stamp, digest: createHash("sha256").update(raw).digest("hex"), tokenizer: new Tokenizer(JSON.parse(raw), {}) }
+      counters.set(filename, entry)
+    }
+    return entry
+  } catch (cause) {
+    throw new TokenizerConfigError(`Cannot load configured tokenizer at ${filename}; check that it is a readable, valid Hugging Face tokenizer JSON file.`, cause)
+  }
 }
 
 /** Local tokenizer identity participates in index invalidation, without leaking its path. */

@@ -30,17 +30,26 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Audit dependencies
+        run: npm audit
+
       - name: Build
         run: npm run build
 
       - name: Typecheck
-        run: npm run check
+        run: npm run check:types
 
       - name: Version Consistency
         run: npm run version:check
 
       - name: Test
-        run: npm test
+        run: npm run test:unit -- --maxWorkers=2
+
+      - name: Native contracts
+        run: npm run test:node
+
+      - name: Local documentation links
+        run: npm run check:docs
 
       - name: Configure git user
         run: |
@@ -51,7 +60,7 @@ jobs:
         id: changesets
         uses: changesets/action@v1.5.3
         with:
-          publish: npm run release
+          publish: npm run release:publish
           version: npm run version
           title: "chore: version packages"
           commit: "chore: version packages"

@@ -1,4 +1,4 @@
-import fs from "node:fs/promises"
+import { readProjectSource } from "../file/source-reader.js"
 import path from "node:path"
 import { createHash } from "node:crypto"
 import { TreeSitterChunking } from "../semantic/chunking-treesitter.js"
@@ -16,10 +16,9 @@ export async function attachJevConstants(resources: SearchResources, rows: Worki
       const absolute=path.resolve(resources.projectDirectory,row.file), relative=path.relative(resources.projectDirectory,absolute)
       let source: string | undefined
       if(!relative.startsWith("..") && !path.isAbsolute(relative)) try {
-        if((await fs.stat(absolute)).size<=128_000) {
-          const text=await fs.readFile(absolute,"utf8"), expected=resources.meta.files[row.file]?.hash
-          if(expected && createHash("sha1").update(text).digest("hex")===expected) source=text
-        }
+        const text=(await readProjectSource(resources.projectDirectory,row.file,{maxBytes:128_000,signal})).source
+        const expected=resources.meta.files[row.file]?.hash
+        if(expected && createHash("sha1").update(text).digest("hex")===expected) source=text
       } catch { /* Unavailable sources do not become evidence. */ }
       files.set(row.file,source)
     }

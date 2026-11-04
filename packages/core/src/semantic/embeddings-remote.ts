@@ -1,3 +1,5 @@
+import { assertNetworkAllowed } from "../util/network-policy.js"
+import { quotaLimiter, validateEmbeddingIndices } from "./rate-limiter.js"
 import type { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime"
 import { Log } from "../util/log.js"
 import {
@@ -12,81 +14,20 @@ import { countEmbeddingTokens } from "./token-count.js"
 import { getEmbeddingModelMaxTokens, getChunkingSignature } from "./chunk-limits.js"
 import { getOllamaBatchSize, packOllamaBatches } from "./ollama-batching.js"
 import { QueryEmbeddingCache } from "./query-embedding-cache.js"
+import { DocumentEmbeddingCache } from "./document-embedding-cache.js"
 
 const log = Log.create({ service: "semantic.embeddings-remote" })
 
-// ── Rate limiter ─────────────────────────────────────────────────────────────
+// â”€â”€ Rate limiter â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-/** Sliding-window rate limiter (1-minute window). */
-class RateLimiter {
-  private requestTs: number[] = []
-  private tokenBucket: Array<{ ts: number; tokens: number }> = []
-
-  constructor(
-    private readonly rpm: number,
-    private readonly tpm: number,
-  ) {}
-
-  private purge(now: number): void {
-    const cutoff = now - 60_000
-    while (this.requestTs.length > 0 && this.requestTs[0] <= cutoff) this.requestTs.shift()
-    while (this.tokenBucket.length > 0 && this.tokenBucket[0].ts <= cutoff) this.tokenBucket.shift()
-  }
-
-  private usedTokens(): number {
-    return this.tokenBucket.reduce((s, e) => s + e.tokens, 0)
-  }
-
-  async acquire(estimatedTokens: number): Promise<void> {
-    while (true) {
-      const now = Date.now()
-      this.purge(now)
-
-      const rpmOk = this.requestTs.length < this.rpm
-      const tpmOk = this.usedTokens() + estimatedTokens <= this.tpm
-
-      if (rpmOk && tpmOk) {
-        this.requestTs.push(now)
-        this.tokenBucket.push({ ts: now, tokens: estimatedTokens })
-        return
-      }
-
-      let waitMs = 500
-      if (!rpmOk && this.requestTs[0]) waitMs = Math.max(waitMs, this.requestTs[0] + 60_000 - now + 50)
-      if (!tpmOk && this.tokenBucket[0]) waitMs = Math.max(waitMs, this.tokenBucket[0].ts + 60_000 - now + 50)
-
-      log.info(`Rate limit: waiting ${Math.ceil(waitMs / 1000)}s`, {
-        requests: this.requestTs.length,
-        rpm: this.rpm,
-        tokens: this.usedTokens(),
-        tpm: this.tpm,
-      })
-      await new Promise<void>((r) => setTimeout(r, waitMs))
-    }
-  }
+function getLimiter(config: EmbeddingConfig) {
+  const rpm = config.rateLimit?.rpm ?? (config.provider === "gemini" ? 3_000 : Infinity)
+  const tpm = config.rateLimit?.tpm ?? (config.provider === "gemini" ? 1_000_000 : Infinity)
+  const credential = config.apiKey ?? (config.provider === "gemini" ? process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY : config.provider === "openai" ? process.env.SENSEGREP_OPENAI_API_KEY ?? process.env.FIREWORKS_API_KEY ?? process.env.OPENAI_API_KEY : undefined)
+  return quotaLimiter({ provider: config.provider, endpoint: config.baseUrl, region: config.region, credential }, rpm, tpm)
 }
 
-// Singleton keyed by rpm+tpm so config changes rebuild it.
-let _limiter: RateLimiter | null = null
-let _limiterKey = ""
-
-function getLimiter(config: EmbeddingConfig): RateLimiter {
-  // Default free-tier limits for Gemini Embedding models
-  const DEFAULT_RPM = config.provider === "gemini" ? 3_000 : Infinity
-  const DEFAULT_TPM = config.provider === "gemini" ? 1_000_000 : Infinity
-
-  const rpm = config.rateLimit?.rpm ?? DEFAULT_RPM
-  const tpm = config.rateLimit?.tpm ?? DEFAULT_TPM
-  const key = `${rpm}:${tpm}`
-
-  if (!_limiter || _limiterKey !== key) {
-    _limiter = new RateLimiter(rpm, tpm)
-    _limiterKey = key
-  }
-  return _limiter
-}
-
-// ── Retry helper ─────────────────────────────────────────────────────────────
+// â”€â”€ Retry helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class EmbeddingHttpError extends Error {
   constructor(
@@ -220,7 +161,7 @@ async function mapConcurrent<T, R>(
   return results
 }
 
-// ── Token limits ──────────────────────────────────────────────────────────────
+// â”€â”€ Token limits â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const TOKEN_LIMITS = {
   gemini: 2048,
@@ -455,6 +396,12 @@ export namespace EmbeddingsRemote {
     if (input.length === 0) return []
 
     const config = getEmbeddingConfig()
+    const operationDeadline = AbortSignal.timeout(getRetryPolicy(config, options).retryDeadlineMs ?? 300_000)
+    options = { ...options, signal: options?.signal ? AbortSignal.any([options.signal, operationDeadline]) : operationDeadline }
+    const endpoint = config.provider === 'ollama' ? config.baseUrl ?? 'http://127.0.0.1:11434'
+      : config.provider === 'openai' ? config.baseUrl ?? 'https://api.fireworks.ai/inference/v1'
+      : config.provider === 'gemini' ? 'https://generativelanguage.googleapis.com' : 'https://bedrock.amazonaws.com'
+    assertNetworkAllowed(endpoint)
     const queryCacheIdentity = options?.operation === "query" && input.length === 1
       ? {
           text: input[0],
@@ -478,13 +425,35 @@ export namespace EmbeddingsRemote {
     }
 
     try {
-      const result = config.provider === "gemini"
-        ? await embedGemini(input, options, config)
+      const invoke = (values: string[], callOptions: typeof options) => config.provider === "gemini"
+        ? embedGemini(values, callOptions, config)
         : config.provider === "bedrock"
-          ? await embedBedrock(input, options, config)
+          ? embedBedrock(values, callOptions, config)
           : config.provider === "ollama"
-            ? await embedOllama(input, options, config)
-            : await embedOpenAI(input, options, config)
+            ? embedOllama(values, callOptions, config)
+            : embedOpenAI(values, callOptions, config)
+      const cacheConfig = DocumentEmbeddingCache.configuration()
+      let result: number[][]
+      // Bedrock's effective region and endpoint may come from AWS's external
+      // configuration chain, and cannot yet be established in this cache key.
+      if (cacheConfig && (config.provider === "openai" || config.provider === "gemini") && options?.taskType === "RETRIEVAL_DOCUMENT" && options.operation !== "benchmark") {
+        // Transform before keying. The same strings are passed to the adapter
+        // with validation disabled, so the key describes the actual request.
+        const prepared = await prepareValidatedTexts(input, config.provider, config, options.skipValidation)
+        const titles = typeof options.title === "string" ? input.map(() => options!.title as string) : options.title
+        const dimension = Number(config.embedDim || options.outputDimensionality || 768)
+        const identities = prepared.map((text, index) => ({
+          ...cacheConfig, provider: config.provider, model: config.embedModel, endpoint: `${endpoint}\0${config.region ?? ""}`, dimension,
+          taskType: options!.taskType!, input: text,
+          ...(config.provider === "gemini" && titles?.[index] ? { title: titles[index] } : {}),
+          // Include fixed adapter behavior, including vector normalization.
+          transform: "adapter-request-normalized-v1",
+        }))
+        result = await DocumentEmbeddingCache.getOrCompute(identities, async indices => invoke(indices.map(i => prepared[i]), {
+          ...options, skipValidation: true,
+          title: Array.isArray(titles) ? indices.map(i => titles[i]) : titles,
+        }), options.signal)
+      } else result = await invoke(input, options)
       if (options?.operation === "query") queryCircuit = undefined
       if (queryCacheIdentity && result[0]) await QueryEmbeddingCache.set(queryCacheIdentity, result[0])
       return result
@@ -598,6 +567,7 @@ export namespace EmbeddingsRemote {
     const allVectors: number[][] = []
     const limiter = getLimiter(config)
     const { maxRetries, retryBaseDelayMs, retryDeadlineMs } = getRetryPolicy(config, options)
+    const quotaDeadlineAt = Date.now() + (retryDeadlineMs ?? 300_000)
     const client = await getBedrockClient(config)
     const { InvokeModelCommand } = await bedrockModulePromise!
     const inputType = getBedrockInputType(options?.taskType)
@@ -605,10 +575,10 @@ export namespace EmbeddingsRemote {
     for (const batch of batches) {
       if (batch.length === 0) continue
       const estimatedTokens = batch.reduce((s, t) => s + Math.ceil(t.length / 4), 0)
-      await limiter.acquire(estimatedTokens)
 
       const data = await withRetry(
         async () => {
+        await limiter.acquire(estimatedTokens, { signal: options?.signal, deadlineAt: quotaDeadlineAt })
           const response = await client.send(
             new InvokeModelCommand({
               modelId: model,
@@ -633,7 +603,7 @@ export namespace EmbeddingsRemote {
         retryBaseDelayMs,
         "Bedrock",
         options?.signal,
-        retryDeadlineMs,
+        Math.max(1, quotaDeadlineAt - Date.now()),
       )
 
       const embeddings = parseBedrockFloatEmbeddings(data)
@@ -661,8 +631,7 @@ export namespace EmbeddingsRemote {
     options: (EmbedOptions & { skipValidation?: boolean }) | undefined,
     config: EmbeddingConfig,
   ): Promise<number[][]> {
-    const apiKey =
-      config.apiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
+    const apiKey = config.apiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
     if (!apiKey) {
       throw new Error(
         "Gemini embeddings requested but no API key was found. " +
@@ -681,6 +650,7 @@ export namespace EmbeddingsRemote {
     const allVectors: number[][] = []
     const limiter = getLimiter(config)
     const { maxRetries, retryBaseDelayMs, retryDeadlineMs } = getRetryPolicy(config, options)
+    const quotaDeadlineAt = Date.now() + (retryDeadlineMs ?? 300_000)
 
     for (let i = 0; i < validatedTexts.length; i += batchSize) {
       const batchTexts = validatedTexts.slice(i, i + batchSize)
@@ -705,12 +675,13 @@ export namespace EmbeddingsRemote {
       })
 
       const estimatedTokens = batchTexts.reduce((s, t) => s + Math.ceil(t.length / 4), 0)
-      await limiter.acquire(estimatedTokens)
 
       const data = await withRetry(
         async () => {
+        await limiter.acquire(estimatedTokens, { signal: options?.signal, deadlineAt: quotaDeadlineAt })
           const resp = await fetch(url, {
             method: "POST",
+            redirect: "error",
             headers: {
               "x-goog-api-key": apiKey,
               "content-type": "application/json",
@@ -724,7 +695,7 @@ export namespace EmbeddingsRemote {
         retryBaseDelayMs,
         "Gemini",
         options?.signal,
-        retryDeadlineMs,
+        Math.max(1, quotaDeadlineAt - Date.now()),
       )
 
       const embeddings: any[] = Array.isArray(data.embeddings)
@@ -760,8 +731,7 @@ export namespace EmbeddingsRemote {
     options: (EmbedOptions & { skipValidation?: boolean }) | undefined,
     config: EmbeddingConfig,
   ): Promise<number[][]> {
-    const apiKey =
-      config.apiKey ||
+    const apiKey = config.apiKey ||
       process.env.SENSEGREP_OPENAI_API_KEY ||
       process.env.FIREWORKS_API_KEY ||
       process.env.OPENAI_API_KEY
@@ -781,6 +751,7 @@ export namespace EmbeddingsRemote {
 
     const limiter = getLimiter(config)
     const { maxRetries, retryBaseDelayMs, retryDeadlineMs } = getRetryPolicy(config, options)
+    const quotaDeadlineAt = Date.now() + (retryDeadlineMs ?? 300_000)
     const batches = numberedBatches(validatedTexts, batchSize)
     const requestCount = batches.length
     const concurrency = Math.min(getOpenAiEmbeddingConcurrency(config, baseUrl, model), Math.max(1, requestCount))
@@ -810,7 +781,6 @@ export namespace EmbeddingsRemote {
       }
 
       const estimatedTokens = batch.reduce((s, t) => s + Math.ceil(t.length / 4), 0)
-      await limiter.acquire(estimatedTokens)
       log.debug("OpenAI-compatible embeddings batch request", {
         model,
         batch: batchNumber,
@@ -822,15 +792,19 @@ export namespace EmbeddingsRemote {
 
       return withRetry(
         async () => {
+        await limiter.acquire(estimatedTokens, { signal: options?.signal, deadlineAt: quotaDeadlineAt })
           const resp = await fetch(url, {
             method: "POST",
+            redirect: "error",
             headers: getOpenAiEmbeddingHeaders(apiKey, config, baseUrl),
             body: JSON.stringify(body),
             signal: options?.signal,
           })
           const data = await readJsonResponse(resp, "OpenAI-compatible")
-          const embeddings: any[] = Array.isArray(data.data) ? data.data : []
-          embeddings.sort((a: any, b: any) => (a.index ?? 0) - (b.index ?? 0))
+          const rows: unknown[] = Array.isArray(data.data) ? data.data : []
+          if (rows.length !== batch.length) throw new RetriableEmbeddingResponseError(
+            `openai embeddings response returned ${rows.length} vectors for ${batch.length} inputs (model=${model}).`)
+          const embeddings = validateEmbeddingIndices(rows, batch.length)
 
           const vectors = embeddings.map((embedding) => {
             const values = embedding?.embedding
@@ -851,7 +825,7 @@ export namespace EmbeddingsRemote {
         retryBaseDelayMs,
         "OpenAI",
         options?.signal,
-        retryDeadlineMs,
+        Math.max(1, quotaDeadlineAt - Date.now()),
       )
     })
 
@@ -888,16 +862,18 @@ export namespace EmbeddingsRemote {
     const allVectors: number[][] = []
     const limiter = getLimiter(config)
     const { maxRetries, retryBaseDelayMs, retryDeadlineMs } = getRetryPolicy(config, options)
+    const quotaDeadlineAt = Date.now() + (retryDeadlineMs ?? 300_000)
 
     for (const batch of packOllamaBatches(validatedTexts, config)) {
       const url = `${baseUrl.replace(/\/+$/, "")}/api/embed`
       const estimatedTokens = batch.reduce((s, t) => s + countEmbeddingTokens(t, config), 0)
-      await limiter.acquire(estimatedTokens)
 
       const data = await withRetry(
         async () => {
+        await limiter.acquire(estimatedTokens, { signal: options?.signal, deadlineAt: quotaDeadlineAt })
           const resp = await fetch(url, {
             method: "POST",
+            redirect: "error",
             headers: {
               "Content-Type": "application/json",
             },
@@ -910,7 +886,7 @@ export namespace EmbeddingsRemote {
         retryBaseDelayMs,
         "Ollama",
         options?.signal,
-        retryDeadlineMs,
+        Math.max(1, quotaDeadlineAt - Date.now()),
       )
 
       const embeddings: any[] = Array.isArray(data.embeddings)

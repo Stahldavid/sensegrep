@@ -2,7 +2,11 @@
 
 Implementation results and limits: [Jev v4 evaluation](jev-v4-evaluation-2026-09-24.md), [previous v3 evaluation](jev-v3-evaluation-2026-09-24.md).
 
-Jev supplements local retrieval through OpenRouter System One. Search/context default to **both when a dedicated Jev credential is configured** (`SENSEGREP_JEV_API_KEY` or `jev.json`). Without dedicated configuration they remain local. A generic `OPENROUTER_API_KEY` alone does not enable automatic evaluation. Active Jev transmits the query, candidate paths/symbols and source snippets to OpenRouter. Embeddings can remain local in Ollama. This behavior is in the unpublished checkout; see [the v6 evaluation](jev-v6-evaluation-2026-09-24.md).
+Jev supplements local retrieval through OpenRouter System One. **Search and context now require explicit evaluation consent independently of credentials.** Set `--jev both`, `SENSEGREP_JEV_MODE=both`, or `mode: "both"` in the user's `jev.json`. A credential by itself leaves evaluation off. Active Jev transmits the query, candidate paths/symbols and source snippets to OpenRouter. Embeddings can remain local in Ollama.
+
+`SENSEGREP_NETWORK_POLICY=local-only` overrides command, environment and user configuration: it disables Jev and blocks remote embedding/capability endpoints and automatic ripgrep downloads. Install ripgrep and any local models separately before using that policy. This is an application egress policy, not an operating-system sandbox.
+
+Current migration and validation: [integrity and reliability implementation](reliability-integrity-2026-09-25.md). The versioned v2–v12 sections below are historical experiment records; their credential-triggered defaults do not override this section. Private evaluation corpora and captured source packets are not included in this release, and historical experiments do not establish the quality of the current implementation.
 
 ## Configuration
 
@@ -10,7 +14,7 @@ Use `SENSEGREP_JEV_API_KEY`, `OPENROUTER_API_KEY`, or `{"apiKey":"YOUR_KEY"}` in
 
 `--jev off` always disables remote evaluation for the command. `SENSEGREP_JEV_MODE=off`
 disables automatic evaluation across commands; valid modes are off/evidence/rerank/both.
-Explicit command mode wins over this environment setting. Survey and duplicate
+Explicit command mode wins over this environment setting unless `local-only` is active. Survey and duplicate
 judgements keep their explicit opt-in because they use different rubrics.
 
 Coverage selection requires absolute usable evidence, independently of relative
@@ -58,6 +62,20 @@ For an unpublished checkout, use `node packages/cli/dist/main.js` after `npm run
 | `--jev-timeout MS` | Shared deadline for ranking, contribution and packet stages, default 8000 |
 
 MCP uses `jev`, `jevCandidates`, `jevBatchSize`, `jevPanel`, `jevRanking`, `jevTimeoutMs`, `jevAspects`, `jevBlocks` and `jevBundles`. Panel/aspects/blocks/bundles apply to search/context; groups and duplicates keep their dedicated rubrics and do not reorder membership. For experiment runners, `SENSEGREP_JEV_BATCH_SIZE` and `SENSEGREP_JEV_RANKING` supply defaults; explicit options take precedence. Invalid environment defaults fall back to supported defaults. Exact identifiers, literal and graph commands do not require remote inference.
+
+### Effective runtime options
+
+`context` retains its public defaults of 12,000 estimated source tokens and a result/package limit of 50. The historical 4,000-token, five-package acceptance run is **not** a test of those defaults. Package context uses 32 full-source candidates and a 30-second Jev deadline by default; symbol search uses 20 and eight seconds. Explicit overrides are reported in `jev.effectiveConfig`.
+
+The implementation-package pipeline is used for `context --jev both` with the standard package-compatible options. Explicit alternative panels, ranking strategies, non-singleton batches or block extraction use the symbol pipeline instead; diagnostics record the bypass. `--jev evidence` preserves the original local packet and assesses it without replacing its selection. Explicit per-file and per-symbol limits are checked against physical sources before package admission.
+
+Partial overlap is not evidence coverage. Distinct overlapping definitions are retained and budgeted separately; exactly matching complete sources are shared. A packet is rejected if its complete physical source set cannot be admitted. Sources excluded before assessment are reported as `source-too-large-for-assessment` or `token-budget` rather than silently disappearing.
+
+### Phase status and transport failures
+
+`stageResults` records discovery, candidate assessment, contribution, dependency inspection and packet verification. Aggregate status cannot stay complete after an active phase fails. Valid earlier scores and local fallback sources remain available. Reported cost is a subtotal: `unknownUsageRequests` and `usageComplete` expose requests without reconciled provider usage, including uncertain retries.
+
+Transport uses a process-wide four-request semaphore and one bounded retry for transient failures. Quota wait, backoff and requests share the caller signal. Authentication/credit rejection is not retried. Long `Retry-After` values are not shortened. Only HTTP 413 or explicitly recognized context-overflow error codes authorize request splitting; arbitrary 400 responses do not. Provider error prose is not emitted as evidence.
 
 ## Batches and accounting
 
@@ -552,7 +570,7 @@ captured provider tariff, not a provider-side billing limit.
 Development replay uses `calibrate-jev-reviewed.mjs`; validation/reserved phases
 require a frozen configuration. `summarize-jev-reviewed.mjs` reports all 90 runs.
 Existing output files prevent accidental repeat consumption of a split.
-See [the recorded evaluation](evaluations/jev-v9-reviewed-2026-09-25/REPORT.md).
+Private recorded evaluation artifacts are not distributed with this release.
 
 ## Retaining candidates and inspected packets (v9.1)
 
@@ -605,7 +623,6 @@ defaults to US$0.50. Request metadata and settlement are written in two atomic
 transactions per request to avoid repeatedly rewriting the full audit history
 inside model deadlines. This is a research harness, not a provider billing limit.
 
-See the [v10 evaluation](evaluations/jev-v10-optimized-2026-09-25/REPORT.md).
 These changes follow [explicit state](https://docs.typesafe.ai/concepts/state),
 [closed Choice alternatives](https://docs.typesafe.ai/primitives/choice), and
 [Jev's documented context sensitivity](https://docs.typesafe.ai/model-jaggedness/jev-1.13).
@@ -651,9 +668,8 @@ Final verification removes repeated caller bodies from relation metadata while k
 the original source bodies and identities. Whole-symbol witness locations bound the
 joint request metadata without silently cutting source code.
 
-The [v11 evaluation](evaluations/jev-v11-final-2026-09-25/REPORT.md) documents the
-matched source-coverage gain, remaining failures, budget stop and separate live
-verification of the compact payload. It does not establish end-to-end answer accuracy.
+The historical package experiments do not establish end-to-end answer accuracy.
+Their private source packets and raw evaluation artifacts are not distributed.
 
 ## Balanced discovery and conditional context (v12)
 
@@ -691,7 +707,10 @@ Diagnostics expose discovery nominations, package judgments and final exclusion
 reasons. An explicit `--jev-timeout` still overrides the default. Learned weights
 remain separate from these deterministic selection changes.
 
-Final v12 validation and remaining retrieval limitations are recorded in the
-[acceptance report](evaluations/jev-v12-acceptance-2026-09-25/REPORT.md).
-The final frozen run recovered every reference source in 27 of 29 positive
-regression queries; this is source coverage, not answer accuracy or a holdout result.
+The private v12 regression corpus and captured source packets are not included.
+Historical source-coverage observations do not establish answer accuracy, a fresh
+holdout result, or acceptance of the current release.
+
+Subsequent integrity corrections and their offline local validation are documented
+in [the 2026-09-26 integration report](integrity-local-validation-2026-09-26.md).
+Those corrections have not been evaluated through new paid model inference.

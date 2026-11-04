@@ -4,7 +4,7 @@ import path from "node:path"
 import { afterAll, describe, expect, it } from "vitest"
 import { withEmbeddingConfig, getEmbeddingConfig } from "./embedding-config.js"
 import { getChunkingSignature, getOperationalContextTokens, getTreeSitterChunkLimits } from "./chunk-limits.js"
-import { countEmbeddingTokens, tokenCounterIdentity } from "./token-count.js"
+import { countEmbeddingTokens, tokenCounterIdentity, TokenizerConfigError } from "./token-count.js"
 import { packOllamaBatches } from "./ollama-batching.js"
 import { Chunking } from "./chunking.js"
 
@@ -44,7 +44,10 @@ describe("configurable token policy", () => {
 
   it("rejects invalid explicit policy instead of silently using defaults", async () => {
     await expect(withEmbeddingConfig({ ...config, chunking: { maxTokens: -1 } }, async () => getEmbeddingConfig())).rejects.toThrow("positive integer")
-    expect(() => tokenCounterIdentity({ ...config, tokenizerPath: path.join(directory, "missing") })).toThrow()
+    expect(() => tokenCounterIdentity({ ...config, tokenizerPath: path.join(directory, "missing") })).toThrow(TokenizerConfigError)
+    if (process.platform !== "win32") {
+      expect(() => tokenCounterIdentity({ ...config, tokenizerPath: "C:\\Users\\example\\tokenizer.json" })).toThrow(/Windows path.*non-Windows executor/)
+    }
   })
 
   it("splits complete input after metadata/overlap without losing Unicode or the final rule", async () => {

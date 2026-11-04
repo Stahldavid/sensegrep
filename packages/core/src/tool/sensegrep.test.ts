@@ -1,4 +1,6 @@
 import { EventEmitter } from "node:events"
+
+vi.mock("../semantic/generation-leases.js", () => ({ GenerationLeases: class { async acquire() { return async () => {} } } }))
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const readIndexMeta = vi.fn()
@@ -16,6 +18,7 @@ const distanceToSimilarity = vi.fn((distance: number) => 1 - distance)
 
 vi.mock("../semantic/lancedb.js", () => ({
   VectorStore: {
+    getIndexStoragePath: () => "/mock-index",
     readIndexMeta,
     resolveIndexedProject,
     clearProjectCache,

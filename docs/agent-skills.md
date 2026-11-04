@@ -32,6 +32,8 @@ interactive coding assistants.
 
 See [MCP Server Setup](mcp-setup.md) and the per-agent [recipes](recipes/README.md).
 
+For embeddings without paid inference, see [local Ollama setup and WSL access](local-embeddings.md).
+
 ### When to use the CLI skill (`sensegrep-cli`)
 
 Use the CLI path when you want sensegrep **without running an MCP server**:

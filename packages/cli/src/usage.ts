@@ -5,6 +5,16 @@ Usage:
   sensegrep index [--root <dir>] [--full|--incremental] [--verify|--check] [--no-watch] [--include-docs] [--include-config]
   sensegrep verify [--root <dir>] [--strict] [--json]
   sensegrep status [--root <dir>] [--verify|--verbose]
+  sensegrep repository register <lowercase-uuid> [--root <dir>]
+  sensegrep repository status|manifest [--root <dir>] [--profile <name>]
+  sensegrep repository release [--root <original-checkout-dir>] [--profile <name>]
+  sensegrep repository gc [--root <registered-checkout-dir>] [--profile <name>]
+  sensegrep snapshot serve [--root <dir>] [--profile <name>]
+  sensegrep snapshot fetch --port <n> --repository <uuid> --snapshot <sha256:id> --destination <dir>
+  sensegrep snapshot reference --artifact <file> --repository <uuid> --snapshot <sha256:id> --file <path> --start <line> --end <line>
+  sensegrep snapshot show --artifact <file> --repository <uuid> --result <result-id>
+  sensegrep snapshot pin|unpin --artifact <file> --repository <uuid> --snapshot <sha256:id>
+  sensegrep snapshot gc --destination <dir> --repository <uuid> [--max-bytes <n>] [--retain-snapshots <n>]
   sensegrep search <query...> [options]
   sensegrep literal <text-or-regex> [--regex] [--ignore-case] [options]
   sensegrep show <result-id> [--before <n>] [--after <n>]

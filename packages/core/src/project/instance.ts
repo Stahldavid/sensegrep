@@ -1,8 +1,7 @@
-import path from "path"
-import fs from "fs/promises"
 import { AsyncLocalStorage } from "node:async_hooks"
+import { canonicalCheckoutPath } from "./paths.js"
 
-const defaultDirectory = process.cwd()
+const defaultDirectory = canonicalCheckoutPath(process.cwd())
 type InstanceContext = { directory: string; profile: string }
 const directoryContext = new AsyncLocalStorage<InstanceContext>()
 
@@ -16,8 +15,11 @@ function normalizeProfile(profile?: string): string {
 
 export const Instance = {
   async provide<R>(input: { directory: string; profile?: string; init?: () => Promise<any>; fn: () => R | Promise<R> }): Promise<R> {
-    const resolved = await fs.realpath(input.directory).catch(() => path.resolve(input.directory))
-    return directoryContext.run({ directory: resolved, profile: normalizeProfile(input.profile) }, async () => {
+    const resolved = canonicalCheckoutPath(input.directory)
+    const current = directoryContext.getStore()
+    const sameDirectory = current && (process.platform === "win32" ? current.directory.toLowerCase() === resolved.toLowerCase() : current.directory === resolved)
+    const profile = input.profile === undefined && sameDirectory ? current.profile : normalizeProfile(input.profile)
+    return directoryContext.run({ directory: resolved, profile }, async () => {
       await input.init?.()
       return await input.fn()
     })

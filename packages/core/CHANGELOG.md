@@ -1,5 +1,25 @@
 # @sensegrep/core
 
+## 1.20.1
+
+### Patch Changes
+
+- Resolve index storage consistently through canonical checkout paths, including macOS temporary-directory aliases and Windows short paths. Preserve existing alias-bound indexes without copying or merging tables, and reject ambiguous legacy bindings. Count retained index storage through path aliases even after the original worktree is removed. Correct cross-platform fixtures and restore Changesets 3 tag reporting to the release action.
+
+  Windows upgrade: stop existing indexing runtimes before installing this patch, then restart the updated runtimes together; the normalized lock key must not overlap with an older runtime.
+
+## 1.20.0
+
+### Minor Changes
+
+- [`6444ddd`](https://github.com/Stahldavid/sensegrep/commit/6444ddd6282fcde9ab2bf2b6055a07ec059879d2) Thanks [@Stahldavid](https://github.com/Stahldavid)! - Preserve operational failures, source identity and atomic evidence packages. Add bounded source reads, unknown freshness, cancellable quota queues, phase diagnostics, original retrieval-channel provenance, watcher profile isolation and retry-safe refresh scheduling. Limit duplicate distance-cache allocations and reduce default diagnostic payloads.
+
+  Privacy migration: a dedicated Jev key no longer implicitly enables source transmission. Select an explicit Jev mode, or set `SENSEGREP_NETWORK_POLICY=local-only` to deny remote inference and downloads. Existing credential storage and legacy result IDs remain supported; legacy IDs report unknown freshness.
+
+  Development/CI now builds once before direct type/test commands and includes native contract tests and grouped evaluation-registration validation. No new semantic benchmark or calibration claim accompanies these changes.
+
+- [`6444ddd`](https://github.com/Stahldavid/sensegrep/commit/6444ddd6282fcde9ab2bf2b6055a07ec059879d2) Thanks [@Stahldavid](https://github.com/Stahldavid)! - Add opt-in repository-scoped copy-on-write worktree views with independent dirty state, compatible cold bootstrap, native shared cache budgets, dependency-aware collection, lifecycle release and repository storage admission. Share source and embedding objects only within explicitly registered repository scopes. Transfer source snapshots with a versioned manifest/object protocol that resumes from verified objects, stores deduplicated replicas and exposes pin/unpin/GC commands. Preserve legacy private indexing and embedded snapshot reads; unknown runtime/plugin identities disable cross-checkout seeding.
+
 ## 1.19.1
 
 ### Patch Changes
